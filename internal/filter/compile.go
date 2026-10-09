@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/germanamz/tusk/internal/pathglob"
 	"github.com/germanamz/tusk/internal/typeref"
 )
 
@@ -341,6 +342,10 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 		return "", nil, fmt.Errorf("compile: PropertyPredicate.Value is not StringValue")
 	}
 
+	if _, matchable := patternProperties[predicate.Property]; matchable && stringValue.Bareword && pathglob.IsPattern(stringValue.V) {
+		return compilePattern(columnPrefix+column, predicate.Op, stringValue.V)
+	}
+
 	sqlOp, opErr := opToSQL(predicate.Op)
 
 	if opErr != nil {
@@ -388,6 +393,25 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 	}
 
 	return quotedExtract(columnPrefix, predicate.Property) + " " + sqlOp + " ?", []any{stringValue.V}, nil
+}
+
+// compilePattern matches column against a path glob. The glob is translated to
+// an anchored regex (see internal/pathglob) and the engine evaluates it through
+// the REGEXP operator, which internal/index registers for SQLite. This is the
+// only place the compiler spells "matches a regex", so porting to an engine
+// with a native regex operator (Postgres `~`, MySQL REGEXP_LIKE) changes just
+// this function.
+func compilePattern(column string, op Op, pattern string) (string, []any, error) {
+	params := []any{pathglob.ToRegexp(pattern)}
+
+	switch op {
+	case OpEQ:
+		return column + " REGEXP ?", params, nil
+	case OpNE:
+		return "NOT (" + column + " REGEXP ?)", params, nil
+	}
+
+	return "", nil, fmt.Errorf("compile: a pattern only works with = or !=, got %s", op)
 }
 
 // isTextComparedType reports whether a resolved property type compares

@@ -168,6 +168,9 @@ func TestLexer_BareValues(test *testing.T) {
 		{"2026-05-15", "2026-05-15"},
 		{"42", "42"},
 		{"3.14", "3.14"},
+		{"docs/product/*", "docs/product/*"},
+		{"docs/?.md", "docs/?.md"},
+		{"**/index", "**/index"},
 	}
 
 	for _, tc := range cases {

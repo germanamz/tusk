@@ -666,7 +666,7 @@ func TestParser_RejectsUnrecognizedInput(test *testing.T) {
 		message string
 	}{
 		{"ampersand between predicates", "type=note & domain=technical", 10, "unexpected character '&'"},
-		{"glob in a bare value", "path=docs/technical/*", 20, "unexpected character '*'"},
+		{"hash in a bare value", "path=docs/technical/#", 20, "unexpected character '#'"},
 		{"leading character", "&", 0, "unexpected character '&'"},
 		{"non-ASCII in a bare value", "title=héllo", 7, "unexpected character 'é'"},
 		{"non-breaking space", "type=note\u00a0status=open", 9, `unexpected character '\u00a0'`},
@@ -675,6 +675,89 @@ func TestParser_RejectsUnrecognizedInput(test *testing.T) {
 		{"after an edge arrow", "blocks->&", 8, "unexpected character '&'"},
 		{"unterminated string predicate", `type=note "open`, 10, "unterminated string"},
 		{"unterminated string value", `title="open`, 6, "unterminated string"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			_, errs := filter.NewParser(testCase.input).Parse()
+
+			if len(errs) == 0 {
+				test.Fatalf("input %q: no parse error", testCase.input)
+			}
+
+			if errs[0].Pos != testCase.pos || errs[0].Message != testCase.message {
+				test.Errorf("input %q: first error = %+v, want {Pos:%d Message:%q}", testCase.input, errs[0], testCase.pos, testCase.message)
+			}
+		})
+	}
+}
+
+// TestParser_PathPattern pins that a bare `*` or `?` on path or id parses as a
+// pattern value with = or !=, anywhere a predicate can sit (#763).
+func TestParser_PathPattern(test *testing.T) {
+	cases := []struct {
+		name     string
+		input    string
+		property string
+		op       filter.Op
+		value    string
+	}{
+		{"direct children", "path=docs/product/*", "path", filter.OpEQ, "docs/product/*"},
+		{"colon form", "path:docs/**", "path", filter.OpEQ, "docs/**"},
+		{"negated", "id!=docs/*/index", "id", filter.OpNE, "docs/*/index"},
+		{"single character", "id=docs/?", "id", filter.OpEQ, "docs/?"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			expr, errs := filter.NewParser(testCase.input).Parse()
+
+			if len(errs) > 0 {
+				test.Fatalf("input %q: errors %v", testCase.input, errs)
+			}
+
+			pred, isPred := expr.(*filter.PropertyPredicate)
+
+			if !isPred {
+				test.Fatalf("input %q: got %T, want *PropertyPredicate", testCase.input, expr)
+			}
+
+			want := filter.StringValue{V: testCase.value, Bareword: true}
+
+			if pred.Property != testCase.property || pred.Op != testCase.op || pred.Value != want {
+				test.Errorf("input %q: got %s %v %+v, want %s %v %+v", testCase.input, pred.Property, pred.Op, pred.Value, testCase.property, testCase.op, want)
+			}
+		})
+	}
+}
+
+// TestParser_QuotedPatternIsLiteral pins that quoting turns a wildcard back
+// into a plain character, on path and on every other property.
+func TestParser_QuotedPatternIsLiteral(test *testing.T) {
+	for _, input := range []string{`path="docs/*"`, `title="what?"`} {
+		if _, errs := filter.NewParser(input).Parse(); len(errs) > 0 {
+			test.Errorf("input %q: errors %v, want none", input, errs)
+		}
+	}
+}
+
+// TestParser_RejectsMisplacedPattern pins that a bare wildcard anywhere but a
+// path/id equality is an error at the value, instead of a literal comparison
+// that silently matches nothing.
+func TestParser_RejectsMisplacedPattern(test *testing.T) {
+	cases := []struct {
+		name    string
+		input   string
+		pos     int
+		message string
+	}{
+		{"on another core column", "title=draft*", 6, "wildcards (* and ?) only match path and id; quote the value to compare it literally"},
+		{"on a property", "type=note status=op?n", 17, "wildcards (* and ?) only match path and id; quote the value to compare it literally"},
+		{"with an ordering operator", "path>=docs/*", 6, "a pattern only works with = or !="},
+		{"in a range's lower bound", "path=docs/a*..docs/b", 5, "a range bound can't be a pattern"},
+		{"in a range's upper bound", "path=docs/a..docs/b*", 13, "a range bound can't be a pattern"},
+		{"in a hierarchy shortcut", "tree=docs/*", 5, "a hierarchy shortcut takes a node id, not a pattern"},
+		{"after an edge arrow", "references-> title=a*", 19, "wildcards (* and ?) only match path and id; quote the value to compare it literally"},
 	}
 
 	for _, testCase := range cases {

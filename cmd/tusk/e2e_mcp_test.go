@@ -161,7 +161,48 @@ func TestE2E_MCPStdioSession(test *testing.T) {
 		test.Errorf("count = %v, want 1", queryBody["count"])
 	}
 
-	// Step 5: ensure the file is on disk (verifies workspace lock didn't deadlock)
+	// Step 5: a path pattern keeps to one directory level, so a note one level
+	// deeper is left out (#763).
+	if _, callErr := client.call("tools/call", map[string]any{
+		"name": "tusk_node_create",
+		"arguments": map[string]any{
+			"path":  "notes/deep/inner.md",
+			"type":  "note",
+			"title": "Inner",
+		},
+	}); callErr != nil {
+		test.Fatalf("tusk_node_create deep: %v", callErr)
+	}
+
+	patternResponse, patternErr := client.call("tools/call", map[string]any{
+		"name": "tusk_query",
+		"arguments": map[string]any{
+			"filter": "type=note AND path=notes/*",
+		},
+	})
+
+	if patternErr != nil {
+		test.Fatalf("tusk_query pattern: %v", patternErr)
+	}
+
+	patternResult, _ := patternResponse["result"].(map[string]any)
+	patternContents, _ := patternResult["content"].([]any)
+
+	if len(patternContents) == 0 {
+		test.Fatalf("pattern query returned no content")
+	}
+
+	var patternBody map[string]any
+
+	if unmarshalErr := json.Unmarshal([]byte(patternContents[0].(map[string]any)["text"].(string)), &patternBody); unmarshalErr != nil {
+		test.Fatalf("unmarshal pattern body: %v", unmarshalErr)
+	}
+
+	if int(patternBody["count"].(float64)) != 1 {
+		test.Errorf("pattern count = %v, want 1 (notes/e2e only)", patternBody["count"])
+	}
+
+	// Step 6: ensure the file is on disk (verifies workspace lock didn't deadlock)
 	if _, statErr := os.Stat(filepath.Join(root, "notes", "e2e.md")); statErr != nil {
 		test.Errorf("notes/e2e.md not on disk: %v", statErr)
 	}

@@ -7,7 +7,7 @@ status: stable
 
 # internal/filter
 
-Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk node list <expr>` and the `tusk_query` MCP tool. Supports property predicates (`=`/`:`, `!=`, `<`, `<=`, `>`, `>=`, range `lo..hi`), edge traversal (`edge-type->`, `edge-type<-`) whose inner term can be anything the grammar accepts, traversal shortcuts (`tree=id`, `parent=id`, `root=id`, plus their qualified forms `tree:<alias>=id`, `parent:<alias>=id`, `root:<alias>=id`), boolean composition (`AND`/`OR`/`NOT`/parens), and multi-hop paths.
+Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk node list <expr>` and the `tusk_query` MCP tool. Supports property predicates (`=`/`:`, `!=`, `<`, `<=`, `>`, `>=`, range `lo..hi`), glob patterns on `path` and `id` (`path=docs/product/*`), edge traversal (`edge-type->`, `edge-type<-`) whose inner term can be anything the grammar accepts, traversal shortcuts (`tree=id`, `parent=id`, `root=id`, plus their qualified forms `tree:<alias>=id`, `parent:<alias>=id`, `root:<alias>=id`), boolean composition (`AND`/`OR`/`NOT`/parens), and multi-hop paths.
 
 ## Public surface
 
@@ -30,6 +30,12 @@ without a disambiguating `type=`.
 ## Notes
 
 The `+tag`/`-tag` shorthand in §10 of the master spec was dropped from v1.c. Composing the tags pack with the filter grammar uses explicit `tagged -> tag/<name>` predicates instead.
+
+### Path patterns
+
+A bare value holding `*` or `?` is a glob pattern. The lexer accepts both characters in bare values, and the parser decides where a pattern may appear: only on `path` or `id`, only with `=`/`:` or `!=`. Anywhere else (another property, an ordering operator, a range bound, a hierarchy shortcut's node id) is a parse error at the value, so `title=draft*` can't run as a literal comparison that silently matches nothing. A quoted value is never a pattern, which makes quoting the escape for a literal `*`.
+
+`Compile` emits `<column> REGEXP ?` for `=` and `NOT (<column> REGEXP ?)` for `!=`, binding the anchored regex from [`pathglob.ToRegexp`](pathglob.md). The column carries the usual depth prefix, so a pattern works after an edge arrow, and `--semantic` scoping gets it for free because the semantic path ranks the ids this SQL returns. `compilePattern` is the only place the compiler spells "matches a regex". SQLite resolves `REGEXP` to the `regexp()` function that [`internal/index`](index.md) registers; a port to another engine would swap just that function's operator.
 
 ### Edge inner term
 

@@ -19,6 +19,8 @@ SQLite-backed index. Owns the schema (nodes, edges, embeddings, node_embeddings,
 
 ## Notes
 
+The package registers a deterministic `regexp(pattern, value)` SQL function at init, so every connection the `sqlite` driver opens has it. SQLite reserves the `X REGEXP Y` operator but ships no implementation, and calls this function for it. It backs the filter's `path`/`id` glob patterns (see [`internal/pathglob`](pathglob.md)). The implementation is Go's RE2, which runs in linear time, behind a small bounded cache of compiled patterns that is safe to share across connections. A NULL argument yields NULL, and a pattern that doesn't compile is an SQL error.
+
 WAL + busy_timeout means the watcher can write while a long-running `tusk_query` reads — but reindex's own ordering is what gates correctness, not the DB. See `internal/reindex` for the cross-pass resolution issue.
 
 `Open` applies a small set of idempotent migrations after the bootstrap schema — dropping the dead `manifest_snapshot`/`warnings` tables and the unused `idx_file_state_lease` index. A new table added as `CREATE TABLE IF NOT EXISTS` (like `skipped_files`) reaches existing indexes on their next `Open` with no `SchemaVersion` bump. Incompatible on-disk schemas are not migrated in place: `OpenOrRebuild` drops and rebuilds the DB from the authoritative `CREATE TABLE` DDL, keyed on `SchemaVersion`. The `edges` table carries no `ordinal` column — sibling ordering is derived from the source node's `OrderedBy` property at query time (see `internal/manifest`).

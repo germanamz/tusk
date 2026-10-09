@@ -88,3 +88,69 @@ func TestE2E_FilterPipeline(test *testing.T) {
 		}
 	}
 }
+
+// TestE2E_FilterPathPattern drives `tusk query` with path and id patterns end to
+// end, through the REGEXP function the index registers on SQLite (#763).
+func TestE2E_FilterPathPattern(test *testing.T) {
+	initWorkspaceWithManifest(test, edgeManifestBody())
+
+	for _, args := range [][]string{
+		{"node", "create", "--type", "note", "--title", "Top", "--path", "notes/top.md"},
+		{"node", "create", "--type", "note", "--title", "Deep", "--path", "notes/deep/inner.md"},
+		{"node", "create", "--type", "ticket", "--title", "Foo", "--path", "tickets/foo.md"},
+	} {
+		cmd := newRootCmd()
+		cmd.SetArgs(args)
+
+		if execErr := cmd.Execute(); execErr != nil {
+			test.Fatalf("setup %v: %v", args, execErr)
+		}
+	}
+
+	cases := []struct {
+		filter  string
+		want    []string
+		notWant []string
+	}{
+		{"path=notes/*", []string{"notes/top"}, []string{"notes/deep/inner", "tickets/foo"}},
+		{"path=notes/**", []string{"notes/top", "notes/deep/inner"}, []string{"tickets/foo"}},
+		{"id=**/inner", []string{"notes/deep/inner"}, []string{"notes/top", "tickets/foo"}},
+		{"type=note AND id!=notes/*", []string{"notes/deep/inner"}, []string{"notes/top", "tickets/foo"}},
+	}
+
+	for _, testCase := range cases {
+		out := &bytes.Buffer{}
+		cmd := newRootCmd()
+		cmd.SetOut(out)
+		cmd.SetErr(out)
+		cmd.SetArgs([]string{"query", testCase.filter})
+
+		if execErr := cmd.Execute(); execErr != nil {
+			test.Fatalf("query %q: %v", testCase.filter, execErr)
+		}
+
+		for _, id := range testCase.want {
+			if !strings.Contains(out.String(), id) {
+				test.Errorf("query %q: missing %s\n%s", testCase.filter, id, out.String())
+			}
+		}
+
+		for _, id := range testCase.notWant {
+			if strings.Contains(out.String(), id) {
+				test.Errorf("query %q: unexpected %s\n%s", testCase.filter, id, out.String())
+			}
+		}
+	}
+
+	out := &bytes.Buffer{}
+	cmd := newRootCmd()
+	cmd.SetOut(out)
+	cmd.SetErr(out)
+	cmd.SetArgs([]string{"query", "title=T*"})
+
+	execErr := cmd.Execute()
+
+	if execErr == nil || !strings.Contains(execErr.Error(), "only match path and id") {
+		test.Errorf("query title=T*: err = %v, want the path-and-id wildcard error", execErr)
+	}
+}

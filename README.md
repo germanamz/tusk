@@ -294,6 +294,10 @@ the operators below.
 tusk query 'type=ticket status=active priority=high'
 tusk query 'type:plan shipped-at>=2026-04-01'   # date ordering, chronological
 
+# Path patterns on path and id: * stays in one folder, ** crosses folders
+tusk query 'type=note path=docs/product/*'      # notes directly in docs/product/
+tusk query 'path=docs/** path!=docs/archive/**' # all of docs/ except the archive
+
 # Edge traversal: -> outgoing, <- incoming
 tusk query 'type=ticket blocks->type=ticket'        # tickets that block other tickets
 tusk query 'type=note references<- type=spec'      # notes referenced by specs
@@ -314,7 +318,8 @@ tusk query 'type=ticket status=active' --sort '+priority,-due' --take 10
 Requires `[embeddings]` configured (Ollama by default). Embedding runs asynchronously after writes; until a node is embedded, it's invisible to semantic queries (and surfaces in `tusk doctor`).
 
 ```bash
-tusk query 'type=*' --semantic "auth bug in password reset flow" --take 5
+tusk query '' --semantic "auth bug in password reset flow" --take 5
+tusk query 'path=docs/**' --semantic "billing totals"   # scoped to docs/ and below
 ```
 
 #### Matching the embedding model
