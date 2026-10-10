@@ -62,9 +62,13 @@ Three modes, all driven by the same command:
     tree=id, parent=id, root=id, each optionally qualified by a hierarchy
     alias (e.g. tree:wbs=id) set via hierarchy on an edge type in
     tusk.toml. Recency shortcut: modified-since: a duration or ISO date
-    (e.g. modified-since:7d, modified-since:2026-05-23). Combine with AND,
-    OR, NOT, and parens. (Both : and = bind property comparisons; pick
-    whichever reads better.)
+    (e.g. modified-since:7d, modified-since:2026-05-23). Path refs:
+    names-path=<path> finds the pages that name a workspace path in
+    inline code, or a directory above it; names-path=<glob> matches the
+    named paths themselves (e.g. names-path=server/**). It needs an edge
+    type with paths = true in tusk.toml. Combine with AND, OR, NOT, and
+    parens. (Both : and = bind property comparisons; pick whichever
+    reads better.)
   * Semantic (--semantic STRING): nearest-neighbor search over
     Ollama embeddings. The positional filter still applies as a
     pre-filter; pass a permissive filter like 'type=note' to search
@@ -74,8 +78,8 @@ Three modes, all driven by the same command:
 
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
 results, --skip M to paginate. Use --include to expand each row with
-body, edges, or properties (comma-separated; for semantic results body
-is the best-matching chunk). Use --fields to project the rendered shape.
+body, edges, properties, units or paths (comma-separated; for semantic
+results body is the best-matching chunk). Use --fields to project the rendered shape.
 Use --format to pick compact or JSON output: with no --include/--fields
 the default is the tab-aligned table, and once a shape flag is set it is
 compact at a TTY and JSON when piped. --json (or --format json) forces
@@ -91,6 +95,12 @@ top of the file; absent for HTML), numbered under [workspace] line-numbering.
 --max-units N keeps the first N units per file (best first on semantic rows,
 document order on the outline); units_total reports how many there were.
 
+Path refs: --include paths lists the workspace paths each page names in
+inline code, one entry per path and edge type, with every line it is named
+on, the innermost section holding that line, and exists, a live check of the
+disk. Only spans whose first segment exists at the workspace root count as
+paths. Under a names-path filter the list keeps the refs the filter matched.
+
 Sub-unit addresses: a sub-unit's id appends a structural address to the file
 id, e.g. notes/doc#S1.2P3 (paragraph 3 of section 1.2) or notes/doc#S1.1T1R0C0
 (a table cell). Addresses stay stable under in-place edits and shift only when
@@ -100,6 +110,9 @@ the document is restructured.`,
 
   # Expand bodies and edges in one round-trip
   tusk query 'type=ticket' --include body,edges
+
+  # Which pages describe this file (or a directory above it), and where
+  tusk query 'names-path=server/ledger/core/service.go' --include paths
 
   # Pure semantic over all notes
   tusk query 'type=note' --semantic 'cache invalidation strategies'
@@ -218,7 +231,7 @@ the document is restructured.`,
 	queryCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 	queryCmd.Flags().StringVar(&semanticQuery, "semantic", "", "rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)")
 	queryCmd.Flags().Float64Var(&minScore, "min-score", 0, "drop semantic results below this similarity score (default 0 = no filter; MCP tusk_query defaults to 0.5). When graph expansion is active, this filters the blended final score, not the bare cosine.")
-	queryCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties|units (comma-separated; units lists each file's sub-units)")
+	queryCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties|units|paths (comma-separated; units lists each file's sub-units, paths the workspace paths each page names)")
 	queryCmd.Flags().IntVar(&maxUnits, "max-units", 0, "keep at most N matched units per file (0 = all); units_total reports the count before the cut")
 	queryCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
 	queryCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)")
@@ -348,6 +361,7 @@ func renderStructuralCompact(out io.Writer, rows []query.Row, fields []string) e
 			Body:         row.Body,
 			Properties:   row.Properties,
 			Edges:        row.Edges,
+			Paths:        row.Paths,
 			MatchedUnits: row.MatchedUnits,
 			UnitsTotal:   row.UnitsTotal,
 		})
@@ -377,6 +391,7 @@ func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, for
 				Body:         scored.Body,
 				Properties:   scored.Properties,
 				Edges:        scored.Edges,
+				Paths:        scored.Paths,
 				Score:        scored.Score,
 				HasScore:     true,
 				MatchedUnits: scored.MatchedUnits,

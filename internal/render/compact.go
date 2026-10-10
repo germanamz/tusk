@@ -23,6 +23,7 @@ type CompactRow struct {
 	Body       string
 	Properties map[string]any
 	Edges      []query.EdgeRef
+	Paths      []query.PathRef
 
 	// Score, when non-zero, renders as a `score=…` token after the title
 	// column. Used by semantic query results.
@@ -114,6 +115,7 @@ func CompactNodeRows(out io.Writer, rows []CompactRow, opts CompactOpts) error {
 		writeRecordLine(&builder, row, fieldSet, idWidth, typeWidth, titleWidth)
 		writeBody(&builder, row, fieldSet)
 		writeEdges(&builder, row, fieldSet)
+		writePaths(&builder, row, fieldSet)
 		writeMatchedUnits(&builder, row, fieldSet)
 	}
 
@@ -393,6 +395,30 @@ func writeEdges(builder *strings.Builder, row CompactRow, fieldSet map[string]st
 		}
 
 		fmt.Fprintf(builder, "  %s %s %s\n", arrow, edge.Type, edge.TargetID)
+	}
+}
+
+// writePaths emits one indented line per path ref: its edge type, the path,
+// where the page names it, and "(not on disk)" when the path is gone:
+//
+//	⇢ describes server/ledger/core/service.go  lines 40-41 (Core service)
+func writePaths(builder *strings.Builder, row CompactRow, fieldSet map[string]struct{}) {
+	if !showField(fieldSet, "paths") || len(row.Paths) == 0 {
+		return
+	}
+
+	for _, ref := range row.Paths {
+		line := fmt.Sprintf("  ⇢ %s %s", ref.EdgeType, ref.Path)
+
+		if where := query.FormatMentions(ref.Mentions); where != "" {
+			line += "  " + where
+		}
+
+		if !ref.Exists {
+			line += "  (not on disk)"
+		}
+
+		builder.WriteString(line + "\n")
 	}
 }
 

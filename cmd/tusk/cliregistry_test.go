@@ -43,11 +43,13 @@ func TestRegistry_NoOrphanCobraCommands(test *testing.T) {
 		// workspace and render the block it hands a session. They act on
 		// the session's own configuration, which is not a capability worth
 		// giving the agent running in that session; agents read the same
-		// digest through tusk_context.
+		// digest through tusk_context, and the edit reminder `claude refs`
+		// prints through tusk_query names-path=<path> include=paths.
 		"claude install":   {},
 		"claude uninstall": {},
 		"claude status":    {},
 		"claude context":   {},
+		"claude refs":      {},
 		// `update` replaces the tusk binary itself. It operates on the
 		// installation, not on any workspace graph, and is deliberately
 		// absent from MCP: letting an agent swap the binary it is running

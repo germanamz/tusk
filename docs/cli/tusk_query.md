@@ -29,9 +29,13 @@ Three modes, all driven by the same command:
     tree=id, parent=id, root=id, each optionally qualified by a hierarchy
     alias (e.g. tree:wbs=id) set via hierarchy on an edge type in
     tusk.toml. Recency shortcut: modified-since: a duration or ISO date
-    (e.g. modified-since:7d, modified-since:2026-05-23). Combine with AND,
-    OR, NOT, and parens. (Both : and = bind property comparisons; pick
-    whichever reads better.)
+    (e.g. modified-since:7d, modified-since:2026-05-23). Path refs:
+    names-path=<path> finds the pages that name a workspace path in
+    inline code, or a directory above it; names-path=<glob> matches the
+    named paths themselves (e.g. names-path=server/**). It needs an edge
+    type with paths = true in tusk.toml. Combine with AND, OR, NOT, and
+    parens. (Both : and = bind property comparisons; pick whichever
+    reads better.)
   * Semantic (--semantic STRING): nearest-neighbor search over
     Ollama embeddings. The positional filter still applies as a
     pre-filter; pass a permissive filter like 'type=note' to search
@@ -41,8 +45,8 @@ Three modes, all driven by the same command:
 
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
 results, --skip M to paginate. Use --include to expand each row with
-body, edges, or properties (comma-separated; for semantic results body
-is the best-matching chunk). Use --fields to project the rendered shape.
+body, edges, properties, units or paths (comma-separated; for semantic
+results body is the best-matching chunk). Use --fields to project the rendered shape.
 Use --format to pick compact or JSON output: with no --include/--fields
 the default is the tab-aligned table, and once a shape flag is set it is
 compact at a TTY and JSON when piped. --json (or --format json) forces
@@ -57,6 +61,12 @@ Every unit carries lines [start, end] (1-based, inclusive, counted from the
 top of the file; absent for HTML), numbered under [workspace] line-numbering.
 --max-units N keeps the first N units per file (best first on semantic rows,
 document order on the outline); units_total reports how many there were.
+
+Path refs: --include paths lists the workspace paths each page names in
+inline code, one entry per path and edge type, with every line it is named
+on, the innermost section holding that line, and exists, a live check of the
+disk. Only spans whose first segment exists at the workspace root count as
+paths. Under a names-path filter the list keeps the refs the filter matched.
 
 Sub-unit addresses: a sub-unit's id appends a structural address to the file
 id, e.g. notes/doc#S1.2P3 (paragraph 3 of section 1.2) or notes/doc#S1.1T1R0C0
@@ -75,6 +85,9 @@ tusk query <filter> [flags]
 
   # Expand bodies and edges in one round-trip
   tusk query 'type=ticket' --include body,edges
+
+  # Which pages describe this file (or a directory above it), and where
+  tusk query 'names-path=server/ledger/core/service.go' --include paths
 
   # Pure semantic over all notes
   tusk query 'type=note' --semantic 'cache invalidation strategies'
@@ -99,7 +112,7 @@ tusk query <filter> [flags]
       --graph-weight float    per-hop weight applied to expanded candidates in [0,1]; omit to inherit manifest (default inherit)
   -h, --help                  help for query
       --hops int              graph-expansion BFS depth (1 or 2; omit to inherit manifest)
-      --include strings       expand rows: body|edges|properties|units (comma-separated; units lists each file's sub-units)
+      --include strings       expand rows: body|edges|properties|units|paths (comma-separated; units lists each file's sub-units, paths the workspace paths each page names)
       --json                  emit structured JSON (sugar for --format json)
       --max-units int         keep at most N matched units per file (0 = all); units_total reports the count before the cut
       --min-score float       drop semantic results below this similarity score (default 0 = no filter; MCP tusk_query defaults to 0.5). When graph expansion is active, this filters the blended final score, not the bare cosine.

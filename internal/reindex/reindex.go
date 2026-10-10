@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/pathref"
 )
 
 // edgeDerivationVersion tags the edge-derivation and sub-unit content
@@ -50,6 +52,34 @@ const (
 // succeeds.
 const lineNumberingKey = "line_numbering"
 
+// pathRefsKey stores a fingerprint of the path-ref configuration the stored
+// refs were derived under: the pathref rules version plus each paths edge type
+// with its from list. When the configuration differs (paths = true turned on or
+// off, a from list edited, new rules in this binary), Run forces one full
+// re-process so every page's refs converge; nothing re-embeds. A vault with no
+// paths edge type fingerprints as "", so an index from before path refs existed
+// needs no pass. Stamped after the pass succeeds.
+const pathRefsKey = "path_refs"
+
+// pathRefsFingerprint renders the configuration pathRefsKey records.
+func pathRefsFingerprint(edgeTypes manifest.EdgeTypes) string {
+	names := manifest.PathEdgeTypeNames(edgeTypes)
+
+	if len(names) == 0 {
+		return ""
+	}
+
+	parts := []string{"rules=" + pathref.RulesVersion}
+
+	for _, name := range names {
+		from := slices.Clone(edgeTypes[name].From)
+		slices.Sort(from)
+		parts = append(parts, name+"="+strings.Join(from, ","))
+	}
+
+	return strings.Join(parts, ";")
+}
+
 // nodeIDForPath derives a node id from a workspace-relative path, delegating to
 // index.NodeIDForPath — the single id rule shared with the node parse dispatch.
 // Markdown keeps its historical bare-stem id (strips ".md"); every other
@@ -66,44 +96,12 @@ func nodeIDForPath(path string) string {
 // directory's listing and matching the segment byte for byte distinguishes a
 // real file from a case-folded alias on every platform: a case-sensitive
 // filesystem always matches when the file truly exists, so the reaper's
-// behavior there is unchanged (#686).
+// behavior there is unchanged (#686). The walk is pathref.Disk's, which doctor
+// shares for path refs. The caller consults it only after os.Stat resolved the
+// full path, so an unreadable directory on the way is not a missing one; Disk
+// then assumes present rather than risk falsely tombstoning a live node.
 func existsWithExactCase(root, relPath string) bool {
-	dir := root
-
-	for _, segment := range strings.Split(filepath.ToSlash(relPath), "/") {
-		if segment == "" || segment == "." {
-			return false
-		}
-
-		entries, readErr := os.ReadDir(dir)
-
-		if readErr != nil {
-			// The caller only consults this after os.Stat already resolved the
-			// full path, so every component exists and is traversable — a
-			// ReadDir failure here is an unreadable directory, not a missing
-			// one. We cannot prove a case mismatch, so assume present rather
-			// than risk falsely tombstoning a live node (the pre-fix behavior).
-			return true
-		}
-
-		found := false
-
-		for _, entry := range entries {
-			if entry.Name() == segment {
-				found = true
-
-				break
-			}
-		}
-
-		if !found {
-			return false
-		}
-
-		dir = filepath.Join(dir, segment)
-	}
-
-	return true
+	return pathref.NewDisk(root).Present(filepath.ToSlash(relPath))
 }
 
 // Config configures Run.
@@ -327,6 +325,24 @@ func Run(config Config) (*Report, error) {
 			config.Logger.Info("reindex: line-numbering scheme changed; forcing full re-process",
 				"stored", lineMarker,
 				"current", lineNumbering,
+			)
+		}
+	}
+
+	pathRefsConfig := pathRefsFingerprint(config.EdgeTypes)
+	pathRefsMarker, pathRefsMarkerErr := config.Meta.Get(pathRefsKey)
+
+	if pathRefsMarkerErr != nil {
+		return nil, fmt.Errorf("reindex: read %s: %w", pathRefsKey, pathRefsMarkerErr)
+	}
+
+	if pathRefsMarker != pathRefsConfig {
+		config.Force = true
+
+		if config.Logger != nil {
+			config.Logger.Info("reindex: path-ref configuration changed; forcing full re-process",
+				"stored", pathRefsMarker,
+				"current", pathRefsConfig,
 			)
 		}
 	}
@@ -751,6 +767,10 @@ func Run(config Config) (*Report, error) {
 
 	if setErr := config.Meta.Set(lineNumberingKey, lineNumbering); setErr != nil {
 		return nil, fmt.Errorf("reindex: record %s: %w", lineNumberingKey, setErr)
+	}
+
+	if setErr := config.Meta.Set(pathRefsKey, pathRefsConfig); setErr != nil {
+		return nil, fmt.Errorf("reindex: record %s: %w", pathRefsKey, setErr)
 	}
 
 	if config.Logger != nil {

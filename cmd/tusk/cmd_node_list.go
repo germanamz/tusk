@@ -132,7 +132,7 @@ structural-and-semantic ranking, use "tusk query" with --semantic.`,
 	listCmd.Flags().StringVar(&sortSpec, "sort", "", "sort spec, e.g., +priority,-due,+modified")
 	listCmd.Flags().IntVar(&take, "take", 0, "limit results to N rows")
 	listCmd.Flags().IntVar(&skip, "skip", 0, "skip the first M rows (requires --take)")
-	listCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties (comma-separated)")
+	listCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties|paths (comma-separated)")
 	listCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
 	listCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)")
 	listCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")

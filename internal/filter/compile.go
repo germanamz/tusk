@@ -208,6 +208,8 @@ func (state *compileState) compileWhere(expr Expr, depth int) (string, []any, er
 		return compileProperty(typed, columnPrefix(depth))
 	case *ModifiedSincePredicate:
 		return compileModifiedSince(typed, columnPrefix(depth))
+	case *NamesPathPredicate:
+		return compileNamesPath(typed, columnPrefix(depth))
 	case *EdgePredicate:
 		return state.compileEdgePredicate(typed, depth)
 	case *TraversalShortcut:

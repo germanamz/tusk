@@ -13,6 +13,7 @@ type Node struct {
 	Body       []byte              // markdown body after the closing `---` delimiter
 	BodyOffset int                 // byte offset in the file as read where Body begins; sub-unit line numbers count from the file's top
 	HTMLLinks  []string            // raw <a href> values in document order; populated only for HTML nodes by ParseHTMLFile, resolved to edges by MaterializeHTMLLinks
+	HTMLCode   []string            // text of <code> elements outside <pre>, in document order; populated only for HTML nodes by ParseHTMLFile, scanned for path refs by PathRefs
 }
 
 // Clone returns a shallow copy of the Node with the Properties and Edges

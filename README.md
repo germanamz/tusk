@@ -179,6 +179,23 @@ Edges are typed, declared in the manifest, and can be created two ways:
 
 Edge declarations enforce legality (`from`/`to` types), cardinality, ordering, and optional `acyclic = true` (cycles are rejected at write time). A hand-edited file that breaks `from`/`to` or cardinality is still indexed, and `tusk doctor` reports the edge as an error.
 
+### Pages name the files they describe
+
+Technical pages name source files, usually in inline code. Set `paths = true` on an edge type and tusk records each inline-code span that is a workspace-relative path, with its line, so a file can find the pages that describe it:
+
+```toml
+[edge-types.describes]
+from  = ["technical"]   # which pages are scanned
+paths = true
+```
+
+```bash
+# Which pages name this file (or a directory above it), and where?
+tusk query 'names-path=server/ledger/core/service.go' --include paths
+```
+
+The source tree can stay in `[workspace] ignore`: a path ref targets a path, not a node. `tusk doctor` warns with `path-missing` when a page names a path that has been renamed or deleted, and the Claude Code plugin (`tusk claude install`) reminds the agent of those pages right after it edits the file.
+
 ### The manifest defines the schema
 
 `tusk.toml` is the contract between you and the engine. A minimal manifest:

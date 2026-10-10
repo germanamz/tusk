@@ -21,6 +21,7 @@ Loads and validates `tusk.toml`. Decodes `[workspace]`, `[node-types.X]`, `[edge
 - `ValidateContext(*Manifest, VerbIntrospector)` — tertiary pass run after `ValidateAliases` that resolves `recent = "<name>"`, parses `[context.recent]` inline aliases, and prunes unknown `include` names. Surfaces problems via `Manifest.ContextErrors`; never fails.
 - `Rule` and `Manifest.Rules` — the `[rule.<name>]` declarations, keyed by name. `Load` only decodes them, one block at a time, so a value of the wrong type fails just that rule (`Rule.DecodeError`, naming the key and line) instead of the whole manifest. It also records `Rule.UnknownKeys`: any key inside the block that no field decodes, so a misspelling is reported rather than ignored. `internal/doctor` validates and runs them (`doctor.CompileRules`); a bad rule never fails the load.
 - `(*Manifest).DeclaresUserNodeTypes() bool` — whether the manifest declares a node type beyond the built-in sub-document types. Checks that validate against declared types skip a vault that declares none.
+- `PathEdgeTypeNames(EdgeTypes) []string` — the edge types that set `paths = true`, sorted. Reindex fingerprints them, the filter's `names-path` requires one, and `tusk claude refs` stays silent without one.
 - `(*Manifest).LineNumbering() linenum.Scheme` — the `[workspace] line-numbering` scheme sub-unit line ranges are numbered with (`lf` when unset). `Load` rejects any value other than `lf`, `universal`, or `unicode`.
 
 ## Notes
@@ -46,6 +47,18 @@ Hierarchy edges (and any edge type that should expose stable child order) may de
 - `ordered = "<prop>"` — children are ordered by the named source-node property (e.g. `ordered = "rank"`).
 
 After load, the resolved shape is `Ordered bool` + `OrderedBy string`; when `ordered = true`, `OrderedBy` is set to `"order"`. Edges are declared in frontmatter (the 2026-05-18 edges-from-frontmatter design): `tusk edge add` / `tusk_edge_add` mutate frontmatter directly and the index is rebuilt from it.
+
+### Path refs — `paths = true`
+
+An edge type with `paths = true` records the workspace paths a page names in inline code (`` `server/ledger/core/service.go` ``) as path refs of that type; [`internal/pathref`](pathref.md) has the rules. Path refs target paths, not nodes, so they live in their own `path_refs` table and the source tree can stay in `[workspace] ignore`.
+
+```toml
+[edge-types.describes]
+from  = ["technical"]
+paths = true
+```
+
+`from` scopes extraction: only pages whose type the edge type allows are scanned, which is the main lever against false positives. A paths type may leave out `to` and `cardinality`. With no `to` it allows no node targets, so a frontmatter or wikilink edge of that type is reported as `edge-type-violation`; `cardinality` defaults to `many-to-many`. A type can set both `wikilinks = true` and `paths = true`, in which case `to`, `inverse`, `acyclic`, `hierarchy` and `ordered` still govern its node edges and don't touch its path refs.
 
 ### Lease TTL — `[lease]`
 

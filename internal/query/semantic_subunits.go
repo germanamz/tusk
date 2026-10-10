@@ -549,6 +549,12 @@ func runSemanticSubUnits(
 		}
 	}
 
+	if includeSet.Paths {
+		if attachErr := attachScoredPaths(scoredRows, deps.Database, req); attachErr != nil {
+			return nil, attachErr
+		}
+	}
+
 	return &SemanticResult{
 		Ranked:                scoredRows,
 		Model:                 deps.Embedder.Model(),

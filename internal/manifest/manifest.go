@@ -2,6 +2,8 @@
 package manifest
 
 import (
+	"sort"
+
 	"github.com/BurntSushi/toml"
 
 	"github.com/germanamz/tusk/internal/linenum"
@@ -298,6 +300,13 @@ type EdgeType struct {
 	// case. Zero, one, or many edge types may set it.
 	Wikilinks bool `toml:"wikilinks"`
 
+	// Paths, when true, makes the indexer record the workspace paths a page
+	// names in inline code as path refs of this type (the path_refs table, not
+	// edges: a path is not a node). From picks which pages are scanned. A
+	// paths type may omit to and cardinality; with no to it allows no node
+	// targets, and cardinality defaults to many-to-many.
+	Paths bool `toml:"paths"`
+
 	// Resolved by manifest.Validate after parsing OrderedRaw.
 	// Ordered is true when the source declares any ordering (bool true OR string non-empty).
 	// OrderedBy is the source-node property name carrying the order key.
@@ -316,6 +325,22 @@ func (edgeType EdgeType) AllowsSource(sourceType string) bool {
 // AllowsTarget returns true if targetType matches the edge type's `to` list.
 func (edgeType EdgeType) AllowsTarget(targetType string) bool {
 	return matchesTypeList(edgeType.To, targetType)
+}
+
+// PathEdgeTypeNames returns the names of the edge types that set paths = true,
+// sorted so every caller walks them in the same order. Empty when none do.
+func PathEdgeTypeNames(edgeTypes EdgeTypes) []string {
+	var names []string
+
+	for name, edgeType := range edgeTypes {
+		if edgeType.Paths {
+			names = append(names, name)
+		}
+	}
+
+	sort.Strings(names)
+
+	return names
 }
 
 func matchesTypeList(allowed []string, candidate string) bool {

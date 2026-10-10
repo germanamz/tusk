@@ -1,6 +1,7 @@
 package reindex
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -335,6 +336,13 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 	// its quoted canonical form (self-heal), reflected in the returned bytes.
 	if node.CanonicalizeDates(parsed, cfg.NodeTypes) {
 		content, stat = selfHealDate(cfg, relPath, absPath, content, stat)
+
+		// The heal rewrites frontmatter only, so the body is still a suffix of
+		// the re-read bytes but starts at a different offset. Re-derive it, or
+		// sub-unit and path-ref lines count against the pre-heal file.
+		if bytes.HasSuffix(content, parsed.Body) {
+			parsed.BodyOffset = len(content) - len(parsed.Body)
+		}
 	}
 
 	if resolveErr := node.ResolveEdges(parsed, cfg.EdgeTypes); resolveErr != nil {
@@ -533,6 +541,14 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 
 		if upsertErr := cfg.Edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
 			return upsertErr
+		}
+
+		// Always replace, even with none: a page that lost its last path, or
+		// whose type left every paths edge type's from, must drop its old refs.
+		pathRefs := node.PathRefs(parsed, content, cfg.EdgeTypes, cfg.Manifest.LineNumbering())
+
+		if replaceErr := cfg.Edges.ReplacePathRefs(parsed.ID, pathRefs); replaceErr != nil {
+			return replaceErr
 		}
 	}
 

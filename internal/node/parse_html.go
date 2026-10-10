@@ -91,6 +91,7 @@ func ParseHTMLFile(relPath string, content []byte) (*Node, error) {
 		Properties: properties,
 		Body:       []byte(htmltext.NormalizeText(content)),
 		HTMLLinks:  collectHrefs(root),
+		HTMLCode:   collectInlineCode(root),
 	}, nil
 }
 
@@ -258,6 +259,37 @@ func collectHrefs(root *html.Node) []string {
 	walk(root)
 
 	return hrefs
+}
+
+// collectInlineCode gathers the text of every <code> element that is not
+// inside a <pre>, in document order: the HTML counterpart of a markdown code
+// span. A <pre><code> block is a code sample, not a reference, so it is
+// skipped the way fenced blocks are.
+func collectInlineCode(root *html.Node) []string {
+	var spans []string
+
+	var walk func(node *html.Node)
+
+	walk = func(node *html.Node) {
+		if node.Type == html.ElementNode {
+			switch node.DataAtom {
+			case atom.Pre:
+				return
+			case atom.Code:
+				spans = append(spans, elementText(node))
+
+				return
+			}
+		}
+
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+
+	walk(root)
+
+	return spans
 }
 
 // collectDataSignals walks the parsed tree and gathers every data-* attribute

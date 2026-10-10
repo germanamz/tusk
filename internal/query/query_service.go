@@ -104,6 +104,10 @@ type Row struct {
 	// UnitsTotal is how many units the file had before MaxUnits cut
 	// MatchedUnits. Set whenever MatchedUnits is.
 	UnitsTotal int `json:"units_total,omitempty"`
+
+	// Paths lists the workspace paths the row's page names, when Include
+	// contains "paths" (see LoadPaths). Nil for sub-unit rows.
+	Paths []PathRef `json:"paths,omitempty"`
 }
 
 // ScoredRow is a single semantic-ranked result.
@@ -133,6 +137,10 @@ type ScoredRow struct {
 	// (or SemanticDefaultMaxUnits) cut MatchedUnits. Set whenever
 	// MatchedUnits is.
 	UnitsTotal int `json:"units_total,omitempty"`
+
+	// Paths lists the workspace paths the row's page names, when Include
+	// contains "paths" (see LoadPaths).
+	Paths []PathRef `json:"paths,omitempty"`
 
 	// Explain-only score-trace fields. Populated by the query service only
 	// when Request.Explain is true AND graph expansion ran for this row.
@@ -316,6 +324,20 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 			return nil, expandErr
 		}
 
+		if includeSet.Paths {
+			ids := make([]string, len(result.Rows))
+
+			for position, row := range result.Rows {
+				ids[position] = row.ID
+			}
+
+			if attachErr := attachPaths(deps.Database, req.WorkspaceRoot, req.Filter, ids, func(position int, refs []PathRef) {
+				result.Rows[position].Paths = refs
+			}); attachErr != nil {
+				return nil, attachErr
+			}
+		}
+
 		return result, nil
 	}
 
@@ -476,6 +498,12 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		}
 	}
 
+	if includeSet.Paths {
+		if attachErr := attachScoredPaths(scored, deps.Database, req); attachErr != nil {
+			return nil, attachErr
+		}
+	}
+
 	result.Semantic = &SemanticResult{
 		Ranked:                scored,
 		Model:                 deps.Embedder.Model(),
@@ -499,6 +527,19 @@ func expandScoredEdges(rows []ScoredRow, db *sql.DB) error {
 	}
 
 	return loadEdgesForRows(likes, db)
+}
+
+// attachScoredPaths decorates semantic rows with their path refs.
+func attachScoredPaths(rows []ScoredRow, db *sql.DB, req Request) error {
+	ids := make([]string, len(rows))
+
+	for position, row := range rows {
+		ids[position] = row.ID
+	}
+
+	return attachPaths(db, req.WorkspaceRoot, req.Filter, ids, func(position int, refs []PathRef) {
+		rows[position].Paths = refs
+	})
 }
 
 // scoredRowLike adapts ScoredRow to rowLike. Only the methods loadEdgesForRows

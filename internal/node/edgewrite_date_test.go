@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 )
@@ -38,7 +39,7 @@ func TestReindexSource_CanonicalizesUnquotedDateInNodeRow(test *testing.T) {
 		test.Fatal(err)
 	}
 
-	if err := node.ReindexSource(dir, repo, edgeRepo, node.NewIndexRefLookup(repo), edgeTypes, nodeTypes, "tickets/t"); err != nil {
+	if err := node.ReindexSource(dir, repo, edgeRepo, node.NewIndexRefLookup(repo), edgeTypes, nodeTypes, "tickets/t", linenum.DefaultScheme); err != nil {
 		test.Fatalf("ReindexSource: %v", err)
 	}
 

@@ -67,7 +67,7 @@ tusk node list [filter] [flags]
       --fields strings    project rendered rows to these fields (comma-separated)
       --format string     output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)
   -h, --help              help for list
-      --include strings   expand rows: body|edges|properties (comma-separated)
+      --include strings   expand rows: body|edges|properties|paths (comma-separated)
       --json              emit structured JSON (sugar for --format json)
       --skip int          skip the first M rows (requires --take)
       --sort string       sort spec, e.g., +priority,-due,+modified

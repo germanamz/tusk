@@ -363,6 +363,14 @@ func Rename(
 		return nil, listOutErr
 	}
 
+	// The moved page's path refs cascade with its old row too. Its bytes are
+	// unchanged by the move, so the refs carry over as they are.
+	outgoingPathRefs, listRefsErr := edgeRepo.PathRefsFrom([]string{oldID})
+
+	if listRefsErr != nil {
+		return nil, listRefsErr
+	}
+
 	// Update node index: delete-old → insert-new (NodeRepo.Upsert is keyed on
 	// id; mutating row.ID then upserting would leave the old row behind).
 	if deleteOldErr := nodeRepo.DeleteByPath(oldPath); deleteOldErr != nil {
@@ -401,6 +409,10 @@ func Rename(
 
 	if upsertErr := edgeRepo.UpsertAll(newID, newRelPath, rebased); upsertErr != nil {
 		return nil, upsertErr
+	}
+
+	if replaceErr := edgeRepo.ReplacePathRefs(newID, outgoingPathRefs); replaceErr != nil {
+		return nil, replaceErr
 	}
 
 	if deleteOldEdgesErr := edgeRepo.DeleteBySource(oldID); deleteOldEdgesErr != nil {

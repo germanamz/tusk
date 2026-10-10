@@ -764,6 +764,14 @@ func validateBehaviors(loaded *Manifest) error {
 // reach the engine.
 func validate(loaded *Manifest) error {
 	for name, edgeType := range loaded.EdgeTypes {
+		// A paths type's refs target workspace paths, not nodes, so it needs
+		// neither a cardinality nor a to list. Default the cardinality for the
+		// node edges it may still carry; an empty to allows none of them.
+		if edgeType.Paths && edgeType.Cardinality == "" {
+			edgeType.Cardinality = CardinalityManyToMany
+			loaded.EdgeTypes[name] = edgeType
+		}
+
 		if _, valid := validCardinalities[edgeType.Cardinality]; !valid {
 			return fmt.Errorf("manifest: edge-type %q: invalid cardinality %q (want one-to-one|one-to-many|many-to-one|many-to-many)", name, edgeType.Cardinality)
 		}
@@ -772,7 +780,7 @@ func validate(loaded *Manifest) error {
 			return fmt.Errorf("manifest: edge-type %q: from list must be non-empty", name)
 		}
 
-		if len(edgeType.To) == 0 {
+		if len(edgeType.To) == 0 && !edgeType.Paths {
 			return fmt.Errorf("manifest: edge-type %q: to list must be non-empty", name)
 		}
 	}

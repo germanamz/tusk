@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 )
 
@@ -64,7 +65,7 @@ func (service *Service) AddEdge(edgeType, sourceID, targetID string) error {
 		return writeErr
 	}
 
-	return ReindexSource(service.root, service.repo, service.edges, service.refs, service.edgeTypes, service.nodeTypes, sourceID)
+	return ReindexSource(service.root, service.repo, service.edges, service.refs, service.edgeTypes, service.nodeTypes, sourceID, service.lineNumbering)
 }
 
 // RemoveEdge removes the (edgeType, sourceID, targetID) edge from the source's
@@ -80,7 +81,7 @@ func (service *Service) RemoveEdge(edgeType, sourceID, targetID string) error {
 		return writeErr
 	}
 
-	if reindexErr := ReindexSource(service.root, service.repo, service.edges, service.refs, service.edgeTypes, service.nodeTypes, sourceID); reindexErr != nil {
+	if reindexErr := ReindexSource(service.root, service.repo, service.edges, service.refs, service.edgeTypes, service.nodeTypes, sourceID, service.lineNumbering); reindexErr != nil {
 		return reindexErr
 	}
 
@@ -371,6 +372,7 @@ func ReindexSource(
 	edgeTypes manifest.EdgeTypes,
 	nodeTypes map[string]manifest.NodeType,
 	sourceID string,
+	lineNumbering linenum.Scheme,
 ) error {
 	relPath := index.FilePathForID(sourceID)
 	absPath := filepath.Join(workspaceRoot, relPath)
@@ -432,6 +434,13 @@ func ReindexSource(
 		// until the next full re-parse (#680).
 		if upsertErr := edges.UpsertContentEdges(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
 			return fmt.Errorf("edgewrite: upsert %s: %w", relPath, upsertErr)
+		}
+
+		// The frontmatter rewrite moved every body line, so the path refs'
+		// lines move with it; the node row stamp above makes reindex skip the
+		// file, so nothing else would renumber them.
+		if replaceErr := edges.ReplacePathRefs(parsed.ID, PathRefs(parsed, content, edgeTypes, lineNumbering)); replaceErr != nil {
+			return fmt.Errorf("edgewrite: path refs %s: %w", relPath, replaceErr)
 		}
 	}
 
