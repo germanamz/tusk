@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.7.0](https://github.com/germanamz/tusk/compare/v2.6.1...v2.7.0) (2026-10-10)
+
+
+### Features
+
+* **doctor:** manifest rules reported by doctor ([#764](https://github.com/germanamz/tusk/issues/764)) ([#778](https://github.com/germanamz/tusk/issues/778)) ([38771be](https://github.com/germanamz/tusk/commit/38771be204dfcd27a9ad30c5d99a7821dc0fa933))
+* **filter:** match path and id against glob patterns ([#763](https://github.com/germanamz/tusk/issues/763)) ([#776](https://github.com/germanamz/tusk/issues/776)) ([191de0b](https://github.com/germanamz/tusk/commit/191de0bede56d81799a8e35ee7c3407dd302285b))
+* **pathref:** index workspace paths pages name in inline code ([#766](https://github.com/germanamz/tusk/issues/766)) ([#781](https://github.com/germanamz/tusk/issues/781)) ([fa47e24](https://github.com/germanamz/tusk/commit/fa47e24e154e5a462ad9be1a89282026aecfcecd))
+* **query:** matched units carry lines and headings, one row per finding ([#765](https://github.com/germanamz/tusk/issues/765)) ([#779](https://github.com/germanamz/tusk/issues/779)) ([c570e97](https://github.com/germanamz/tusk/commit/c570e970ee2457ec08ea5b727079f54f69e0a5ff))
+
 ## [2.6.1](https://github.com/germanamz/tusk/compare/v2.6.0...v2.6.1) (2026-10-09)
 
 
