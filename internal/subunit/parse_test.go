@@ -426,7 +426,7 @@ func TestDeriveEdges_WikilinksInParagraph(test *testing.T) {
 
 // #690: aliased wikilinks `[[id|display]]` in a paragraph derive edges to the
 // target id, dropping the display suffix — the same rule the file-level
-// extractor uses (both share node.ExtractWikilinks).
+// extractor uses (both share wikilink.Extract).
 func TestDeriveEdges_AliasedWikilinksInParagraph(test *testing.T) {
 	src := readFixture(test, "wikilinks-aliased.md")
 	units, err := Parse(src)

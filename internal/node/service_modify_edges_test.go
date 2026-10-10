@@ -97,9 +97,10 @@ func TestServiceModify_PreservesFrontmatterEdges(test *testing.T) {
 }
 
 // #680: modifying a sub-unit-bearing file must not drop its structural
-// `contains` edges. Modify runs no sub-unit sync and records the new mtime
-// through the lease, so a wiped contains set is never rebuilt by an incremental
-// reindex — it must survive the edge re-derive in place.
+// `contains` edges. This service has no manifest, so Modify skips the sub-unit
+// pass that would rewrite them (#782) and records the new mtime through the
+// lease, so a wiped contains set is never rebuilt by an incremental reindex —
+// it must survive the edge re-derive in place.
 func TestServiceModify_PreservesStructuralContainsEdges(test *testing.T) {
 	dir := test.TempDir()
 	idx, _ := index.Open(filepath.Join(dir, ".tusk", "index.db"))
@@ -127,7 +128,7 @@ func TestServiceModify_PreservesStructuralContainsEdges(test *testing.T) {
 	}
 
 	// Seed the structural contains edge the sub-unit pipeline would produce;
-	// Service.Create does not run sub-unit sync.
+	// a service without a manifest runs no sub-unit pass.
 	if err := edgeRepo.InsertIgnore([]index.EdgeRow{{
 		Type: "contains", SourceID: "docs/note", TargetID: "docs/note#S1",
 		SourcePath: "docs/note.md", Kind: "structural",

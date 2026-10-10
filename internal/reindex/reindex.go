@@ -38,10 +38,13 @@ import (
 // or a change to which units a document emits) so existing vaults heal on the
 // next reindex. Bump it too when the pass starts recording something a file
 // already on disk must be re-read to produce, such as the skipped_files records
-// doctor reports (#759): a broken file is otherwise never re-read.
+// doctor reports (#759): a broken file is otherwise never re-read. Bump it as
+// well when a fix stops another writer leaving rows stale, as with the sub-units
+// node create/modify never synced (#782): the pass skips the files those writes
+// stamped, so nothing else would heal them.
 const (
 	edgeDerivationVersionKey = "edge_derivation_version"
-	edgeDerivationVersion    = "2026-10-08-skipped-file-records"
+	edgeDerivationVersion    = "2026-10-10-node-write-subunits"
 )
 
 // lineNumberingKey stores the [workspace].line-numbering scheme the sub-unit

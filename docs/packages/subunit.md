@@ -14,8 +14,8 @@ Parses a markdown file body into sub-document units (sections, paragraphs, list 
 - `Parse(source []byte) ([]Unit, error)` — goldmark-backed walk producing a deterministic, depth-first `[]Unit`. Each unit carries its `Address`, `ContentHash`, `ParentAddress`, `Ordinal`, kind-specific `Properties`, the synthesized `EmbedPayload`, and its byte span in `source` (`StartOffset` / `EndOffset`).
 - `AssignLines(units, file, bodyOffset, scheme)` — turns each unit's byte span into `StartLine` / `EndLine`, counted over the whole file under an `internal/linenum` scheme. `bodyOffset` is where the parsed body starts in the file (`node.Node.BodyOffset`), so frontmatter lines count.
 - `Unit` — one sub-document node. `Address` is the id suffix; `ContentHash` is the embed-payload fingerprint; `Hash` is the fallback id for kinds with no address rule.
-- `Sync.ApplyFile(ctx, fileRow, units)` — diffs the parsed units against existing rows **by address**, inserts/deletes/updates rows, rewrites `contains` edges, re-derives outbound wikilink edges for inserted and content-changed units, and enqueues embeds for new or content-changed leaves (sections are never enqueued).
-- `DeriveEdges` — wikilink extraction from a unit's text.
+- `Sync.ApplyFile(ctx, fileRow, units)` — diffs the parsed units against existing rows **by address**, inserts/deletes/updates rows, rewrites `contains` edges, re-derives outbound wikilink edges for inserted and content-changed units, and enqueues embeds for new or content-changed leaves (sections are never enqueued). The reindex worker calls it for every page it re-parses, and `node.Service` calls it after `Create` and `Modify`, whose lease writes make the next reindex skip the page (#782).
+- `DeriveEdges` — wikilink extraction from a unit's text, through [`internal/wikilink`](wikilink.md), the scanner the file-level edges use too.
 
 ## Structural address grammar
 

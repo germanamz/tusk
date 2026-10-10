@@ -17,6 +17,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/wikilink"
 	"gopkg.in/yaml.v3"
 )
 
@@ -871,7 +872,7 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 		// re-quoted. The scalar is always an id (a wikilink is), so bareIsID does
 		// not gate it — an unquoted ref wikilink retargets like an edge one.
 		if scalar, isWikilink := nestedWikilinkScalar(value); isWikilink {
-			target, alias := splitWikilinkAlias(scalar.Value)
+			target, alias := wikilink.SplitAlias(scalar.Value)
 
 			retargeted, matched := retargetNodeID(target, oldID, newID)
 
@@ -1025,8 +1026,8 @@ func collectEdgeScalars(value *yaml.Node, inFlow bool) []flowScalar {
 // wikilink value is always an id and is rewritten regardless. The second return
 // reports whether the value matched.
 func retargetEdgeValue(value, oldID, newID string, bareIsID bool) (string, bool) {
-	if wikilink := refWikilinkPattern.FindStringSubmatch(value); len(wikilink) == 2 {
-		target, alias := splitWikilinkAlias(wikilink[1])
+	if match := refWikilinkPattern.FindStringSubmatch(value); len(match) == 2 {
+		target, alias := wikilink.SplitAlias(match[1])
 
 		retargeted, matched := retargetNodeID(target, oldID, newID)
 

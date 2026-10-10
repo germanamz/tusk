@@ -351,7 +351,7 @@ func TestNodeWikilinksScopedToRenderedBody(test *testing.T) {
 
 // TestNodeWikilinksMarshalEmptyObject guards the nil-map trap at the wire-byte
 // level: a body with no links must marshal to {} rather than null. This is the
-// live path, not a hypothetical — ExtractWikilinks returns a nil slice when a
+// live path, not a hypothetical — wikilink.Extract returns a nil slice when a
 // body has no links, and a nil map marshals to null, which would force every
 // consumer to null-check before indexing. A JSON decode cannot tell {} from
 // null, so only the raw bytes can pin it.

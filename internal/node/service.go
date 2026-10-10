@@ -156,9 +156,13 @@ type Service struct {
 
 	refs RefLookup // optional; nil = ref resolution disabled
 
-	// lineNumbering numbers the lines of the path refs the service records.
-	// Zero means linenum.DefaultScheme.
+	// lineNumbering numbers the lines of the path refs and sub-units the
+	// service records. Zero means linenum.DefaultScheme.
 	lineNumbering linenum.Scheme
+
+	// manifest drives the sub-unit pass Create and Modify run on the bytes they
+	// write. Nil skips it.
+	manifest *manifest.Manifest
 
 	// Lease primitives required by Create's WriteWithLease path. Nil
 	// fileState means the service was built via a read-only constructor
@@ -238,7 +242,7 @@ func NewServiceWithLease(
 // restating a 14-argument positional recipe. Optional fields may be left zero:
 // nil EmbedQueue skips embed enqueues, nil NodeTypes runs untyped, nil Behaviors
 // disables hook dispatch, nil Refs disables ref resolution, nil Warnings
-// defaults to io.Discard.
+// defaults to io.Discard, nil Manifest skips the sub-unit pass on writes.
 type ServiceDeps struct {
 	WorkspaceRoot string
 	Repo          *index.NodeRepo
@@ -255,6 +259,7 @@ type ServiceDeps struct {
 	WorkerID      string
 	LeaseTTL      time.Duration
 	LineNumbering linenum.Scheme
+	Manifest      *manifest.Manifest
 }
 
 // DepsFromIndex assembles the ServiceDeps fields derivable from an open index
@@ -283,6 +288,7 @@ func DepsFromIndex(workspaceRoot string, store *index.Index, loaded *manifest.Ma
 		WorkerID:      index.WorkerID(),
 		LeaseTTL:      leaseconfig.Resolve(loaded.Lease.TTLSeconds),
 		LineNumbering: loaded.LineNumbering(),
+		Manifest:      loaded,
 	}
 }
 
@@ -313,6 +319,7 @@ func NewServiceWithDeps(deps ServiceDeps) *Service {
 		workerID:      deps.WorkerID,
 		leaseTTL:      deps.LeaseTTL,
 		lineNumbering: deps.LineNumbering,
+		manifest:      deps.Manifest,
 	}
 }
 
@@ -391,25 +398,25 @@ func (service *Service) reservedProperties() map[string]map[string]struct{} {
 // When the service has an EdgeRepo configured, edges are also persisted.
 //
 // persistNodeRow stats the just-written file, checksums the rendered bytes, and
-// upserts the node's index row. It runs after WriteWithLease has committed the
-// file (no lease is held here) and stops at repo.Upsert — edge upserts and embed
-// enqueues stay at the call site. Create and Modify share it; each passes its
-// own already-computed absPath.
-func (service *Service) persistNodeRow(absPath string, node *Node, rendered []byte) error {
+// upserts the node's index row, returning it. It runs after WriteWithLease has
+// committed the file (no lease is held here) and stops at repo.Upsert — edge
+// upserts, the sub-unit pass and embed enqueues stay at the call site. Create
+// and Modify share it; each passes its own already-computed absPath.
+func (service *Service) persistNodeRow(absPath string, node *Node, rendered []byte) (index.NodeRow, error) {
 	stat, statErr := os.Stat(absPath)
 
 	if statErr != nil {
-		return fmt.Errorf("node: stat %s: %w", absPath, statErr)
+		return index.NodeRow{}, fmt.Errorf("node: stat %s: %w", absPath, statErr)
 	}
 
 	checksum := sha256Hex(rendered)
 	propertiesJSON, marshalErr := json.Marshal(node.Properties)
 
 	if marshalErr != nil {
-		return fmt.Errorf("node: marshal properties: %w", marshalErr)
+		return index.NodeRow{}, fmt.Errorf("node: marshal properties: %w", marshalErr)
 	}
 
-	if upsertErr := service.repo.Upsert(index.NodeRow{
+	fileRow := index.NodeRow{
 		ID:             node.ID,
 		Type:           node.Type,
 		Path:           node.Path,
@@ -418,11 +425,13 @@ func (service *Service) persistNodeRow(absPath string, node *Node, rendered []by
 		LastMtime:      stat.ModTime().UnixNano(),
 		LastSize:       stat.Size(),
 		LastChecksum:   checksum,
-	}); upsertErr != nil {
-		return upsertErr
 	}
 
-	return nil
+	if upsertErr := service.repo.Upsert(fileRow); upsertErr != nil {
+		return index.NodeRow{}, upsertErr
+	}
+
+	return fileRow, nil
 }
 
 // surfacePropertyDrift emits the undeclared-property warnings + drift rows, or
@@ -646,7 +655,9 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, writeErr
 	}
 
-	if persistErr := service.persistNodeRow(absPath, parsed, rendered); persistErr != nil {
+	fileRow, persistErr := service.persistNodeRow(absPath, parsed, rendered)
+
+	if persistErr != nil {
 		return nil, persistErr
 	}
 
@@ -659,6 +670,10 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 	}
 
 	if syncErr := syncPathRefs(service.edges, parsed.Path, rendered, service.edgeTypes, service.lineNumbering); syncErr != nil {
+		return nil, syncErr
+	}
+
+	if syncErr := service.syncSubUnits(fileRow, parsed, rendered); syncErr != nil {
 		return nil, syncErr
 	}
 
@@ -909,17 +924,16 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 
 	absPath := filepath.Join(service.root, row.Path)
 
-	if persistErr := service.persistNodeRow(absPath, reparsed, rendered); persistErr != nil {
+	fileRow, persistErr := service.persistNodeRow(absPath, reparsed, rendered)
+
+	if persistErr != nil {
 		return nil, persistErr
 	}
 
 	if service.edges != nil {
-		// UpsertContentEdges, not UpsertAll: Modify re-derives only the file's
-		// own frontmatter/body edges and runs no sub-unit sync, so its
-		// kind='structural' contains rows must be preserved. A blanket delete
-		// dropped them permanently — Modify writes through the lease, so
-		// file_state records the new mtime and the incremental reindex that
-		// would otherwise re-sync them always skips the file (#680).
+		// UpsertContentEdges, not UpsertAll: these are the file's own
+		// frontmatter/body edges. Its kind='structural' contains rows belong to
+		// the sub-unit pass below, which rewrites them itself (#680).
 		if upsertErr := service.edges.UpsertContentEdges(reparsed.ID, reparsed.Path, flattenEdges(reparsed, service.nodeTypes)); upsertErr != nil {
 			return nil, upsertErr
 		}
@@ -927,6 +941,11 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 
 	// A frontmatter change moves every body line, so the refs' lines move too.
 	if syncErr := syncPathRefs(service.edges, reparsed.Path, rendered, service.edgeTypes, service.lineNumbering); syncErr != nil {
+		return nil, syncErr
+	}
+
+	// The same shift moves the sub-units' lines, and a new body replaces them.
+	if syncErr := service.syncSubUnits(fileRow, reparsed, rendered); syncErr != nil {
 		return nil, syncErr
 	}
 
