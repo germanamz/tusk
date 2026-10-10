@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/node"
 )
 
@@ -47,7 +48,7 @@ func TestRename_RetargetsReferrerToMovedMDXNode(test *testing.T) {
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, "notes/guide.mdx", "notes/manual.mdx",
+		edgeTypes, nil, nil, linenum.DefaultScheme, "notes/guide.mdx", "notes/manual.mdx",
 	)
 
 	if renameErr != nil {

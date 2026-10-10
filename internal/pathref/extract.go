@@ -28,50 +28,73 @@ var markdownParser = goldmark.New(
 	),
 )
 
-// Markdown returns the path candidates among body's inline-code spans, in
-// document order, each (target, line) pair once. Fenced and indented code
-// blocks hold no code spans, so they never contribute. file is the whole file
-// as read and bodyOffset is where body starts in it, so lines count from the
-// top of the file under scheme, the way sub-unit line ranges do.
-func Markdown(body, file []byte, bodyOffset int, scheme linenum.Scheme) []Mention {
+// Markdown returns the paths body names, in document order, each (target,
+// line) pair once: the candidates among its inline-code spans, and the
+// destinations of its links and images resolved against sourcePath (see Link).
+// Fenced and indented code blocks hold neither spans nor links, so they never
+// contribute. file is the whole file as read and bodyOffset is where body
+// starts in it, so lines count from the top of the file under scheme, the way
+// sub-unit line ranges do.
+func Markdown(sourcePath string, body, file []byte, bodyOffset int, scheme linenum.Scheme) []Mention {
 	doc := markdownParser.Parser().Parse(text.NewReader(body))
 	collector := newCollector()
 
 	var table *linenum.Table
 
-	_ = ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
-		span, isSpan := node.(*ast.CodeSpan)
-
-		if !entering || !isSpan {
-			return ast.WalkContinue, nil
-		}
-
-		content, start := spanContent(span, body)
-		target, ok := Candidate(content)
-
-		if !ok {
-			return ast.WalkSkipChildren, nil
-		}
-
+	record := func(target string, start int) {
 		if table == nil {
 			table = linenum.NewTable(file, scheme)
 		}
 
 		collector.add(Mention{Target: target, Line: table.Line(bodyOffset + start)})
+	}
 
-		return ast.WalkSkipChildren, nil
+	_ = ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+
+		switch typed := node.(type) {
+		case *ast.CodeSpan:
+			content, start := spanContent(typed, body)
+
+			if target, ok := Candidate(content); ok {
+				record(target, start)
+			}
+
+			return ast.WalkSkipChildren, nil
+		case *ast.Link:
+			if target, ok := Link(sourcePath, string(typed.Destination)); ok {
+				record(target, inlineStart(typed))
+			}
+		case *ast.Image:
+			if target, ok := Link(sourcePath, string(typed.Destination)); ok {
+				record(target, inlineStart(typed))
+			}
+		}
+
+		// A link's text can hold a code span or an image of its own.
+		return ast.WalkContinue, nil
 	})
 
 	return collector.mentions
 }
 
-// Spans returns the path candidates among spans (the text of HTML <code>
-// elements outside <pre>), in order, each target once and with no line.
-func Spans(spans []string) []Mention {
+// HTML returns the paths an HTML page names, each target once and with no
+// line: the candidates among code (the text of its <code> elements outside
+// <pre>), then the destinations of links (its <a href> and <img src> values)
+// resolved against sourcePath (see Link).
+func HTML(sourcePath string, code, links []string) []Mention {
 	collector := newCollector()
 
-	for _, span := range spans {
+	for _, span := range code {
 		if target, ok := Candidate(span); ok {
+			collector.add(Mention{Target: target})
+		}
+	}
+
+	for _, destination := range links {
+		if target, ok := Link(sourcePath, destination); ok {
 			collector.add(Mention{Target: target})
 		}
 	}
@@ -102,6 +125,35 @@ func spanContent(span *ast.CodeSpan, body []byte) (string, int) {
 	}
 
 	return builder.String(), max(start, 0)
+}
+
+// inlineStart returns the body offset a link or image starts near: the first
+// byte of the first text inside it, or, for one with no text (`[](x.go)`), the
+// first line of the block that holds it.
+func inlineStart(node ast.Node) int {
+	start := -1
+
+	_ = ast.Walk(node, func(child ast.Node, entering bool) (ast.WalkStatus, error) {
+		if textNode, isText := child.(*ast.Text); entering && isText {
+			start = textNode.Segment.Start
+
+			return ast.WalkStop, nil
+		}
+
+		return ast.WalkContinue, nil
+	})
+
+	if start >= 0 {
+		return start
+	}
+
+	for parent := node.Parent(); parent != nil; parent = parent.Parent() {
+		if parent.Type() == ast.TypeBlock && parent.Lines().Len() > 0 {
+			return parent.Lines().At(0).Start
+		}
+	}
+
+	return 0
 }
 
 // collector keeps mentions in first-seen order without repeats.

@@ -54,6 +54,7 @@ state.`,
 				loaded.EdgeTypes,
 				loaded.NodeTypes,
 				index.NewPropertyDriftRepo(store),
+				loaded.LineNumbering(),
 				args[0],
 				args[1],
 			)

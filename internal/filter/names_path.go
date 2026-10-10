@@ -3,6 +3,7 @@ package filter
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/germanamz/tusk/internal/manifest"
@@ -14,20 +15,23 @@ import (
 // hierarchy shortcuts, it shadows a frontmatter property of the same name.
 const NamesPathKeyword = "names-path"
 
-// NamesPathPredicate matches the pages that name a workspace path in inline
-// code, through the path_refs table that edge types with paths = true fill.
+// NamesPathPredicate matches the pages that name a workspace path, through the
+// path_refs table that edge types with paths = true fill.
 //
 // A literal Value is a path: it matches a page naming that path or any
 // directory above it, since a directory ref covers what it holds. A Pattern
 // value is a glob over the named paths themselves, with no ancestor expansion.
+// EdgeType, set by the qualified form `names-path:<edge-type>=`, limits the
+// match to refs of that edge type; empty matches every paths edge type.
 // Negated is the != form. Refs belong to file rows, so a sub-unit row never
 // matches `=` and always matches `!=` (and `NOT names-path=`); scope a negated
 // test with `type=` when the result may hold sub-units.
 type NamesPathPredicate struct {
-	Value   string
-	Pattern bool
-	Negated bool
-	Pos     int
+	Value    string
+	EdgeType string
+	Pattern  bool
+	Negated  bool
+	Pos      int
 }
 
 func (pred *NamesPathPredicate) exprNode()     {}
@@ -50,10 +54,15 @@ func (pred *NamesPathPredicate) Targets() ([]string, bool) {
 	return pathref.Ancestors(cleaned), true
 }
 
-// Matches reports whether a stored ref target satisfies the predicate, ignoring
-// Negated: for a literal, target is the path or a directory above it; for a
-// pattern, target matches the glob.
-func (pred *NamesPathPredicate) Matches(target string) bool {
+// Matches reports whether a stored ref of edgeType naming target satisfies the
+// predicate, ignoring Negated: the edge type is the qualified one, if any, and
+// for a literal, target is the path or a directory above it; for a pattern,
+// target matches the glob.
+func (pred *NamesPathPredicate) Matches(edgeType, target string) bool {
+	if pred.EdgeType != "" && pred.EdgeType != edgeType {
+		return false
+	}
+
 	if pred.Pattern {
 		matcher, compileErr := regexp.Compile(pathglob.ToRegexp(pred.Value))
 
@@ -105,11 +114,34 @@ func OuterNamesPaths(expr Expr) []*NamesPathPredicate {
 }
 
 // parseNamesPathPredicate parses `names-path=<value>`, `names-path:<value>` or
-// `names-path!=<value>`. A bare value holding `*` or `?` is a glob; quoting it
-// makes the characters literal.
+// `names-path!=<value>`, and the qualified `names-path:<edge-type>=<value>` and
+// `names-path:<edge-type>!=<value>`. A bare value holding `*` or `?` is a glob;
+// quoting it makes the characters literal.
 func (parser *Parser) parseNamesPathPredicate() Expr {
 	identToken := parser.advance()
 	operator := parser.advance()
+
+	var edgeType string
+
+	// The qualified form is only possible after `:`. Probe for an edge type
+	// followed by = or != without consuming input, the way the hierarchy
+	// shortcuts probe for an alias; parsePredicate already advance()d the
+	// keyword and the separator, so the parser's buffer is empty. Anything
+	// else after the `:` is the value itself. A stored path never holds a
+	// `=`, so reading `names-path:a=b` as qualified loses no match.
+	if operator.Kind == TokenColon {
+		savedPos := parser.lexer.pos
+
+		typeCandidate := parser.lexer.Next()
+		operatorCandidate := parser.lexer.Next()
+
+		if typeCandidate.Kind == TokenIdent && (operatorCandidate.Kind == TokenEQ || operatorCandidate.Kind == TokenNE) {
+			edgeType = typeCandidate.Value
+			operator = operatorCandidate
+		} else {
+			parser.lexer.pos = savedPos
+		}
+	}
 
 	if operator.Kind != TokenEQ && operator.Kind != TokenColon && operator.Kind != TokenNE {
 		parser.appendTokenErr(operator, "names-path takes = or !=")
@@ -126,20 +158,40 @@ func (parser *Parser) parseNamesPathPredicate() Expr {
 	}
 
 	return &NamesPathPredicate{
-		Value:   valueToken.Value,
-		Pattern: isPatternToken(valueToken),
-		Negated: operator.Kind == TokenNE,
-		Pos:     identToken.Pos,
+		Value:    valueToken.Value,
+		EdgeType: edgeType,
+		Pattern:  isPatternToken(valueToken),
+		Negated:  operator.Kind == TokenNE,
+		Pos:      identToken.Pos,
 	}
 }
 
-// validateNamesPath checks that the workspace records path refs at all, and
-// that a literal value is a workspace-relative path.
+// validateNamesPath checks that the workspace records path refs at all, that a
+// qualified edge type is one of the paths edge types, and that a literal value
+// is a workspace-relative path.
 func (collector *validationCollector) validateNamesPath(pred *NamesPathPredicate) {
-	if len(manifest.PathEdgeTypeNames(collector.manifest.EdgeTypes)) == 0 {
+	pathTypes := manifest.PathEdgeTypeNames(collector.manifest.EdgeTypes)
+
+	if len(pathTypes) == 0 {
 		collector.add(pred.Pos, "names-path needs an edge type with paths = true", "declare one in tusk.toml, e.g. [edge-types.describes] with from and paths = true")
 
 		return
+	}
+
+	if pred.EdgeType != "" && !slices.Contains(pathTypes, pred.EdgeType) {
+		message := fmt.Sprintf("names-path: edge type %q does not set paths = true", pred.EdgeType)
+
+		if _, declared := collector.manifest.EdgeTypes[pred.EdgeType]; !declared {
+			message = fmt.Sprintf("names-path: edge type %q not declared in manifest", pred.EdgeType)
+		}
+
+		hint := suggestName(pred.EdgeType, pathTypes)
+
+		if hint == "" {
+			hint = "paths edge types: " + strings.Join(pathTypes, ", ")
+		}
+
+		collector.add(pred.Pos, message, hint)
 	}
 
 	if _, ok := pred.Targets(); !pred.Pattern && !ok {
@@ -176,6 +228,11 @@ func compileNamesPath(pred *NamesPathPredicate, columnPrefix string) (string, []
 		for _, target := range targets {
 			params = append(params, target)
 		}
+	}
+
+	if pred.EdgeType != "" {
+		subquery += " AND type = ?"
+		params = append(params, pred.EdgeType)
 	}
 
 	membership := columnPrefix + "id IN (" + subquery + ")"

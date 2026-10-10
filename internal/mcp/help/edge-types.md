@@ -51,10 +51,13 @@ blocks:
   materialize as edges of this type. A navigational shorthand useful
   for prose; distinct from typed frontmatter edges.
 
-- **`paths = true`** records the workspace paths a page names in inline
-  code (`` `server/ledger/core/service.go` ``) as path refs of this type.
-  The whole span must be a workspace-relative path; a trailing `:42` or
-  `:40-52` is dropped. `from` picks which pages are scanned, and a paths
+- **`paths = true`** records the workspace paths a page names as path
+  refs of this type: inline code (`` `server/ledger/core/service.go` ``),
+  where the whole span must be a workspace-relative path (a trailing
+  `:42` or `:40-52` is dropped; a bare `Makefile`, `Dockerfile` or
+  `LICENSE` counts too), and links and images
+  (`[the service](../server/ledger/core/service.go)`), resolved against
+  the page's folder. `from` picks which pages are scanned, and a paths
   type may leave out `to` and `cardinality`. Path refs target paths, not
   nodes, so source trees can stay in `[workspace] ignore`. Find the pages
   that name a file with `names-path=<path>` (see
@@ -66,6 +69,12 @@ blocks:
   from  = ["technical"]
   paths = true
   ```
+
+  With no `to`, the type allows no node targets, so its frontmatter
+  values are paths too: `describes: [server/ledger/core/service.go]`
+  is a path ref on that line, and `tusk_edge_add` /
+  `tusk_edge_remove` maintain it. A type that declares `to` keeps
+  reading frontmatter values as node ids.
 
 ## Using tusk_edge_add vs editing the file
 

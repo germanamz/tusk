@@ -239,15 +239,16 @@ func buildNodeGetRequest(args map[string]any, _ Deps) (any, error) {
 	return req, nil
 }
 
-// NodeGetResult pairs a node.GetResult with edges hydrated from the index.
-// node.GetRun reads only the nodes table (its edges map is always nil on an
-// index read) and the node package cannot import query to project them — an
-// embed→node→query import cycle — so the adapter hydrates edges here, the same
-// both-direction shape `query --include edges` returns. ResultPayload projects
-// Edges onto the "edges" envelope key.
+// NodeGetResult pairs a node.GetResult with edges and path refs hydrated from
+// the index. node.GetRun reads only the nodes table (its edges map is always
+// nil on an index read) and the node package cannot import query to project
+// them — an embed→node→query import cycle — so the adapter hydrates both here,
+// in the shapes `query --include edges,paths` returns. ResultPayload projects
+// them onto the "edges" and "paths" envelope keys.
 type NodeGetResult struct {
 	Result *node.GetResult
 	Edges  []query.EdgeRef
+	Paths  []query.PathRef
 }
 
 func runNodeGet(_ context.Context, deps Deps, request any) (any, error) {
@@ -281,6 +282,20 @@ func runNodeGet(_ context.Context, deps Deps, request any) (any, error) {
 		}
 
 		wrapped.Edges = edges
+	}
+
+	if result.IncludePaths {
+		if deps.Database == nil {
+			return nil, fmt.Errorf("node get adapter: Deps.Database is nil")
+		}
+
+		paths, pathsErr := query.LoadPathsForNode(deps.Database, deps.WorkspaceRoot, result.Node.ID)
+
+		if pathsErr != nil {
+			return nil, pathsErr
+		}
+
+		wrapped.Paths = paths
 	}
 
 	return wrapped, nil

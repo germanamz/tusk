@@ -302,6 +302,10 @@ func renderAliasNodeGet(out io.Writer, result *aliasdispatch.NodeGetResult, _ ou
 		row.Properties = getResult.Node.Properties
 	}
 
+	if getResult.IncludePaths {
+		row.Paths = result.Paths
+	}
+
 	return render.CompactNodeRows(out, []render.CompactRow{row}, render.CompactOpts{})
 }
 

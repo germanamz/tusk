@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/wikilink"
 	"gopkg.in/yaml.v3"
@@ -162,6 +163,7 @@ func Rename(
 	edgeTypes manifest.EdgeTypes,
 	nodeTypes map[string]manifest.NodeType,
 	propertyDrift *index.PropertyDriftRepo,
+	lineNumbering linenum.Scheme,
 	oldID, newRelPath string,
 ) (*RenamePlan, error) {
 	row, getErr := nodeRepo.Get(oldID)
@@ -364,14 +366,6 @@ func Rename(
 		return nil, listOutErr
 	}
 
-	// The moved page's path refs cascade with its old row too. Its bytes are
-	// unchanged by the move, so the refs carry over as they are.
-	outgoingPathRefs, listRefsErr := edgeRepo.PathRefsFrom([]string{oldID})
-
-	if listRefsErr != nil {
-		return nil, listRefsErr
-	}
-
 	// Update node index: delete-old → insert-new (NodeRepo.Upsert is keyed on
 	// id; mutating row.ID then upserting would leave the old row behind).
 	if deleteOldErr := nodeRepo.DeleteByPath(oldPath); deleteOldErr != nil {
@@ -412,8 +406,17 @@ func Rename(
 		return nil, upsertErr
 	}
 
-	if replaceErr := edgeRepo.ReplacePathRefs(newID, outgoingPathRefs); replaceErr != nil {
-		return nil, replaceErr
+	// The moved page's path refs cascaded with its old row. Re-derive them
+	// rather than carry them over: a relative link resolves against the
+	// page's directory, so the same bytes can name other paths from here.
+	movedContent, readMovedErr := os.ReadFile(newAbs)
+
+	if readMovedErr != nil {
+		return nil, fmt.Errorf("node: re-read %s: %w", newRelPath, readMovedErr)
+	}
+
+	if syncErr := syncPathRefs(edgeRepo, newRelPath, movedContent, edgeTypes, lineNumbering); syncErr != nil {
+		return nil, syncErr
 	}
 
 	if deleteOldEdgesErr := edgeRepo.DeleteBySource(oldID); deleteOldEdgesErr != nil {
@@ -440,6 +443,12 @@ func Rename(
 
 		if readErr != nil {
 			return nil, fmt.Errorf("node: re-read %s: %w", relPath, readErr)
+		}
+
+		// The rewrite retargeted what the referrer's links name (an HTML
+		// href now points at the new path), so its path refs follow.
+		if syncErr := syncPathRefs(edgeRepo, relPath, content, edgeTypes, lineNumbering); syncErr != nil {
+			return nil, syncErr
 		}
 
 		// ParseContentFile dispatches markdown vs HTML the same way the
@@ -855,12 +864,21 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 
 	// A ref property's bare frontmatter value is a title (resolved by lookup),
 	// not an id; the referrer's declared type decides which keys those are.
-	refProps := refPropertyNamesForType(mappingScalarValue(mapping, "type"), nodeTypes)
+	referrerType := mappingScalarValue(mapping, "type")
+	refProps := refPropertyNamesForType(referrerType, nodeTypes)
 
 	for pairIdx := 0; pairIdx+1 < len(mapping); pairIdx += 2 {
 		key := mapping[pairIdx].Value
+		edgeType, isEdge := edgeTypes[key]
 
-		if _, isEdge := edgeTypes[key]; !isEdge {
+		if !isEdge {
+			continue
+		}
+
+		// A paths-only type's values name workspace paths, not nodes (see
+		// ResolveEdges); like a link or a code span, a move leaves them as
+		// written.
+		if edgeType.PathsOnly() && edgeType.AllowsSource(referrerType) {
 			continue
 		}
 
@@ -1073,10 +1091,11 @@ func yamlQuoteEdgeValue(value string, inFlow bool) string {
 }
 
 // frontmatterSpan returns the byte range of the YAML frontmatter within content
-// — the same slice splitFrontmatter hands the YAML decoder — so a yaml.Node's
-// line/column addresses can be resolved against the original bytes.
+// — the same slice splitFrontmatter hands the YAML decoder, past a leading BOM
+// — so a yaml.Node's line/column addresses can be resolved against the
+// original bytes.
 func frontmatterSpan(content []byte) (int, int, bool) {
-	trimmed := bytes.TrimLeft(content, " \t\r\n")
+	trimmed := bytes.TrimLeft(bytes.TrimPrefix(content, utf8BOM), " \t\r\n")
 	lead := len(content) - len(trimmed)
 
 	if !bytes.HasPrefix(trimmed, frontmatterDelimiter) {

@@ -18,8 +18,10 @@ func TestRun_PathMissingWarnsOnAnchoredRefsThatAreGone(test *testing.T) {
 		test.Fatalf("mkdir: %v", mkErr)
 	}
 
-	if writeErr := os.WriteFile(filepath.Join(root, "server/ledger/core/service.go"), []byte("x"), 0o644); writeErr != nil {
-		test.Fatalf("write: %v", writeErr)
+	for _, file := range []string{"server/ledger/core/service.go", "server/ledger/readme.md"} {
+		if writeErr := os.WriteFile(filepath.Join(root, file), []byte("x"), 0o644); writeErr != nil {
+			test.Fatalf("write: %v", writeErr)
+		}
 	}
 
 	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
@@ -55,6 +57,7 @@ func TestRun_PathMissingWarnsOnAnchoredRefsThatAreGone(test *testing.T) {
 		{Type: "describes", Target: "server/Ledger/core/service.go", Line: 14}, // wrong case
 		{Type: "describes", Target: "application/json", Line: 16},              // never a path
 		{Type: "describes", Target: "go.sum", Line: 18},                        // single segment, absent
+		{Type: "describes", Target: "server/ledger/readme", Line: 20},          // a markdown node id, as an HTML href names it
 	}
 
 	if replaceErr := edges.ReplacePathRefs("technical/ledger", refs); replaceErr != nil {

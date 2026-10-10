@@ -287,6 +287,86 @@ acyclic = true
 	}
 }
 
+// TestTool_NodeGet_IncludePaths: tusk_node_get with include:["paths"] lists
+// the workspace paths the page names, with existence, and leaves the key out
+// when it isn't asked for.
+func TestTool_NodeGet_IncludePaths(test *testing.T) {
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(`[workspace]
+name = "x"
+
+[edge-types.describes]
+from = ["technical"]
+paths = true
+`), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	if mkErr := os.MkdirAll(filepath.Join(root, "server"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(root, "server/x.go"), []byte("package server\n"), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+
+	if _, createErr := rt.NodeService.Create(node.CreateInput{
+		RelPath: "technical/ledger.md",
+		Type:    "technical",
+		Title:   "Ledger",
+		Body:    []byte("See [x](../server/x.go) and `server/gone.go`.\n"),
+	}); createErr != nil {
+		test.Fatalf("create: %v", createErr)
+	}
+
+	body, callErr := callTool(test, srv, "tusk_node_get", map[string]any{
+		"id":      "technical/ledger",
+		"include": []any{"paths"},
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_node_get: %v", callErr)
+	}
+
+	paths, ok := body["paths"].([]any)
+
+	if !ok || len(paths) != 2 {
+		test.Fatalf("paths = %v, want two path refs", body["paths"])
+	}
+
+	exists := map[string]any{}
+
+	for _, entry := range paths {
+		ref, _ := entry.(map[string]any)
+		exists[ref["path"].(string)] = ref["exists"]
+	}
+
+	if exists["server/x.go"] != true || exists["server/gone.go"] != false {
+		test.Errorf("exists = %v, want server/x.go present and server/gone.go missing", exists)
+	}
+
+	plain, plainErr := callTool(test, srv, "tusk_node_get", map[string]any{"id": "technical/ledger"})
+
+	if plainErr != nil {
+		test.Fatalf("tusk_node_get: %v", plainErr)
+	}
+
+	if _, present := plain["paths"]; present {
+		test.Errorf("paths emitted without being asked for: %v", plain)
+	}
+}
+
 func TestTool_NodeList(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()

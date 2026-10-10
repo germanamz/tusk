@@ -169,3 +169,32 @@ func TestFormatMentions(test *testing.T) {
 		}
 	}
 }
+
+func TestRun_IncludePathsNarrowsToTheQualifiedEdgeType(test *testing.T) {
+	root, deps := pathsFixture(test)
+
+	deps.Manifest.EdgeTypes["mentions"] = manifest.EdgeType{From: []string{"*"}, Cardinality: manifest.CardinalityManyToMany, Paths: true}
+
+	ledgerRefs := []index.PathRefRow{
+		{Type: "describes", Target: "server/ledger/core/service.go", Line: 9},
+		{Type: "mentions", Target: "server/ledger/core/service.go", Line: 25},
+	}
+
+	if replaceErr := deps.Edges.ReplacePathRefs("technical/ledger", ledgerRefs); replaceErr != nil {
+		test.Fatalf("refs: %v", replaceErr)
+	}
+
+	if ledger := runPathsQuery(test, root, deps, "names-path=server/ledger/core/service.go")["technical/ledger"]; len(ledger) != 2 {
+		test.Errorf("unqualified ledger paths = %+v, want both edge types", ledger)
+	}
+
+	got := runPathsQuery(test, root, deps, "names-path:mentions=server/ledger/core/service.go")
+
+	if ledger := got["technical/ledger"]; len(ledger) != 1 || ledger[0].EdgeType != "mentions" {
+		test.Errorf("qualified ledger paths = %+v, want only the mentions ref", ledger)
+	}
+
+	if _, matched := got["technical/arch"]; matched {
+		test.Errorf("arch names server/ledger under describes only, yet matched names-path:mentions=")
+	}
+}

@@ -85,6 +85,9 @@ Each row's `paths` lists the refs that matched:
 - `line` counts from the top of the file; `section` and `heading` name
   the innermost section holding it. HTML pages have no lines.
 - Without a `names-path` filter, `paths` lists every path the page names.
+- `names-path:<edge-type>=<path>` narrows to one paths edge type's refs.
+- For one page, `tusk_node_get(id=..., include=["paths"])` returns the
+  same list.
 
 ## Graph expansion
 

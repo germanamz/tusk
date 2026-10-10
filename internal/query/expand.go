@@ -35,7 +35,7 @@ type IncludeSet struct {
 	// disabled silently drop the flag (MatchedUnits stays empty).
 	Units bool
 	// Paths, when true, attaches to each file row the workspace paths its
-	// page names in inline code (see LoadPaths). Sub-unit rows get none.
+	// page names (see LoadPaths). Sub-unit rows get none.
 	Paths bool
 }
 

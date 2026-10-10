@@ -301,10 +301,11 @@ type EdgeType struct {
 	Wikilinks bool `toml:"wikilinks"`
 
 	// Paths, when true, makes the indexer record the workspace paths a page
-	// names in inline code as path refs of this type (the path_refs table, not
-	// edges: a path is not a node). From picks which pages are scanned. A
-	// paths type may omit to and cardinality; with no to it allows no node
-	// targets, and cardinality defaults to many-to-many.
+	// names in inline code or links as path refs of this type (the path_refs
+	// table, not edges: a path is not a node). From picks which pages are
+	// scanned. A paths type may omit to and cardinality; with no to it allows
+	// no node targets (see PathsOnly), and cardinality defaults to
+	// many-to-many.
 	Paths bool `toml:"paths"`
 
 	// Resolved by manifest.Validate after parsing OrderedRaw.
@@ -325,6 +326,13 @@ func (edgeType EdgeType) AllowsSource(sourceType string) bool {
 // AllowsTarget returns true if targetType matches the edge type's `to` list.
 func (edgeType EdgeType) AllowsTarget(targetType string) bool {
 	return matchesTypeList(edgeType.To, targetType)
+}
+
+// PathsOnly reports whether the edge type records path refs and allows no node
+// targets: paths = true with no to. Its frontmatter values name workspace
+// paths rather than nodes, so they are recorded as path refs, not edges.
+func (edgeType EdgeType) PathsOnly() bool {
+	return edgeType.Paths && len(edgeType.To) == 0
 }
 
 // PathEdgeTypeNames returns the names of the edge types that set paths = true,

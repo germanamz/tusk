@@ -10,6 +10,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/pathref"
 )
 
 // ErrEdgeTypeNotDeclared is the sentinel Service.AddEdge / Service.RemoveEdge
@@ -43,13 +44,20 @@ func (service *Service) AddEdge(edgeType, sourceID, targetID string) error {
 		return fmt.Errorf("edge type %q does not allow source type %q", edgeType, sourceRow.Type)
 	}
 
-	if targetRow, getErr := service.repo.Get(targetID); getErr == nil {
+	if edgeDef.PathsOnly() {
+		// A paths-only type's frontmatter values are workspace paths, recorded
+		// as path refs rather than edges (see ResolveEdges), so the target is
+		// checked as a path, never looked up as a node.
+		if _, isPath := pathref.Declared(targetID); !isPath {
+			return fmt.Errorf("edge type %q records workspace paths; %q is not a workspace-relative path", edgeType, targetID)
+		}
+	} else if targetRow, getErr := service.repo.Get(targetID); getErr == nil {
 		if !edgeDef.AllowsTarget(targetRow.Type) {
 			return fmt.Errorf("edge type %q does not allow target type %q", edgeType, targetRow.Type)
 		}
 	}
 
-	if edgeDef.Acyclic {
+	if edgeDef.Acyclic && !edgeDef.PathsOnly() {
 		existing, listErr := service.edges.ListByType(edgeType)
 
 		if listErr != nil {

@@ -57,8 +57,10 @@ const lineNumberingKey = "line_numbering"
 
 // pathRefsKey stores a fingerprint of the path-ref configuration the stored
 // refs were derived under: the pathref rules version plus each paths edge type
-// with its from list. When the configuration differs (paths = true turned on or
-// off, a from list edited, new rules in this binary), Run forces one full
+// with its from list and whether it declares to (without one, its frontmatter
+// values are paths, not node ids). When the configuration differs (paths = true
+// turned on or off, a from list edited, to added or dropped, new rules in this
+// binary), Run forces one full
 // re-process so every page's refs converge; nothing re-embeds. A vault with no
 // paths edge type fingerprints as "", so an index from before path refs existed
 // needs no pass. Stamped after the pass succeeds.
@@ -77,7 +79,13 @@ func pathRefsFingerprint(edgeTypes manifest.EdgeTypes) string {
 	for _, name := range names {
 		from := slices.Clone(edgeTypes[name].From)
 		slices.Sort(from)
-		parts = append(parts, name+"="+strings.Join(from, ","))
+		part := name + "=" + strings.Join(from, ",")
+
+		if !edgeTypes[name].PathsOnly() {
+			part += "+to"
+		}
+
+		parts = append(parts, part)
 	}
 
 	return strings.Join(parts, ";")

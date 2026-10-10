@@ -21,6 +21,10 @@ func TestCandidate_AcceptsWorkspacePaths(test *testing.T) {
 		"node_modules/@scope/pkg/x.js":  "node_modules/@scope/pkg/x.js",
 		"docs/café.md":                  "docs/café.md",
 		".github/workflows/ci.yml":      ".github/workflows/ci.yml",
+		"Makefile":                      "Makefile",
+		"Dockerfile:12":                 "Dockerfile",
+		"LICENSE":                       "LICENSE",
+		"justfile":                      "justfile",
 	}
 
 	for span, want := range cases {
@@ -43,7 +47,8 @@ func TestCandidate_RejectsNonPaths(test *testing.T) {
 		"",
 		"   ",
 		"ExtractWikilinks",
-		"Makefile",
+		"Readme",
+		"MAKEFILE",
 		"tusk query type=note",
 		"https://example.com/a.go",
 		"/etc/hosts",

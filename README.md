@@ -181,7 +181,7 @@ Edge declarations enforce legality (`from`/`to` types), cardinality, ordering, a
 
 ### Pages name the files they describe
 
-Technical pages name source files, usually in inline code. Set `paths = true` on an edge type and tusk records each inline-code span that is a workspace-relative path, with its line, so a file can find the pages that describe it:
+Technical pages name source files, in inline code or as links. Set `paths = true` on an edge type and tusk records, with its line, each inline-code span that is a workspace-relative path (`` `server/ledger/core/service.go` ``, or a bare `Makefile`) and each link or image destination (`[the service](../server/ledger/core/service.go)`, resolved against the page's folder), so a file can find the pages that describe it:
 
 ```toml
 [edge-types.describes]
@@ -189,9 +189,17 @@ from  = ["technical"]   # which pages are scanned
 paths = true
 ```
 
+With no `to`, the edge type holds no node edges, so its frontmatter values are paths too. `describes: [server/ledger/core/service.go]` declares the path outright, with no heuristic involved.
+
 ```bash
 # Which pages name this file (or a directory above it), and where?
 tusk query 'names-path=server/ledger/core/service.go' --include paths
+
+# Only through one edge type, when several set paths = true
+tusk query 'names-path:describes=server/ledger/core/service.go'
+
+# Every path one page names
+tusk node get technical/ledger --include paths
 ```
 
 The source tree can stay in `[workspace] ignore`: a path ref targets a path, not a node. `tusk doctor` warns with `path-missing` when a page names a path that has been renamed or deleted, and the Claude Code plugin (`tusk claude install`) reminds the agent of those pages right after it edits the file.

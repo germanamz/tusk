@@ -1,8 +1,9 @@
-// Package pathref finds the workspace paths a page names in inline code. The
-// rules here decide what a span looks like (Candidate), Markdown and Spans pull
-// the candidates out of a page, and Disk answers whether one names something on
-// disk. The stored refs depend on page text alone; the disk is consulted only
-// when a reader asks, so a fresh index and a long-lived one agree.
+// Package pathref finds the workspace paths a page names, in inline code or as
+// a link. The rules here decide what a span looks like (Candidate) and where a
+// link points (Link), Markdown and HTML pull both out of a page, and Disk
+// answers whether one names something on disk. The stored refs depend on page
+// text alone; the disk is consulted only when a reader asks, so a fresh index
+// and a long-lived one agree.
 package pathref
 
 import (
@@ -16,7 +17,7 @@ import (
 // RulesVersion tags the candidate and extraction rules. Reindex folds it into
 // the marker that forces one full re-process, so bump it whenever a change
 // here would record different refs for a page already on disk.
-const RulesVersion = "1"
+const RulesVersion = "2"
 
 // maxSpanBytes caps the span length worth testing. A real path is far shorter;
 // anything longer is a code sample, not a reference.
@@ -29,6 +30,33 @@ var lineSuffix = regexp.MustCompile(`:[0-9]+(?:[-:][0-9]+)?$`)
 // URLs, quoting, anchors and assignments rather than plain paths.
 const forbiddenRunes = "*?[]{}<>|\"'`$\\;,=()!&#%^:"
 
+// rootNames are the extensionless files people name bare, usually at the root
+// of a repository. A span with neither a "/" nor a "." counts only when it is
+// one of these, matched exactly, so identifiers like `ExtractWikilinks` stay
+// out.
+var rootNames = map[string]struct{}{
+	"AUTHORS":       {},
+	"Brewfile":      {},
+	"CODEOWNERS":    {},
+	"COPYING":       {},
+	"Containerfile": {},
+	"Dockerfile":    {},
+	"GNUmakefile":   {},
+	"Gemfile":       {},
+	"Jenkinsfile":   {},
+	"Justfile":      {},
+	"LICENCE":       {},
+	"LICENSE":       {},
+	"Makefile":      {},
+	"NOTICE":        {},
+	"Procfile":      {},
+	"Rakefile":      {},
+	"VERSION":       {},
+	"Vagrantfile":   {},
+	"justfile":      {},
+	"makefile":      {},
+}
+
 // Candidate reports whether a code span is, as a whole, a workspace-relative
 // path, and returns it cleaned (no trailing slash, no doubled separators).
 //
@@ -36,9 +64,9 @@ const forbiddenRunes = "*?[]{}<>|\"'`$\\;,=()!&#%^:"
 // dropped. It is then rejected when it holds whitespace, a control character
 // or one of forbiddenRunes; when it starts with "/", "./", "../", "~" or "-";
 // when any segment is ".."; when it has no letter or digit; or when it holds
-// neither a "/" nor a ".". The last rule keeps bare identifiers like
-// `ExtractWikilinks` out, at the cost of extensionless root files (`Makefile`).
-// Whether the path exists is not checked here; see Disk.
+// neither a "/" nor a "." and is not one of the well-known extensionless names
+// (`Makefile`, `LICENSE`). The last rule keeps bare identifiers like
+// `ExtractWikilinks` out. Whether the path exists is not checked here; see Disk.
 func Candidate(span string) (string, bool) {
 	span = strings.TrimSpace(span)
 
@@ -48,7 +76,11 @@ func Candidate(span string) (string, bool) {
 
 	span = lineSuffix.ReplaceAllString(span, "")
 
-	if !strings.ContainsAny(span, "/.") || strings.ContainsAny(span, forbiddenRunes) {
+	if strings.ContainsAny(span, forbiddenRunes) {
+		return "", false
+	}
+
+	if _, known := rootNames[span]; !known && !strings.ContainsAny(span, "/.") {
 		return "", false
 	}
 
@@ -103,6 +135,27 @@ func Clean(value string) (string, bool) {
 
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return "", false
+	}
+
+	return cleaned, true
+}
+
+// Declared normalizes a path an author wrote as a frontmatter value under a
+// paths-only edge type (`describes: [server/ledger/core/service.go]`). The
+// value is explicit, so it skips Candidate's shape test, and it takes what
+// Clean takes, but it also rejects a control character and a ":", which marks
+// a URL or a drive letter rather than a workspace path.
+func Declared(value string) (string, bool) {
+	cleaned, ok := Clean(value)
+
+	if !ok || strings.Contains(cleaned, ":") {
+		return "", false
+	}
+
+	for _, char := range cleaned {
+		if unicode.IsControl(char) {
+			return "", false
+		}
 	}
 
 	return cleaned, true

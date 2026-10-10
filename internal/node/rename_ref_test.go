@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 )
@@ -91,7 +92,7 @@ func (fixture refRenameFixture) rename(test *testing.T, oldID, newRelPath string
 
 	plan, renameErr := node.Rename(
 		fixture.root, fixture.nodeRepo, fixture.edgeRepo, fixture.fileState,
-		"test-worker", time.Minute, fixture.edgeTypes, fixture.nodeTypes, nil,
+		"test-worker", time.Minute, fixture.edgeTypes, fixture.nodeTypes, nil, linenum.DefaultScheme,
 		oldID, newRelPath,
 	)
 
@@ -396,7 +397,7 @@ func TestRename_RecordsRefDriftForBrokenReferrerRef(test *testing.T) {
 
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
-		edgeTypes, nodeTypes, driftRepo, "people/jane", "people/jane-doe.md",
+		edgeTypes, nodeTypes, driftRepo, linenum.DefaultScheme, "people/jane", "people/jane-doe.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -563,7 +564,7 @@ func TestRename_LeavesBareTitleRefWhenTitleEqualsOldID(test *testing.T) {
 
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
-		edgeTypes, nodeTypes, nil, "notes/foo", "notes/bar.md",
+		edgeTypes, nodeTypes, nil, linenum.DefaultScheme, "notes/foo", "notes/bar.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}

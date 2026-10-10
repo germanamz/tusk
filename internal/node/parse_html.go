@@ -92,6 +92,7 @@ func ParseHTMLFile(relPath string, content []byte) (*Node, error) {
 		Body:       []byte(htmltext.NormalizeText(content)),
 		HTMLLinks:  collectHrefs(root),
 		HTMLCode:   collectInlineCode(root),
+		HTMLImages: collectImageSources(root),
 	}, nil
 }
 
@@ -259,6 +260,32 @@ func collectHrefs(root *html.Node) []string {
 	walk(root)
 
 	return hrefs
+}
+
+// collectImageSources gathers every <img src> value in document order. Like
+// hrefs, they stay raw here; pathref.Link resolves them against the page.
+func collectImageSources(root *html.Node) []string {
+	var sources []string
+
+	var walk func(node *html.Node)
+
+	walk = func(node *html.Node) {
+		if node.Type == html.ElementNode && node.DataAtom == atom.Img {
+			for _, attr := range node.Attr {
+				if attr.Key == "src" {
+					sources = append(sources, attr.Val)
+				}
+			}
+		}
+
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+
+	walk(root)
+
+	return sources
 }
 
 // collectInlineCode gathers the text of every <code> element that is not

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/linenum"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 )
 
@@ -49,7 +51,7 @@ func TestRename_KeepsExtensionOnHTMLNodeID(test *testing.T) {
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, "docs/a.html", "docs/b.html",
+		edgeTypes, nil, nil, linenum.DefaultScheme, "docs/a.html", "docs/b.html",
 	)
 
 	if renameErr != nil {
@@ -136,7 +138,7 @@ func TestRename_RewritesHTMLReferrerHrefOnDisk(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, "notes/target", "notes/renamed.md",
+		edgeTypes, nil, nil, linenum.DefaultScheme, "notes/target", "notes/renamed.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -159,6 +161,69 @@ func TestRename_RewritesHTMLReferrerHrefOnDisk(test *testing.T) {
 
 	if stale, _ := edgeRepo.ListByTarget("notes/target"); len(stale) != 0 {
 		test.Errorf("edges still target the dead id notes/target: %+v", stale)
+	}
+}
+
+// An HTML referrer's href is a path ref too, under a paths edge type. The move
+// rewrites the href on disk, so the referrer's path ref must follow it rather
+// than keep naming the old path until the next reindex.
+func TestRename_HTMLReferrerPathRefsFollowTheHref(test *testing.T) {
+	root := test.TempDir()
+
+	store, _ := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	defer store.Close()
+
+	nodeRepo := index.NewNodeRepo(store)
+	edgeRepo := index.NewEdgeRepo(store)
+	edgeTypes := wikilinkEdgeTypes()
+	edgeTypes["describes"] = manifest.EdgeType{From: []string{"note"}, Cardinality: manifest.CardinalityManyToMany, Paths: true}
+
+	service := node.NewServiceWithLease(
+		root, nodeRepo, edgeRepo, edgeTypes, nil,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+	)
+
+	if _, targetErr := service.Create(node.CreateInput{RelPath: "notes/target.md", Type: "note", Title: "Target"}); targetErr != nil {
+		test.Fatalf("create target: %v", targetErr)
+	}
+
+	writeWorkspaceFile(test, root, "docs/page.html", "<!doctype html>\n<html><head><meta name=\"tusk:type\" content=\"note\">"+
+		"<title>Page</title></head><body><p>See <a href=\"../notes/target\">the note</a>.</p></body></html>\n")
+	seedFileNode(test, nodeRepo, "docs/page.html", "docs/page.html")
+
+	if upsertErr := edgeRepo.UpsertAll("docs/page.html", "docs/page.html", []index.EdgeRow{{
+		Type: "references", SourceID: "docs/page.html", TargetID: "notes/target",
+		SourcePath: "docs/page.html", Kind: "direct",
+	}}); upsertErr != nil {
+		test.Fatalf("seed referrer edge: %v", upsertErr)
+	}
+
+	if replaceErr := edgeRepo.ReplacePathRefs("docs/page.html", []index.PathRefRow{{Type: "describes", Target: "notes/target"}}); replaceErr != nil {
+		test.Fatalf("seed referrer path ref: %v", replaceErr)
+	}
+
+	if _, renameErr := node.Rename(
+		root, nodeRepo, edgeRepo,
+		index.NewFileStateRepo(store), "test-worker", time.Minute,
+		edgeTypes, nil, nil, linenum.DefaultScheme, "notes/target", "notes/renamed.md",
+	); renameErr != nil {
+		test.Fatalf("Rename: %v", renameErr)
+	}
+
+	pageContent, _ := os.ReadFile(filepath.Join(root, "docs/page.html"))
+
+	if !strings.Contains(string(pageContent), `href="../notes/renamed"`) {
+		test.Fatalf("HTML href not rewritten on disk:\n%s", string(pageContent))
+	}
+
+	refs, listErr := edgeRepo.PathRefsFrom([]string{"docs/page.html"})
+
+	if listErr != nil {
+		test.Fatalf("PathRefsFrom: %v", listErr)
+	}
+
+	if len(refs) != 1 || refs[0].Target != "notes/renamed" {
+		test.Errorf("referrer path refs = %+v, want the href's new target notes/renamed", refs)
 	}
 }
 

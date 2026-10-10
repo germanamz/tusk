@@ -10,8 +10,9 @@ import (
 	"github.com/germanamz/tusk/internal/pathref"
 )
 
-// IssuePathMissing surfaces a workspace path a page names in inline code (a
-// path ref, from an edge type with paths = true) that is not on disk: the file
+// IssuePathMissing surfaces a workspace path a page names in inline code, a
+// link or a frontmatter value (a path ref, from an edge type with
+// paths = true) that is not on disk: the file
 // was renamed or deleted after the page was written, or the page names one
 // that doesn't exist yet. NodeID is the page; Locations are the innermost
 // sections holding the mentions. Only an anchored ref is checked, one whose
@@ -54,7 +55,7 @@ func checkPathRefs(config Config) ([]Issue, error) {
 		gone, checked := missing[ref.Target]
 
 		if !checked {
-			gone = disk.Anchored(ref.Target) && !disk.Present(ref.Target)
+			gone = disk.Anchored(ref.Target) && !disk.Resolves(ref.Target)
 			missing[ref.Target] = gone
 		}
 

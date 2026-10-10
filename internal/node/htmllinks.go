@@ -1,11 +1,8 @@
 package node
 
 import (
-	"net/url"
-	"path"
-	"strings"
-
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/pathref"
 )
 
 // ResolveHTMLLinks turns a node's raw <a href> values into target node ids,
@@ -17,46 +14,17 @@ import (
 // Hrefs that cannot name a vault node are dropped: external URLs (any scheme,
 // e.g. https:, mailto:), protocol-relative ("//host/…"), in-page anchors
 // ("#…"), empty values, and links that escape the vault root ("../…" above
-// root). Query strings and fragments are stripped. Results are unique in
-// first-seen order, mirroring wikilink.Extract.
+// root). Query strings and fragments are stripped. pathref.Link holds the
+// resolution rules, shared with path refs. Results are unique in first-seen
+// order, mirroring wikilink.Extract.
 func ResolveHTMLLinks(sourcePath string, hrefs []string) []string {
-	dir := path.Dir(sourcePath)
-
 	seen := map[string]struct{}{}
 	var ordered []string
 
 	for _, href := range hrefs {
-		parsed, parseErr := url.Parse(strings.TrimSpace(href))
+		target, ok := pathref.Link(sourcePath, href)
 
-		if parseErr != nil {
-			continue
-		}
-
-		// Drop external (scheme set) and protocol-relative ("//host") links —
-		// neither names a local vault node.
-		if parsed.IsAbs() || parsed.Host != "" {
-			continue
-		}
-
-		linkPath := parsed.Path
-
-		if linkPath == "" {
-			// Pure anchor ("#section") or empty href.
-			continue
-		}
-
-		var target string
-
-		if strings.HasPrefix(linkPath, "/") {
-			// Root-relative: resolve against the vault root, not the source dir.
-			target = path.Clean(strings.TrimPrefix(linkPath, "/"))
-		} else {
-			target = path.Join(dir, linkPath)
-		}
-
-		// path.Join/Clean already collapse "." and "..". A leading ".." means
-		// the link escaped the vault root and cannot name a node.
-		if target == "." || target == ".." || strings.HasPrefix(target, "../") {
+		if !ok {
 			continue
 		}
 

@@ -1,5 +1,7 @@
 package node
 
+import "slices"
+
 // GetRequest configures GetRun.
 //
 // Include selects which expandable fields to populate on the result. The
@@ -20,12 +22,16 @@ type GetRequest struct {
 // path, title, properties, edges, and body — everything both renderers need.
 // IncludeBody / IncludeEdges / IncludeProperties mirror the filtered shape
 // the caller asked for; they are convenience flags on top of the always-full
-// Node so renderers do not have to re-parse the request.
+// Node so renderers do not have to re-parse the request. IncludePaths asks for
+// the workspace paths the page names, which the node package can't load (the
+// caller hydrates them with query.LoadPathsForNode); unlike the others it is
+// never implied by an empty filter, since it checks the disk.
 type GetResult struct {
 	Node              *Node
 	IncludeBody       bool
 	IncludeEdges      bool
 	IncludeProperties bool
+	IncludePaths      bool
 	// HasIncludeFilter reports whether the caller passed any explicit
 	// Include or Fields. False means "render everything" (back-compat:
 	// matches the historical raw-file behavior of `tusk node get`).
@@ -53,18 +59,7 @@ func GetRun(service *Service, req GetRequest) (*GetResult, error) {
 		return result, nil
 	}
 
-	for _, token := range req.Include {
-		switch token {
-		case "body":
-			result.IncludeBody = true
-		case "edges":
-			result.IncludeEdges = true
-		case "properties":
-			result.IncludeProperties = true
-		}
-	}
-
-	for _, name := range req.Fields {
+	for _, name := range slices.Concat(req.Include, req.Fields) {
 		switch name {
 		case "body":
 			result.IncludeBody = true
@@ -72,6 +67,8 @@ func GetRun(service *Service, req GetRequest) (*GetResult, error) {
 			result.IncludeEdges = true
 		case "properties":
 			result.IncludeProperties = true
+		case "paths":
+			result.IncludePaths = true
 		}
 	}
 

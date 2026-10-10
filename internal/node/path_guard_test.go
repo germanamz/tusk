@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 )
@@ -96,7 +97,7 @@ func TestRename_RejectsReservedID(test *testing.T) {
 		if _, renameErr := node.Rename(
 			root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 			index.NewFileStateRepo(store), "test-worker", time.Minute,
-			manifest.EdgeTypes{}, nil, nil, "notes/a", badTarget,
+			manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/a", badTarget,
 		); !errors.Is(renameErr, node.ErrReservedID) {
 			test.Errorf("Rename to %q err = %v, want ErrReservedID", badTarget, renameErr)
 		}
@@ -120,7 +121,7 @@ func TestRename_RejectsPathEscapingVault(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, index.NewNodeRepo(store), index.NewEdgeRepo(store),
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, nil, "notes/a", "../escape",
+		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/a", "../escape",
 	); renameErr == nil {
 		test.Errorf("Rename to a traversal path = nil error, want rejection")
 	}

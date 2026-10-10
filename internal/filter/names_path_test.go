@@ -17,6 +17,7 @@ func pathRefsManifest() manifest.Manifest {
 		NodeTypes: map[string]manifest.NodeType{"technical": {}, "note": {}},
 		EdgeTypes: map[string]manifest.EdgeType{
 			"describes":  {From: []string{"technical"}, Cardinality: manifest.CardinalityManyToMany, Paths: true},
+			"mentions":   {From: []string{"*"}, Cardinality: manifest.CardinalityManyToMany, Paths: true},
 			"references": {From: []string{"*"}, To: []string{"*"}, Cardinality: manifest.CardinalityManyToMany},
 		},
 	}
@@ -31,6 +32,10 @@ func TestParse_NamesPath(test *testing.T) {
 		{"names-path:server/ledger/", filter.NamesPathPredicate{Value: "server/ledger/"}},
 		{"names-path!=server/**", filter.NamesPathPredicate{Value: "server/**", Pattern: true, Negated: true}},
 		{`names-path="docs/*.md"`, filter.NamesPathPredicate{Value: "docs/*.md"}},
+		{"names-path:describes=server/x.go", filter.NamesPathPredicate{Value: "server/x.go", EdgeType: "describes"}},
+		{"names-path:my-paths!=server/**", filter.NamesPathPredicate{Value: "server/**", EdgeType: "my-paths", Pattern: true, Negated: true}},
+		{"names-path:Makefile", filter.NamesPathPredicate{Value: "Makefile"}},
+		{"names-path:go.mod", filter.NamesPathPredicate{Value: "go.mod"}},
 	}
 
 	for _, testCase := range cases {
@@ -84,6 +89,27 @@ func TestValidate_NamesPath(test *testing.T) {
 			test.Errorf("%q: %v, want one error", bad, errs)
 		}
 	}
+
+	if errs := validateFilter("names-path:mentions=server/x.go", pathRefsManifest()); len(errs) != 0 {
+		test.Errorf("qualified by a paths edge type: %v", errs)
+	}
+
+	qualified := map[string]string{
+		"names-path:references=server/x.go": "does not set paths = true",
+		"names-path:describe=server/x.go":   "not declared",
+	}
+
+	for input, wantMessage := range qualified {
+		errs := validateFilter(input, pathRefsManifest())
+
+		if len(errs) != 1 || !strings.Contains(errs[0].Message, wantMessage) {
+			test.Errorf("%q: %v, want one %q error", input, errs, wantMessage)
+		}
+	}
+
+	if errs := validateFilter("names-path:describe=server/x.go", pathRefsManifest()); len(errs) == 1 && !strings.Contains(errs[0].Hint, `"describes"`) {
+		test.Errorf("typo hint = %q, want a describes suggestion", errs[0].Hint)
+	}
 }
 
 func TestCompile_NamesPathSQL(test *testing.T) {
@@ -107,6 +133,16 @@ func TestCompile_NamesPathSQL(test *testing.T) {
 			"negated", "names-path!=go.mod",
 			"NOT (id IN (SELECT source_id FROM path_refs WHERE target IN (?)))",
 			[]any{"go.mod"},
+		},
+		{
+			"qualified by edge type", "names-path:describes=go.mod",
+			"id IN (SELECT source_id FROM path_refs WHERE target IN (?) AND type = ?)",
+			[]any{"go.mod", "describes"},
+		},
+		{
+			"qualified glob", "names-path:mentions=server/**",
+			"id IN (SELECT source_id FROM path_refs WHERE target REGEXP ? AND type = ?)",
+			[]any{`^server/([^/]*/)*[^/]+$`, "mentions"},
 		},
 		{
 			"after an edge arrow", "references-> names-path=go.mod",
@@ -193,6 +229,10 @@ func TestCompile_NamesPathRows(test *testing.T) {
 		}
 	}
 
+	if replaceErr := edges.ReplacePathRefs("notes/plain", []index.PathRefRow{{Type: "mentions", Target: "scripts/build.sh", Line: 1}}); replaceErr != nil {
+		test.Fatalf("refs notes/plain: %v", replaceErr)
+	}
+
 	link := index.EdgeRow{Type: "references", SourceID: "notes/index", TargetID: "technical/ledger", SourcePath: "notes/index.md", Kind: "direct"}
 
 	if upsertErr := edges.UpsertAll(link.SourceID, link.SourcePath, []index.EdgeRow{link}); upsertErr != nil {
@@ -213,6 +253,11 @@ func TestCompile_NamesPathRows(test *testing.T) {
 		{"composes with NOT", "type=technical AND NOT names-path=server/**", []string{"technical/build"}},
 		{"after an edge arrow", "references-> names-path=server/wire.go", []string{"notes/index"}},
 		{"nothing names it", "names-path=server/other.go", nil},
+		{"any paths edge type", "names-path=scripts/build.sh", []string{"notes/plain"}},
+		{"qualified by its edge type", "names-path:mentions=scripts/build.sh", []string{"notes/plain"}},
+		{"qualified by another edge type", "names-path:describes=scripts/build.sh", nil},
+		{"qualified directory and glob", "names-path:describes=server/ledger OR names-path:mentions=**", []string{"notes/plain", "technical/arch"}},
+		{"qualified and negated", "type=note AND names-path:mentions!=scripts/**", []string{"notes/index"}},
 	}
 
 	for _, testCase := range cases {
@@ -252,14 +297,20 @@ func TestNamesPathPredicate_MatchesAndOuter(test *testing.T) {
 	literal, glob := outer[0], outer[1]
 
 	for target, want := range map[string]bool{"server/ledger/core.go": true, "server/ledger": true, "server": true, "server/ledger/other.go": false} {
-		if got := literal.Matches(target); got != want {
+		if got := literal.Matches("describes", target); got != want {
 			test.Errorf("literal.Matches(%q) = %v, want %v", target, got, want)
 		}
 	}
 
 	for target, want := range map[string]bool{"docs/a/b.md": true, "docs": false, "server/x": false} {
-		if got := glob.Matches(target); got != want {
+		if got := glob.Matches("describes", target); got != want {
 			test.Errorf("glob.Matches(%q) = %v, want %v", target, got, want)
 		}
+	}
+
+	qualified := filter.NamesPathPredicate{Value: "server/x.go", EdgeType: "describes"}
+
+	if !qualified.Matches("describes", "server/x.go") || qualified.Matches("mentions", "server/x.go") {
+		test.Errorf("a qualified predicate must match only its edge type's refs")
 	}
 }
