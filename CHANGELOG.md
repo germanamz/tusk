@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.0](https://github.com/germanamz/tusk/compare/v2.7.1...v2.8.0) (2026-10-10)
+
+
+### Features
+
+* **pathref:** record links, frontmatter paths and root files as path refs ([#780](https://github.com/germanamz/tusk/issues/780)) ([#785](https://github.com/germanamz/tusk/issues/785)) ([46f1a3a](https://github.com/germanamz/tusk/commit/46f1a3a08efb53a13d688a0cf608d13a1d309cb4))
+
 ## [2.7.1](https://github.com/germanamz/tusk/compare/v2.7.0...v2.7.1) (2026-10-10)
 
 
