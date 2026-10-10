@@ -18,7 +18,7 @@ import (
 // e.g. https:, mailto:), protocol-relative ("//host/…"), in-page anchors
 // ("#…"), empty values, and links that escape the vault root ("../…" above
 // root). Query strings and fragments are stripped. Results are unique in
-// first-seen order, mirroring ExtractWikilinks.
+// first-seen order, mirroring wikilink.Extract.
 func ResolveHTMLLinks(sourcePath string, hrefs []string) []string {
 	dir := path.Dir(sourcePath)
 

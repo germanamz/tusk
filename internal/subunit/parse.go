@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -610,7 +610,7 @@ func DeriveEdges(unit Unit, wikilinkEdgeTypes []string) []EdgeSpec {
 		return nil
 	}
 
-	targets := node.ExtractWikilinks([]byte(unit.Text))
+	targets := wikilink.Extract([]byte(unit.Text))
 	if len(targets) == 0 {
 		return nil
 	}

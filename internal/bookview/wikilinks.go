@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/germanamz/tusk/internal/index"
-	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // resolveWikilinks maps every [[target]] in body to the node it resolves to, so
@@ -13,7 +13,7 @@ import (
 // server-side: a reader's note may carry dozens of links, and the alternative is
 // a request each.
 //
-// The keys are node.ExtractWikilinks's targets verbatim, which is what makes the
+// The keys are wikilink.Extract's targets verbatim, which is what makes the
 // map usable: they are alias-stripped ([[b|Bee]] keys on "b" — the label is
 // presentation and is never resolved), trimmed, de-duplicated, and keep any
 // "#section" fragment. The client cuts the same target out of the body text it
@@ -23,16 +23,16 @@ import (
 // a frontmatter ref is never rewritten, so an entry for it could only be a key
 // nothing matches. Those refs already reach the reader through the links rails.
 //
-// Alias splitting is deliberately delegated to node.ExtractWikilinks rather than
+// Alias splitting is deliberately delegated to wikilink.Extract rather than
 // re-implemented here. The resolver and the rewriter agreeing on where a target
 // ends is load-bearing — a second copy of that cut is exactly the bug #690 fixed.
 //
 // The returned map is always non-nil: it marshals to an object, and a nil map
 // would put "wikilinks": null on the wire, forcing every consumer to null-check
-// before indexing. ExtractWikilinks returns a nil slice for a link-free body, so
+// before indexing. wikilink.Extract returns a nil slice for a link-free body, so
 // that is the common path, not an edge case.
 func (srv *Server) resolveWikilinks(body []byte) (map[string]WikilinkTarget, error) {
-	targets := node.ExtractWikilinks(body)
+	targets := wikilink.Extract(body)
 	resolved := make(map[string]WikilinkTarget, len(targets))
 
 	// Most targets name an id, so try every one that way first — in a single

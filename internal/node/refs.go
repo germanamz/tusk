@@ -7,6 +7,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // RefLookup is the I/O surface ResolveRefs needs. Production wires it
@@ -52,7 +53,7 @@ type RefResolutionResult struct {
 }
 
 // refWikilinkPattern matches an entire string of the form "[[X]]"; the
-// captured group is X. This is distinct from wikilinks.go's wikilinkPattern,
+// captured group is X. This is distinct from the wikilink package's pattern,
 // which is unanchored and used to extract wikilinks from document bodies.
 var refWikilinkPattern = regexp.MustCompile(`^\[\[(.+?)\]\]$`)
 
@@ -213,7 +214,7 @@ func resolveOneValue(propName, value, targetType string, lookup RefLookup) (*Ref
 		// Wikilink branch: resolve by node ID, dropping any `|alias` display
 		// suffix so `[[id|Label]]` resolves to id exactly like a bare `[[id]]`
 		// (#690). The raw value is still reported in diagnostics below.
-		nodeID, _ := splitWikilinkAlias(matches[1])
+		nodeID, _ := wikilink.SplitAlias(matches[1])
 		foundType, found := lookup.FindByID(nodeID)
 
 		if !found {
