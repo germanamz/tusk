@@ -1,0 +1,30 @@
+# Tusk
+
+> Agent memory you can code-review. Tusk indexes a folder of markdown into a typed, searchable graph that agents query over MCP (`tusk mcp`, stdio) or the `tusk` CLI. The memory stays plain files in git; `tusk doctor` exits 1 when a link dangles, a property breaks the schema, or a declared rule matches.
+
+Tusk is a single Go binary. A markdown file is a node when its YAML frontmatter has `type:`; its path without the extension is its id. `tusk.toml` declares node types, properties, edge types and rules. The index is a SQLite file in `.tusk/` (gitignored, rebuilt by `tusk reindex`). Semantic and hybrid search need Ollama running locally; structural queries, doctor and the web app don't. The MCP server finds its workspace by walking up from its working directory to the nearest `tusk.toml`.
+
+## Start here
+
+- [README](https://raw.githubusercontent.com/germanamz/tusk/main/README.md): what tusk is, install, a quickstart, per-client MCP setup, and the setup steps for agents
+- [Install and update](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/install.md): install script, `go install`, building from source, `tusk update`
+
+## Guides
+
+- [Workspaces, nodes and the manifest](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/workspace.md): node files, edges, wikilinks, path refs, `tusk.toml`, type packs, what gets indexed
+- [Querying](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/querying.md): the filter grammar, semantic and hybrid search, matched units with line ranges, embedding model settings
+- [Rules and doctor](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/rules-and-doctor.md): severities, exit codes, `[rule.<name>]` conventions, running doctor in CI
+- [MCP server and Claude Code plugin](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/mcp.md): the server, `tusk claude install`, the `tusk_*` tool list
+
+## CLI reference
+
+- [Command index](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/README.md): every command, generated from the CLI help text
+- [Workflows](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/workflows.md): multi-command recipes (bootstrap, ingest, query, MCP wiring, health checks)
+- [tusk query](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_query.md): structural, semantic and hybrid queries
+- [tusk doctor](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_doctor.md): health check flags and exit codes
+
+## Optional
+
+- [PRODUCT.md](https://raw.githubusercontent.com/germanamz/tusk/main/PRODUCT.md): product vision and design principles
+- [Roadmap](https://raw.githubusercontent.com/germanamz/tusk/main/docs/roadmap.md): shipped work and larger explorations
+- [Package docs](https://github.com/germanamz/tusk/tree/main/docs/packages): one page per internal Go package, for contributors

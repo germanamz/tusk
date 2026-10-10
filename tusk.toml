@@ -19,7 +19,12 @@ ignore = [
     ".claude/",
     ".superpowers/",
     ".worktrees/",
+    # Test fixtures: web/e2e/fixture is its own workspace, and testdata/
+    # holds parser inputs, not notes
+    "web/e2e/fixture/",
+    "testdata/",
     # Harness/human-targeted top-level docs (not the assistant's surface)
+    "AGENTS.md",
     "CLAUDE.md",
     "STYLE.md",
     "PRODUCT.md",
@@ -27,6 +32,7 @@ ignore = [
     "CONTRIBUTING.md",
     "CODE_OF_CONDUCT.md",
     "CHANGELOG.md",
+    "docs/guide/",
     # Generated CLI reference (title-only frontmatter, not nodes) and
     # process artifacts (implementation plans are not the assistant's surface)
     "docs/cli/",
