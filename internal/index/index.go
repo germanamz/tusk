@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS nodes (
 	ordinal         INTEGER NULL,               -- position within parent; NULL for files
 	embed_payload   TEXT NULL,                  -- synthesized embedding payload for sub-units
 	content_hash    TEXT NULL,                  -- sha256 of embed payload (leaves) / heading (sections); NULL for files
+	start_line      INTEGER NULL,               -- first file line a sub-unit covers (1-based); NULL for files and HTML sub-units
+	end_line        INTEGER NULL,               -- last file line a sub-unit covers (inclusive); NULL like start_line
 	kind            TEXT NOT NULL,              -- row-class: 'file' | 'subunit'
 	source          TEXT NULL,                  -- namespace identifier; NULL = user
 	CHECK (
@@ -231,6 +233,11 @@ func Open(dbPath string) (*Index, error) {
 		return nil, migrateErr
 	}
 
+	if migrateErr := migrateNodeLineColumns(ctx, db); migrateErr != nil {
+		db.Close()
+		return nil, migrateErr
+	}
+
 	idx := &Index{db: db, path: dbPath}
 
 	metaRepo := NewMetaRepo(idx)
@@ -291,6 +298,33 @@ func migratePropertyDriftValue(ctx context.Context, db *sql.DB) error {
 	// the tables that already exist.
 	if _, execErr := db.ExecContext(ctx, schema); execErr != nil {
 		return fmt.Errorf("index: migrate property_drift: recreate table: %w", execErr)
+	}
+
+	return nil
+}
+
+// migrateNodeLineColumns adds the nullable nodes.start_line / nodes.end_line
+// columns to an index written before sub-unit line ranges existed. ADD COLUMN
+// keeps every row and vector, so no rebuild or re-embed is needed; the rows
+// stay NULL until reindex re-processes them (the line_numbering meta marker
+// forces that pass). Idempotent: a column that already exists is skipped.
+func migrateNodeLineColumns(ctx context.Context, db *sql.DB) error {
+	for _, column := range []string{"start_line", "end_line"} {
+		var present int
+
+		if scanErr := db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM pragma_table_info('nodes') WHERE name = ?`, column,
+		).Scan(&present); scanErr != nil {
+			return fmt.Errorf("index: inspect nodes.%s: %w", column, scanErr)
+		}
+
+		if present > 0 {
+			continue
+		}
+
+		if _, execErr := db.ExecContext(ctx, `ALTER TABLE nodes ADD COLUMN `+column+` INTEGER NULL`); execErr != nil {
+			return fmt.Errorf("index: add nodes.%s: %w", column, execErr)
+		}
 	}
 
 	return nil

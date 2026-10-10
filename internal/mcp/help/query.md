@@ -34,11 +34,35 @@ tusk_query(filter="type=note AND kind=design",
 - `sort` — sort spec, e.g. `"+priority,-due"`.
 - `include` — expand each row with `body` / `edges` / `properties` /
   `units` in one round-trip. For semantic results, `body` is the
-  best-matching chunk.
+  best-matching chunk. `units` lists each file's sub-unit outline on a
+  structural query; semantic rows carry matched units without it.
+- `max_units` — keep at most N matched units per file. Defaults to 3
+  on semantic rows; the `include=units` outline is uncapped unless set.
 - `fields` — project the rendered shape to a subset of fields.
 - `format` — `"json"` (default) or `"compact"`.
 - `min_score` — minimum similarity score for semantic results
   (MCP default 0.5). Lower this when a query returns no hits.
+
+## Matched units
+
+A semantic row is a pointer into its file. Each row carries
+`matched_units`, the passages that matched, best first. Every scored
+passage folds into its innermost section, so one finding is one row:
+
+```
+{"id": "docs/ledger#S1.2", "type": "section", "heading": "Balances",
+ "heading_level": 2, "lines": [11, 13], "score": 0.82,
+ "snippet": "Balances are derived from entries, never stored."}
+```
+
+- `lines` is `[start, end]`, 1-based and inclusive, counted from the
+  top of the file (frontmatter included). Open the file there instead
+  of reading all of it. HTML units have no `lines`.
+- `heading` names a section. The `snippet` is the passage that matched.
+- A passage before the first heading is its own row (a `paragraph`,
+  `list-item`, ...).
+- `units_total` on the file row is how many units there were before
+  `max_units` cut the list.
 
 ## Graph expansion
 

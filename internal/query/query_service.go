@@ -50,6 +50,18 @@ type Request struct {
 	// tool responses. Ignored when Take > 0.
 	StructuralDefaultTake int
 
+	// MaxUnits caps the matched_units attached to each file row; the
+	// pre-cap count is reported as units_total. 0 defers to the default.
+	// Negative is rejected.
+	MaxUnits int
+
+	// SemanticDefaultMaxUnits is the per-file unit cap on semantic rows when
+	// MaxUnits is 0. Semantic rows carry matched_units without include=units,
+	// so the MCP handler bounds them (an agent rarely needs more than the
+	// best few passages); the CLI leaves it 0 (no cap). It never applies to
+	// structural include=units, where the caller asked for the outline.
+	SemanticDefaultMaxUnits int
+
 	Include       []string
 	Fields        []string
 	WorkspaceRoot string
@@ -88,6 +100,10 @@ type Row struct {
 	// MatchedUnits is populated when Include contains "units" (structural
 	// path) and the workspace has sub-units enabled. Nil otherwise.
 	MatchedUnits []MatchedUnit `json:"matched_units,omitempty"`
+
+	// UnitsTotal is how many units the file had before MaxUnits cut
+	// MatchedUnits. Set whenever MatchedUnits is.
+	UnitsTotal int `json:"units_total,omitempty"`
 }
 
 // ScoredRow is a single semantic-ranked result.
@@ -106,10 +122,17 @@ type ScoredRow struct {
 	Edges      []EdgeRef      `json:"edges,omitempty"`
 
 	// MatchedUnits, when populated, holds the per-sub-unit hits that
-	// contributed to the file-level Score (semantic + sub-units path).
-	// Ordered by descending score. Sections are interleaved with leaves
-	// per §5.7.
+	// contributed to the file-level Score (semantic + sub-units path),
+	// ordered by descending score. Semantic rows carry them whether or not
+	// include=units was asked for. Each scored leaf folds into its innermost
+	// section, so one finding is one row; a leaf before the first heading is
+	// its own row.
 	MatchedUnits []MatchedUnit `json:"matched_units,omitempty"`
+
+	// UnitsTotal is how many matched units the file had before MaxUnits
+	// (or SemanticDefaultMaxUnits) cut MatchedUnits. Set whenever
+	// MatchedUnits is.
+	UnitsTotal int `json:"units_total,omitempty"`
 
 	// Explain-only score-trace fields. Populated by the query service only
 	// when Request.Explain is true AND graph expansion ran for this row.
@@ -171,6 +194,10 @@ type Deps struct {
 // Dependencies are passed as primitives to avoid an import cycle on
 // internal/mcp.
 func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
+	if req.MaxUnits < 0 {
+		return nil, fmt.Errorf("max-units must be >= 0 (got %d); 0 or absent uses the default", req.MaxUnits)
+	}
+
 	// The structural pre-filter feeds two paths. The structural-only path
 	// (Semantic == "") returns these rows verbatim, so SQL-level Take/Skip is
 	// the final window. The semantic path RE-windows after ranking (see the
@@ -279,7 +306,9 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 					return nil, loadUnitsErr
 				}
 
-				row.MatchedUnits = units
+				// The outline was asked for, so only an explicit
+				// max-units cuts it (first N in document order).
+				row.MatchedUnits, row.UnitsTotal = capUnits(units, req.MaxUnits)
 			}
 		}
 

@@ -187,22 +187,27 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 		// come from the same json.Marshal path (deterministic key order), so a
 		// byte comparison is a reliable equality test.
 		sameProps := prior.PropertiesJSON == row.PropertiesJSON
+		// An edit above a passage shifts its line range without touching its
+		// address, ordinal, or content, and a row written before line ranges
+		// existed holds NULL lines. Either way the row must turn over or it
+		// serves stale lines forever.
+		sameLines := prior.StartLine == row.StartLine && prior.EndLine == row.EndLine
 
-		if sameOrdinal && sameContent && sameProps {
-			// Address, ordinal, content, and properties all unchanged —
+		if sameOrdinal && sameContent && sameProps && sameLines {
+			// Address, ordinal, content, properties, and lines all unchanged —
 			// leave the row untouched.
 			continue
 		}
 
-		// The address still resolves but ordinal, content, and/or properties
-		// moved. Upsert the row (new ordinal / content_hash / properties_json);
+		// The address still resolves but ordinal, content, properties, and/or
+		// lines moved. Upsert the row (new ordinal / content_hash / properties_json);
 		// when the content changed, re-derive edges (all kinds — a unit's edge
 		// set derives from the same Text its content hash covers, so a hash
 		// turnover is exactly an edge-set turnover) and re-enqueue the embed for
 		// leaves (the enqueue loop below skips sections itself). A property-only
-		// change re-upserts the row without re-embedding or re-deriving edges:
-		// the payload and Text are byte-identical, so the vector and edge set
-		// still hold.
+		// or line-only change re-upserts the row without re-embedding or
+		// re-deriving edges: the payload and Text are byte-identical, so the
+		// vector and edge set still hold.
 		reorderRows = append(reorderRows, row)
 
 		if !sameContent {
@@ -428,6 +433,8 @@ func buildSubUnitRow(fileRow index.NodeRow, unit Unit, subunitID string) (index.
 		Ordinal:        sql.NullInt64{Int64: int64(unit.Ordinal), Valid: true},
 		EmbedPayload:   sql.NullString{String: unit.EmbedPayload, Valid: true},
 		ContentHash:    sql.NullString{String: unit.ContentHash, Valid: unit.ContentHash != ""},
+		StartLine:      sql.NullInt64{Int64: int64(unit.StartLine), Valid: unit.StartLine > 0},
+		EndLine:        sql.NullInt64{Int64: int64(unit.EndLine), Valid: unit.EndLine > 0},
 	}, nil
 }
 

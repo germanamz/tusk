@@ -22,14 +22,16 @@ import (
 //  2. Ranks leaves by cosine similarity to queryVector.
 //  3. When graph expansion is enabled, walks the leaf id seed set and
 //     blends per spec §6.1; the blended FinalScore replaces the bare
-//     cosine for both MinScore filtering and the section-aggregation
-//     pass below.
+//     cosine for both MinScore filtering and the section fold below.
 //  4. Filters by MinScore (against the blended score when expansion ran).
-//  5. Computes section scores as heading-weight × max(descendant leaf).
+//  5. Folds each leaf into its innermost section: one row per section,
+//     scored by its best leaf (a leaf before the first heading is its own
+//     row).
 //  6. Groups hits by parent file; file score is the max across its hits.
 //  7. Applies Take / Skip at the file level.
 //  8. Hydrates each file's ScoredRow with title/type from the structural
-//     pre-filter (cheap byID lookup) and attaches matched_units.
+//     pre-filter (cheap byID lookup) and attaches matched_units, capped by
+//     MaxUnits / SemanticDefaultMaxUnits with the pre-cap units_total.
 func runSemanticSubUnits(
 	ctx context.Context,
 	deps Deps,
@@ -186,7 +188,7 @@ func runSemanticSubUnits(
 	// with `file#hash` leaf ids can never match them. The per-file blend is
 	// mapped back onto each leaf here — final = (1-w)*leaf_cosine +
 	// w*parent_file_graph_score — so MinScore filtering and the section
-	// aggregation below operate on blended scores; walked-in neighbor files
+	// fold below operate on blended scores; walked-in neighbor files
 	// (dist > 0 with no ranked leaves) surface as bare rows after the hit
 	// bucketing.
 	fileBlend, blendErr := expandAndBlendFileLevel(ctx, deps, req, ranked)
@@ -246,37 +248,44 @@ func runSemanticSubUnits(
 		ranked = kept
 	}
 
-	// Apply MinScore at the leaf level so sections only aggregate over
-	// passing leaves. The spec is silent on whether MinScore filters
-	// sections, but a tighter interpretation (leaves first, then derived
-	// section scores) keeps the §5.7 weight semantics simple.
+	// Apply MinScore at the leaf level, before leaves fold into their
+	// sections, so a section row only ever reports a passing leaf.
 	ranked, filteredBelowMinScore := applyMinScore(ranked, req.MinScore)
 
-	leafScores := make(map[string]float64, len(ranked))
 	leafBest := make(map[string]filter.ScoredResult, len(ranked))
 
 	for _, scored := range ranked {
-		leafScores[scored.NodeID] = scored.Score
 		leafBest[scored.NodeID] = scored
 	}
 
-	// Load every sub-unit row for the candidate files in one shot, then
-	// build a parent/child index per file for section aggregation. The
-	// batched repo call avoids an N+1 sweep over 10-50 candidate files.
+	// Load every sub-unit row for the candidate files in one shot so each
+	// leaf can be resolved to its row and its innermost section. The batched
+	// repo call avoids an N+1 sweep over 10-50 candidate files.
 	allSubUnits, listErr := nodes.ListSubUnitsForFiles(fileIDs)
 
 	if listErr != nil {
 		return nil, listErr
 	}
 
-	subIndex := newSubUnitIndex(allSubUnits)
+	rowsByID := make(map[string]index.NodeRow, len(allSubUnits))
 
-	// Build the matched_units bucket per file. Each leaf becomes a
-	// MatchedUnit; each section is aggregated from its descendants. A
-	// section with no scored descendants is omitted.
+	for _, row := range allSubUnits {
+		rowsByID[row.ID] = row
+	}
+
+	// Build the matched_units bucket per file. One finding is one row
+	// (#765): each scored leaf folds into its innermost section, which
+	// reports the best folded leaf's score and snippet under its own id,
+	// heading, and line range. A leaf before the first heading has no
+	// section and stays a row of its own. A section with no scored leaf of
+	// its own is omitted; its subsections carry their findings.
 	type fileHit struct {
 		matched  []MatchedUnit
 		maxScore float64
+		// rowIndex maps a reported row id (section or root leaf) to its
+		// position in matched; bestLeaf maps it to the leaf behind its score.
+		rowIndex map[string]int
+		bestLeaf map[string]string
 		// File-level fallback (#684 finding 2): set when the file ranked via its
 		// own file-level vector because it had no live sub-unit leaves. Carries
 		// the snippet/body of the best file-level chunk; no matched sub-units.
@@ -287,35 +296,23 @@ func runSemanticSubUnits(
 
 	hitsByFile := make(map[string]*fileHit, len(fileIDs))
 
-	rememberHit := func(fileID string, unit MatchedUnit) {
+	bucketFor := func(fileID string) *fileHit {
 		bucket, present := hitsByFile[fileID]
 
 		if !present {
-			bucket = &fileHit{}
+			bucket = &fileHit{rowIndex: map[string]int{}, bestLeaf: map[string]string{}}
 			hitsByFile[fileID] = bucket
 		}
 
-		bucket.matched = append(bucket.matched, unit)
-
-		if unit.HasScore && unit.Score > bucket.maxScore {
-			bucket.maxScore = unit.Score
-		}
+		return bucket
 	}
 
-	// Leaf + file-level fallback hits.
 	for _, scored := range ranked {
 		if _, isFileLevel := fileLevelCandidateIDs[scored.NodeID]; isFileLevel {
 			// File-level fallback candidate: its id is the file id itself, so
 			// record a bare file hit scored by the file-level vector (no matched
 			// sub-units), mirroring the legacy file-level path (#684 finding 2).
-			fileID := scored.NodeID
-
-			bucket, present := hitsByFile[fileID]
-
-			if !present {
-				bucket = &fileHit{}
-				hitsByFile[fileID] = bucket
-			}
+			bucket := bucketFor(scored.NodeID)
 
 			bucket.hasFileLevel = true
 			bucket.fileLevelBody = scored.BestChunkBody
@@ -328,7 +325,7 @@ func runSemanticSubUnits(
 			continue
 		}
 
-		row, ok := subIndex.rowsByID[scored.NodeID]
+		leaf, ok := rowsByID[scored.NodeID]
 
 		if !ok {
 			// Walked-in neighbor whose sub-unit row isn't part of the
@@ -340,25 +337,35 @@ func runSemanticSubUnits(
 			continue
 		}
 
-		fileID := fileIDFromSubUnit(scored.NodeID)
+		// A leaf's parent is its innermost enclosing section, or the file
+		// row itself before the first heading.
+		reported := leaf
 
-		snippet := filter.RenderSnippetForQuery(scored.BestChunkBody, req.Semantic, 200)
-
-		if snippet == "" {
-			snippet = filter.RenderSnippet(row.EmbedPayload.String, 200)
+		if parent, hasParent := rowsByID[leaf.ParentID.String]; leaf.ParentID.Valid && hasParent && parent.Type == "section" {
+			reported = parent
 		}
 
-		unit := MatchedUnit{
-			ID:       row.ID,
-			Type:     row.Type,
-			Ordinal:  int(row.Ordinal.Int64),
-			Score:    scored.Score,
-			Snippet:  snippet,
-			HasScore: true,
+		bucket := bucketFor(fileIDFromSubUnit(scored.NodeID))
+
+		if position, seen := bucket.rowIndex[reported.ID]; seen {
+			// Keep the best leaf per row; on a tie the earlier leaf in the
+			// document wins so the snippet is stable.
+			current := bucket.matched[position]
+			incumbent := rowsByID[bucket.bestLeaf[reported.ID]]
+
+			if scored.Score < current.Score ||
+				(scored.Score == current.Score && leaf.Ordinal.Int64 >= incumbent.Ordinal.Int64) {
+				continue
+			}
 		}
 
-		if row.ParentID.Valid {
-			unit.ParentID = row.ParentID.String
+		unit := newMatchedUnit(reported)
+		unit.Score = scored.Score
+		unit.HasScore = true
+		unit.Snippet = filter.RenderSnippetForQuery(scored.BestChunkBody, req.Semantic, 200)
+
+		if unit.Snippet == "" {
+			unit.Snippet = filter.RenderSnippet(leaf.EmbedPayload.String, 200)
 		}
 
 		if req.Explain && blendedByID != nil {
@@ -370,59 +377,18 @@ func runSemanticSubUnits(
 			}
 		}
 
-		rememberHit(fileID, unit)
-	}
-
-	// Section aggregates. Walk every section row, find its descendants'
-	// best score among the leaf hits, multiply by the heading weight.
-	for _, row := range allSubUnits {
-		if row.Type != "section" {
-			continue
+		if position, seen := bucket.rowIndex[reported.ID]; seen {
+			bucket.matched[position] = unit
+		} else {
+			bucket.rowIndex[reported.ID] = len(bucket.matched)
+			bucket.matched = append(bucket.matched, unit)
 		}
 
-		// One descendant walk yields both the best leaf score (for the
-		// section's aggregate score) and the id of the leaf achieving it
-		// (for the snippet), replacing two separate full-subtree walks.
-		bestLeafID, leafScore, found := subIndex.bestLeafUnder(row.ID, leafScores)
+		bucket.bestLeaf[reported.ID] = scored.NodeID
 
-		if !found {
-			continue
+		if unit.Score > bucket.maxScore {
+			bucket.maxScore = unit.Score
 		}
-
-		level := readHeadingLevel(row.PropertiesJSON)
-		weight := HeadingWeight(level)
-
-		if weight == 0 {
-			continue
-		}
-
-		fileID := fileIDFromSubUnit(row.ID)
-
-		var snippet string
-
-		if best, hasBest := leafBest[bestLeafID]; hasBest {
-			snippet = filter.RenderSnippetForQuery(best.BestChunkBody, req.Semantic, 200)
-		}
-
-		if snippet == "" {
-			snippet = filter.RenderSnippet(subIndex.firstLeafSnippet(row.ID, bestLeafID), 200)
-		}
-
-		unit := MatchedUnit{
-			ID:           row.ID,
-			Type:         "section",
-			HeadingLevel: level,
-			Ordinal:      int(row.Ordinal.Int64),
-			Score:        weight * leafScore,
-			Snippet:      snippet,
-			HasScore:     true,
-		}
-
-		if row.ParentID.Valid {
-			unit.ParentID = row.ParentID.String
-		}
-
-		rememberHit(fileID, unit)
 	}
 
 	// Surface walked-in neighbor FILES (dist > 0) that produced no leaf hits
@@ -524,25 +490,14 @@ func runSemanticSubUnits(
 		}
 
 		// include=body for file rows mirrors today's behavior: the
-		// best chunk's body wins. For sub-unit rows we serve the best
-		// matched leaf's embed_payload; for a file-level fallback we serve the
-		// file-level chunk body.
+		// best chunk's body wins. For sub-unit rows we serve the chunk of the
+		// leaf behind the top row (a section row reports its best leaf, so
+		// this is the passage that matched, not the section's whole payload);
+		// for a file-level fallback we serve the file-level chunk body.
 		if includeSet.Body {
 			switch {
 			case len(entry.hit.matched) > 0:
-				topUnitID := entry.hit.matched[0].ID
-
-				if topUnitID != "" {
-					if scored, ok := leafBest[topUnitID]; ok {
-						topBody = scored.BestChunkBody
-					} else if row, ok := subIndex.rowsByID[topUnitID]; ok {
-						// Intentional fallback: when the top matched unit
-						// is a section (not a leaf), it has no embedding
-						// row in leafBest, so we serve the section's own
-						// embed_payload (the heading text) as the body.
-						topBody = row.EmbedPayload.String
-					}
-				}
+				topBody = leafBest[entry.hit.bestLeaf[entry.hit.matched[0].ID]].BestChunkBody
 			case entry.hit.hasFileLevel:
 				topBody = entry.hit.fileLevelBody
 			}
@@ -583,7 +538,7 @@ func runSemanticSubUnits(
 			}
 		}
 
-		row.MatchedUnits = entry.hit.matched
+		row.MatchedUnits, row.UnitsTotal = capUnits(entry.hit.matched, unitsLimit(req.MaxUnits, req.SemanticDefaultMaxUnits))
 
 		scoredRows = append(scoredRows, row)
 	}

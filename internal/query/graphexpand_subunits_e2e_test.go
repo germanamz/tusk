@@ -697,3 +697,98 @@ func rankedIDs(result *query.Result) []string {
 
 	return ids
 }
+
+// TestQueryRun_GraphExpansion_SubUnitPath_SectionRowCarriesBestLeafTrace: when
+// both of dave's leaves sit under one section, they fold into a single section
+// row (#765). That row reports the strong leaf's blended score and explain
+// trace, not the weak leaf's and not a heading-weighted figure.
+func TestQueryRun_GraphExpansion_SubUnitPath_SectionRowCarriesBestLeafTrace(test *testing.T) {
+	store := openTestStore(test)
+
+	seedSubUnitFile(test, store, "teams/puma", "team", "Puma", []float32{0.6, 0.8})
+
+	nodes := index.NewNodeRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+
+	if err := nodes.Upsert(index.NodeRow{
+		ID: "people/dave", Type: "person", Path: "people/dave.md", Title: "Dave",
+		PropertiesJSON: "{}", LastChecksum: "x",
+	}); err != nil {
+		test.Fatalf("file upsert: %v", err)
+	}
+
+	rows := []index.NodeRow{{
+		ID: "people/dave#S1", Type: "section", Path: "people/dave.md", Title: "Background",
+		PropertiesJSON: `{"heading-level":2}`, LastChecksum: "x",
+		ParentID: sql.NullString{String: "people/dave", Valid: true},
+		Ordinal:  sql.NullInt64{Int64: 0, Valid: true},
+	}}
+
+	vectors := [][]float32{{0.28, 0.96}, {1, 0}}
+
+	for ordinal := range vectors {
+		leafID := fmt.Sprintf("people/dave#S1P%d", ordinal+1)
+
+		rows = append(rows, index.NodeRow{
+			ID: leafID, Type: "paragraph", Path: "people/dave.md",
+			PropertiesJSON: "{}", LastChecksum: "x",
+			ParentID:     sql.NullString{String: "people/dave#S1", Valid: true},
+			Ordinal:      sql.NullInt64{Int64: int64(ordinal + 1), Valid: true},
+			EmbedPayload: sql.NullString{String: leafID, Valid: true},
+		})
+	}
+
+	if err := nodes.BulkUpsert(rows, "markdown"); err != nil {
+		test.Fatalf("sub-unit upsert: %v", err)
+	}
+
+	for ordinal, vector := range vectors {
+		leafID := fmt.Sprintf("people/dave#S1P%d", ordinal+1)
+
+		if err := embeddings.Upsert(index.EmbeddingRow{
+			NodeID: leafID, Model: "stub", ContentHash: "h_" + leafID,
+			Vector: vector, Dim: len(vector), Body: leafID,
+		}); err != nil {
+			test.Fatalf("embedding upsert %s: %v", leafID, err)
+		}
+	}
+
+	if err := index.NewEdgeRepo(store).UpsertAll("people/dave", "people/dave.md", []index.EdgeRow{
+		{Type: "team", SourceID: "people/dave", TargetID: "teams/puma", SourcePath: "people/dave.md", Kind: "derived"},
+	}); err != nil {
+		test.Fatalf("edge upsert: %v", err)
+	}
+
+	result, runErr := query.Run(context.Background(), subUnitDeps(store), query.Request{
+		Semantic: "billing engineer",
+		Explain:  true,
+		GraphExpansion: &manifest.GraphExpansion{
+			Enabled: true, Hops: 1, EdgeTypes: []string{"team"}, Weight: 0.3, CandidateMultiplier: 5,
+		},
+	})
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	dave := rowsByID(test, result)["people/dave"]
+
+	if len(dave.MatchedUnits) != 1 {
+		test.Fatalf("dave matched_units = %+v, want one section row", dave.MatchedUnits)
+	}
+
+	section := dave.MatchedUnits[0]
+
+	if section.ID != "people/dave#S1" || section.Heading != "Background" {
+		test.Errorf("section row = %s %q, want people/dave#S1 \"Background\"", section.ID, section.Heading)
+	}
+
+	if !strings.Contains(section.Snippet, "people/dave#S1P2") {
+		test.Errorf("section snippet = %q, want the strong leaf's text", section.Snippet)
+	}
+
+	assertScore(test, "section score", section.Score, 0.88)
+	assertScore(test, "section cosine_score", section.CosineScore, 1.0)
+	assertScore(test, "section graph_score", section.GraphScore, 0.6)
+	assertScore(test, "section final_score", section.FinalScore, 0.88)
+}
