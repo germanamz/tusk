@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.1](https://github.com/germanamz/tusk/compare/v2.7.0...v2.7.1) (2026-10-10)
+
+
+### Bug Fixes
+
+* **node:** sync sub-units on node create and modify ([#782](https://github.com/germanamz/tusk/issues/782)) ([#783](https://github.com/germanamz/tusk/issues/783)) ([fba81b8](https://github.com/germanamz/tusk/commit/fba81b849d5b7597cc33f7f51053602093e63552))
+
 ## [2.7.0](https://github.com/germanamz/tusk/compare/v2.6.1...v2.7.0) (2026-10-10)
 
 
