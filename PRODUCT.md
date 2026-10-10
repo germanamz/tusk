@@ -12,8 +12,11 @@ The headline capability: an agent (or human) issues one query and gets back the
 most semantically- and structurally-relevant nodes regardless of type, drawn
 from a vault that any other tool — vim, Obsidian, ripgrep, git — can also read.
 
-> **Status:** v1 has shipped. For install and usage see the [`README`](README.md)
-> and [`docs/cli/`](docs/cli/README.md); per-package internals live in
+> **Status:** in active development. The current version is on the
+> [releases page](https://github.com/germanamz/tusk/releases) and what changed
+> is in [`CHANGELOG.md`](CHANGELOG.md). For install and usage see the
+> [`README`](README.md), the guides in [`docs/guide/`](docs/guide/) and the CLI
+> reference in [`docs/cli/`](docs/cli/README.md); per-package internals live in
 > [`docs/packages/`](docs/packages/); forward-looking work is tracked in
 > [`docs/roadmap.md`](docs/roadmap.md).
 
@@ -70,8 +73,9 @@ modeling vocabulary.
   `workflow`, a status finite-state machine validated on writes. A workspace
   with no packs is still a valid Tusk workspace: a markdown vault with retrieval.
 
-See the [`README`](README.md) for the working file format, manifest examples,
-and the query grammar.
+See [`docs/guide/workspace.md`](docs/guide/workspace.md) for the working file
+format and manifest examples, and [`docs/guide/querying.md`](docs/guide/querying.md)
+for the query grammar.
 
 ## Architecture principles
 
@@ -102,8 +106,8 @@ One engine, two surfaces, with type-pack ergonomics on top:
 
 - **CLI** — `tusk init`, `tusk reindex`, `tusk reload`, `tusk doctor`,
   `tusk status`, `tusk node …`, `tusk edge …`, `tusk query …`, `tusk web`
-  (the local graph + reading web app), plus pack shortcuts (`tusk ticket open`,
-  `tusk note new`).
+  (the local graph + reading web app), `tusk run` (aliases the manifest
+  declares), `tusk claude …` (the Claude Code plugin) and `tusk update`.
 - **MCP server** — every read/write graph verb maps 1:1 to a `tusk_<noun>_<verb>`
   tool over stdio or SSE (workspace bootstrap and the web app stay CLI-only),
   so any MCP-compatible agent (Claude Code, Cursor, …) shares the same engine.
