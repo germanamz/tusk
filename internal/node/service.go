@@ -19,6 +19,7 @@ import (
 	"github.com/germanamz/tusk/internal/ignore"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/leaseconfig"
+	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"gopkg.in/yaml.v3"
 )
@@ -155,6 +156,10 @@ type Service struct {
 
 	refs RefLookup // optional; nil = ref resolution disabled
 
+	// lineNumbering numbers the lines of the path refs the service records.
+	// Zero means linenum.DefaultScheme.
+	lineNumbering linenum.Scheme
+
 	// Lease primitives required by Create's WriteWithLease path. Nil
 	// fileState means the service was built via a read-only constructor
 	// (NewService, NewServiceWithManifest, NewServiceWithEmbedQueue) and
@@ -249,6 +254,7 @@ type ServiceDeps struct {
 	FileState     *index.FileStateRepo
 	WorkerID      string
 	LeaseTTL      time.Duration
+	LineNumbering linenum.Scheme
 }
 
 // DepsFromIndex assembles the ServiceDeps fields derivable from an open index
@@ -276,6 +282,7 @@ func DepsFromIndex(workspaceRoot string, store *index.Index, loaded *manifest.Ma
 		FileState:     index.NewFileStateRepo(store),
 		WorkerID:      index.WorkerID(),
 		LeaseTTL:      leaseconfig.Resolve(loaded.Lease.TTLSeconds),
+		LineNumbering: loaded.LineNumbering(),
 	}
 }
 
@@ -305,6 +312,7 @@ func NewServiceWithDeps(deps ServiceDeps) *Service {
 		fileState:     deps.FileState,
 		workerID:      deps.WorkerID,
 		leaseTTL:      deps.LeaseTTL,
+		lineNumbering: deps.LineNumbering,
 	}
 }
 
@@ -650,6 +658,10 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		}
 	}
 
+	if syncErr := syncPathRefs(service.edges, parsed.Path, rendered, service.edgeTypes, service.lineNumbering); syncErr != nil {
+		return nil, syncErr
+	}
+
 	if service.embedQueue != nil {
 		if enqueueErr := service.embedQueue.Enqueue(parsed.ID); enqueueErr != nil {
 			return nil, enqueueErr
@@ -911,6 +923,11 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		if upsertErr := service.edges.UpsertContentEdges(reparsed.ID, reparsed.Path, flattenEdges(reparsed, service.nodeTypes)); upsertErr != nil {
 			return nil, upsertErr
 		}
+	}
+
+	// A frontmatter change moves every body line, so the refs' lines move too.
+	if syncErr := syncPathRefs(service.edges, reparsed.Path, rendered, service.edgeTypes, service.lineNumbering); syncErr != nil {
+		return nil, syncErr
 	}
 
 	if service.embedQueue != nil {

@@ -33,9 +33,10 @@ tusk_query(filter="type=note AND kind=design",
 - `skip` — paginate (requires `take`).
 - `sort` — sort spec, e.g. `"+priority,-due"`.
 - `include` — expand each row with `body` / `edges` / `properties` /
-  `units` in one round-trip. For semantic results, `body` is the
-  best-matching chunk. `units` lists each file's sub-unit outline on a
-  structural query; semantic rows carry matched units without it.
+  `units` / `paths` in one round-trip. For semantic results, `body` is
+  the best-matching chunk. `units` lists each file's sub-unit outline on
+  a structural query; semantic rows carry matched units without it.
+  `paths` lists the workspace paths each page names (see "Path refs").
 - `max_units` — keep at most N matched units per file. Defaults to 3
   on semantic rows; the `include=units` outline is uncapped unless set.
 - `fields` — project the rendered shape to a subset of fields.
@@ -63,6 +64,27 @@ passage folds into its innermost section, so one finding is one row:
   `list-item`, ...).
 - `units_total` on the file row is how many units there were before
   `max_units` cut the list.
+
+## Path refs
+
+Before changing a source file, ask which pages describe it:
+
+```
+tusk_query(filter="names-path=server/ledger/core/service.go", include=["paths"])
+```
+
+Each row's `paths` lists the refs that matched:
+
+```
+{"path": "server/ledger/core/service.go", "edge_type": "describes", "exists": true,
+ "mentions": [{"line": 40, "section": "technical/ledger#S2", "heading": "Core service"}]}
+```
+
+- `exists` checks the disk when the query runs. `false` means the page
+  names a path that is gone; update the page.
+- `line` counts from the top of the file; `section` and `heading` name
+  the innermost section holding it. HTML pages have no lines.
+- Without a `names-path` filter, `paths` lists every path the page names.
 
 ## Graph expansion
 

@@ -60,6 +60,7 @@ type ListRow struct {
 	Body       string         `json:"body,omitempty"`
 	Properties map[string]any `json:"properties,omitempty"`
 	Edges      []EdgeRef      `json:"edges,omitempty"`
+	Paths      []PathRef      `json:"paths,omitempty"`
 }
 
 // ListRun is the canonical entry point for the `node list` / `tusk_node_list`
@@ -115,6 +116,20 @@ func ListRun(database *sql.DB, loadedManifest *manifest.Manifest, req ListReques
 
 	if expandErr := ExpandListRows(result.Rows, includeSet, req.WorkspaceRoot, database); expandErr != nil {
 		return nil, expandErr
+	}
+
+	if includeSet.Paths {
+		ids := make([]string, len(result.Rows))
+
+		for position, row := range result.Rows {
+			ids[position] = row.ID
+		}
+
+		if attachErr := attachPaths(database, req.WorkspaceRoot, req.Filter, ids, func(position int, refs []PathRef) {
+			result.Rows[position].Paths = refs
+		}); attachErr != nil {
+			return nil, attachErr
+		}
 	}
 
 	return result, nil

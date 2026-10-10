@@ -116,5 +116,6 @@ func listRowToCompactBasic(row query.ListRow) render.CompactRow {
 		Body:       row.Body,
 		Properties: row.Properties,
 		Edges:      row.Edges,
+		Paths:      row.Paths,
 	}
 }

@@ -50,6 +50,7 @@ var severityByKind = map[string]string{
 	IssueGraphExpansionUnknownEdge: SeverityWarning,
 	IssueGraphExpansionNoEdges:     SeverityWarning,
 	IssueGraphExpansionWeightZero:  SeverityWarning,
+	IssuePathMissing:               SeverityWarning, // a plan may name a file still to be written
 
 	IssueEmbedLargeChunk:     SeverityAdvice,
 	IssueEmbeddingPrefixHint: SeverityAdvice,

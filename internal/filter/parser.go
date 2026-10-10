@@ -149,6 +149,12 @@ func (parser *Parser) parsePredicate() Expr {
 		if next.Kind == TokenEQ || next.Kind == TokenColon {
 			return parser.parseModifiedSincePredicate()
 		}
+	case NamesPathKeyword:
+		// Any comparison routes here so `names-path>x` is an error, not a
+		// silent property comparison that matches nothing.
+		if _, isOperator := opTokenToOp(parser.peekN(1).Kind); isOperator {
+			return parser.parseNamesPathPredicate()
+		}
 	}
 
 	if parser.peekEdgeTypeRefArity() > 0 {

@@ -257,6 +257,7 @@ func Run(config Config) (*Report, error) {
 	for _, check := range []func(Config) ([]Issue, error){
 		checkSkippedFiles,
 		checkDanglingEdges,
+		checkPathRefs,
 		checkDerivedEdgeTypes,
 		checkEdgeConstraints,
 		checkWorkflowDrift,
@@ -1429,7 +1430,7 @@ func Migrate(config Config) (*MigrationReport, error) {
 				fmt.Sprintf("%s [%s]: %s → %s", row.Type, row.SourcePath, row.SourceID, row.TargetID))
 		}
 
-		if reindexErr := node.ReindexSource(config.Root, config.Nodes, config.Edges, node.NewIndexRefLookup(config.Nodes), config.Manifest.EdgeTypes, config.Manifest.NodeTypes, sourceID); reindexErr != nil {
+		if reindexErr := node.ReindexSource(config.Root, config.Nodes, config.Edges, node.NewIndexRefLookup(config.Nodes), config.Manifest.EdgeTypes, config.Manifest.NodeTypes, sourceID, config.Manifest.LineNumbering()); reindexErr != nil {
 			return nil, fmt.Errorf("doctor: reindex %s: %w", sourceID, reindexErr)
 		}
 

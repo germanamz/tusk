@@ -152,6 +152,8 @@ func (collector *validationCollector) walk(expr Expr, scope typeScope) {
 		collector.resolveShortcut(typed)
 	case *ModifiedSincePredicate:
 		collector.resolveModifiedSince(typed)
+	case *NamesPathPredicate:
+		collector.validateNamesPath(typed)
 	}
 }
 

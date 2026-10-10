@@ -75,6 +75,23 @@ CREATE INDEX IF NOT EXISTS edges_source_path_idx ON edges(source_path);
 CREATE INDEX IF NOT EXISTS edges_source_type_idx ON edges(source, type);
 CREATE INDEX IF NOT EXISTS edges_kind_idx        ON edges(kind);
 
+-- path_refs holds the workspace paths a page names in inline code, one row per
+-- (page, paths edge type, path, line). A path ref is an edge whose target is a
+-- path, not a node, so it lives here instead of in edges: the target needs no
+-- node row (source trees usually sit in [workspace] ignore), and no edge reader
+-- has to learn to skip it. Rows depend on page text alone; whether a path
+-- exists is checked on read (internal/pathref).
+CREATE TABLE IF NOT EXISTS path_refs (
+	source_id TEXT NOT NULL,    -- file node id of the page
+	type      TEXT NOT NULL,    -- the paths = true edge type
+	target    TEXT NOT NULL,    -- workspace-relative path, cleaned, no trailing slash
+	line      INTEGER NOT NULL, -- 1-based file line of the mention; 0 when unknown (HTML)
+	PRIMARY KEY (source_id, type, target, line),
+	FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS path_refs_target_idx ON path_refs(target);
+
 -- embeddings is the content-addressed vector store: one row per unique
 -- (content_hash, model). Many node-chunks can reference the same vector via
 -- node_embeddings, so identical content is embedded once and shared. There is

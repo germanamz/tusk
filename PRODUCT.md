@@ -57,7 +57,10 @@ modeling vocabulary.
 - **Edges are typed and declared.** Frontmatter keys are either properties or
   edges; the manifest decides which, and enforces edge legality (`from`/`to`
   types, cardinality, ordering, acyclicity). Body wikilinks materialize
-  navigational edges.
+  navigational edges. An edge type with `paths = true` also records the
+  workspace paths a page names in inline code, so a source file can find
+  the pages that describe it and doctor can say when one names a path
+  that is gone.
 - **The manifest is the contract.** Node types, edge types, property schemas,
   and behavior packs are declared in `tusk.toml`. Type packs (`vault`, `tags`,
   `kanban`, `dev`) splice in curated bundles so you do not declare everything by

@@ -12,6 +12,7 @@ Edit the help strings, then run `make docs`.
   - [`tusk claude`](tusk_claude.md) — Install and inspect the Claude Code plugin for this workspace
     - [`tusk claude context`](tusk_claude_context.md) — Print the context block the Claude Code plugin adds to a session
     - [`tusk claude install`](tusk_claude_install.md) — Install the Claude Code plugin into this workspace
+    - [`tusk claude refs`](tusk_claude_refs.md) — Print the reminder the Claude Code plugin adds after an edit
     - [`tusk claude status`](tusk_claude_status.md) — Report the Claude Code plugin installed in this workspace
     - [`tusk claude uninstall`](tusk_claude_uninstall.md) — Remove the Claude Code plugin from this workspace
   - [`tusk context`](tusk_context.md) — Compose a warm-context digest from the manifest [context] block

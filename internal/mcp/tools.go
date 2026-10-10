@@ -468,7 +468,7 @@ func registerNodeListTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_list",
 		mcpgo.WithDescription("List nodes by type from the index — a convenience wrapper. For property / edge / hierarchy / recency filters, sorting, or semantic ranking, use tusk_query instead (it does everything `tusk node list` does and more). Use include / fields to expand rows with body / edges / properties in one round-trip. Sorted by id ascending. Returns up to 50 rows by default — raise take (with skip) to page through more."),
 		mcpgo.WithString("type", mcpgo.Description("Optional node type filter (e.g. \"ticket\"). Empty = all.")),
-		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|paths (paths = the workspace paths each page names in inline code)"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows (default 50)")),
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
@@ -547,6 +547,10 @@ func registerNodeListTool(srv *Server) {
 
 			if row.Edges != nil {
 				entry["edges"] = row.Edges
+			}
+
+			if row.Paths != nil {
+				entry["paths"] = row.Paths
 			}
 
 			results = append(results, entry)
@@ -640,14 +644,14 @@ const semanticDefaultMaxUnits = 3
 
 func registerQueryTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_query",
-		mcpgo.WithDescription("Run a structural, semantic, or hybrid query — the MCP equivalent of `tusk query` (no shell needed). Filter grammar: property predicates key=value / key:value / key!=value / key<|<=|>|>=value and ranges key=lo..hi; glob patterns on path and id (path=docs/product/* for one folder, path=docs/** for the subtree; quote to match a literal *); compose with AND / OR / NOT and parentheses; edge traversal edge-type-> (outgoing) and edge-type<- (incoming), chainable multi-hop (mentions-> tagged-> type=tag); hierarchy shortcuts tree=id / parent=id / root=id; recency modified-since:7d (or an ISO date). Add semantic=\"...\" to rank by cosine similarity. Results default to 50 rows (structural) or 10 (semantic) — raise take for more. Use include / fields to expand or project rows in one round-trip. Full grammar: tusk_help(topic: \"filter\")."),
+		mcpgo.WithDescription("Run a structural, semantic, or hybrid query — the MCP equivalent of `tusk query` (no shell needed). Filter grammar: property predicates key=value / key:value / key!=value / key<|<=|>|>=value and ranges key=lo..hi; glob patterns on path and id (path=docs/product/* for one folder, path=docs/** for the subtree; quote to match a literal *); compose with AND / OR / NOT and parentheses; edge traversal edge-type-> (outgoing) and edge-type<- (incoming), chainable multi-hop (mentions-> tagged-> type=tag); hierarchy shortcuts tree=id / parent=id / root=id; recency modified-since:7d (or an ISO date); names-path=<path|glob> for the pages that name a workspace path in inline code (or a directory above it), when an edge type sets paths = true. Add semantic=\"...\" to rank by cosine similarity. Results default to 50 rows (structural) or 10 (semantic) — raise take for more. Use include / fields to expand or project rows in one round-trip. Full grammar: tusk_help(topic: \"filter\")."),
 		mcpgo.WithString("filter", mcpgo.Required(), mcpgo.Description("Filter expression, e.g. 'type=ticket AND priority>=2 AND modified-since:7d'. Empty string matches everything (useful as a semantic pre-filter). See the tool description for the grammar.")),
 		mcpgo.WithString("sort", mcpgo.Description("Sort spec (e.g. '+priority,-due')")),
 		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows (default 50 structural, 10 semantic)")),
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
 		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
 		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum similarity score to include in semantic results (default 0.5). Lower this when an initial query misses. When graph expansion is active, this filters the blended final score, not the bare cosine.")),
-		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|units (units = each file's sub-unit outline on structural queries; semantic rows always carry matched_units; semantic body = best-matching chunk)"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|units|paths (units = each file's sub-unit outline on structural queries; semantic rows always carry matched_units; semantic body = best-matching chunk; paths = the workspace paths each page names, with lines, section and a live exists check, narrowed to the ones a names-path filter matched)"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithNumber("max_units", mcpgo.Description("Cap matched_units per file (default 3 on semantic rows; the include=units outline is uncapped unless set). Each unit carries lines [start, end] and, for sections, its heading; units_total reports the count before the cap.")),
 		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
@@ -751,6 +755,7 @@ func registerQueryTool(srv *Server) {
 						Body:         row.Body,
 						Properties:   row.Properties,
 						Edges:        row.Edges,
+						Paths:        row.Paths,
 						MatchedUnits: row.MatchedUnits,
 						UnitsTotal:   row.UnitsTotal,
 					})
@@ -766,6 +771,7 @@ func registerQueryTool(srv *Server) {
 						Body:         scored.Body,
 						Properties:   scored.Properties,
 						Edges:        scored.Edges,
+						Paths:        scored.Paths,
 						Score:        scored.Score,
 						HasScore:     true,
 						MatchedUnits: scored.MatchedUnits,
@@ -820,6 +826,10 @@ func registerQueryTool(srv *Server) {
 					entry["edges"] = row.Edges
 				}
 
+				if row.Paths != nil {
+					entry["paths"] = row.Paths
+				}
+
 				results = append(results, entry)
 			}
 
@@ -857,6 +867,10 @@ func registerQueryTool(srv *Server) {
 			if scored.MatchedUnits != nil {
 				entry["matched_units"] = scored.MatchedUnits
 				entry["units_total"] = scored.UnitsTotal
+			}
+
+			if scored.Paths != nil {
+				entry["paths"] = scored.Paths
 			}
 
 			// Explain-trace fields are surfaced when the caller asked for
@@ -1702,6 +1716,7 @@ func listRowToCompact(row query.ListRow) render.CompactRow {
 		Body:       row.Body,
 		Properties: row.Properties,
 		Edges:      row.Edges,
+		Paths:      row.Paths,
 	}
 }
 
@@ -2051,6 +2066,7 @@ func aliasCompactResult(result *aliasdispatch.DispatchResult) (*mcpgo.CallToolRe
 					Body:       scored.Body,
 					Properties: scored.Properties,
 					Edges:      scored.Edges,
+					Paths:      scored.Paths,
 					Score:      scored.Score,
 					HasScore:   true,
 				})
@@ -2070,6 +2086,7 @@ func aliasCompactResult(result *aliasdispatch.DispatchResult) (*mcpgo.CallToolRe
 					Body:       row.Body,
 					Properties: row.Properties,
 					Edges:      row.Edges,
+					Paths:      row.Paths,
 				})
 			}
 
