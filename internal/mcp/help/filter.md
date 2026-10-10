@@ -139,19 +139,22 @@ modified-since:2026-05-23        # absolute ISO date
 ## Path refs
 
 When an edge type sets `paths = true`, pages record the workspace paths
-they name in inline code. `names-path` finds those pages:
+they name in inline code, links and images, or (under a paths-only type)
+a frontmatter value. `names-path` finds those pages:
 
 ```
 names-path=server/ledger/core/service.go   # names the file, or a directory above it
 names-path=server/ledger/                  # names that directory (or server/)
 names-path=server/**                       # names anything under server/ (a glob)
 type=technical AND NOT names-path=server/** # technical pages that name no server path
+names-path:describes=server/ledger/        # only refs of the describes edge type
 ```
 
 A literal path also matches a page that names a directory above it,
 since a directory ref covers what it holds. A glob (`*`, `?`, `**`)
 matches the named paths themselves; quote the value to keep `*` literal.
-`!=` negates. Refs belong to file rows, so every sub-unit row passes
+`!=` negates. `names-path` matches refs of every paths edge type;
+`names-path:<edge-type>=` (or `!=`) matches one type's refs only. Refs belong to file rows, so every sub-unit row passes
 `!=` and `NOT names-path=`; pair a negated test with `type=`. A glob
 that starts with a wildcard can also match spans
 that only look like paths (`node.Node`), so anchor it in a real folder.

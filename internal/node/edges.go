@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/pathref"
 )
 
 // ErrEdgeValueShape is returned by ResolveEdges when a frontmatter key matching
@@ -20,13 +21,20 @@ var ErrEdgeValueShape = errors.New("node: edge value must be a string or sequenc
 //   - a YAML sequence whose every element is a string (multiple target ids).
 //
 // Any other shape returns ErrEdgeValueShape wrapped with the offending key.
+//
+// Under a paths-only edge type (manifest.EdgeType.PathsOnly) whose from allows
+// the node's type, a value is a workspace path, not a node id, so it goes to
+// node.PathValues for PathRefs to record. A value pathref.Declared rejects
+// stays an edge, where doctor reports it like any bad target.
 func ResolveEdges(parsedNode *Node, edgeTypes manifest.EdgeTypes) error {
 	if parsedNode.Edges == nil {
 		parsedNode.Edges = map[string][]string{}
 	}
 
 	for key, value := range parsedNode.Properties {
-		if _, isEdge := edgeTypes[key]; !isEdge {
+		edgeType, isEdge := edgeTypes[key]
+
+		if !isEdge {
 			continue
 		}
 
@@ -36,8 +44,35 @@ func ResolveEdges(parsedNode *Node, edgeTypes manifest.EdgeTypes) error {
 			return convertErr
 		}
 
-		parsedNode.Edges[key] = targets
 		delete(parsedNode.Properties, key)
+
+		if !edgeType.PathsOnly() || !edgeType.AllowsSource(parsedNode.Type) {
+			parsedNode.Edges[key] = targets
+
+			continue
+		}
+
+		var nodeTargets []string
+
+		for _, target := range targets {
+			declared, isPath := pathref.Declared(target)
+
+			if !isPath {
+				nodeTargets = append(nodeTargets, target)
+
+				continue
+			}
+
+			if parsedNode.PathValues == nil {
+				parsedNode.PathValues = map[string][]string{}
+			}
+
+			parsedNode.PathValues[key] = appendUnique(parsedNode.PathValues[key], declared)
+		}
+
+		if len(nodeTargets) > 0 {
+			parsedNode.Edges[key] = nodeTargets
+		}
 	}
 
 	return nil

@@ -22,6 +22,7 @@ Loads and validates `tusk.toml`. Decodes `[workspace]`, `[node-types.X]`, `[edge
 - `Rule` and `Manifest.Rules` — the `[rule.<name>]` declarations, keyed by name. `Load` only decodes them, one block at a time, so a value of the wrong type fails just that rule (`Rule.DecodeError`, naming the key and line) instead of the whole manifest. It also records `Rule.UnknownKeys`: any key inside the block that no field decodes, so a misspelling is reported rather than ignored. `internal/doctor` validates and runs them (`doctor.CompileRules`); a bad rule never fails the load.
 - `(*Manifest).DeclaresUserNodeTypes() bool` — whether the manifest declares a node type beyond the built-in sub-document types. Checks that validate against declared types skip a vault that declares none.
 - `PathEdgeTypeNames(EdgeTypes) []string` — the edge types that set `paths = true`, sorted. Reindex fingerprints them, the filter's `names-path` requires one, and `tusk claude refs` stays silent without one.
+- `(EdgeType) PathsOnly() bool` — `paths = true` with no `to`. Such a type allows no node targets, so its frontmatter values are read as workspace paths and recorded as path refs, not edges.
 - `(*Manifest).LineNumbering() linenum.Scheme` — the `[workspace] line-numbering` scheme sub-unit line ranges are numbered with (`lf` when unset). `Load` rejects any value other than `lf`, `universal`, or `unicode`.
 
 ## Notes
@@ -50,7 +51,7 @@ After load, the resolved shape is `Ordered bool` + `OrderedBy string`; when `ord
 
 ### Path refs — `paths = true`
 
-An edge type with `paths = true` records the workspace paths a page names in inline code (`` `server/ledger/core/service.go` ``) as path refs of that type; [`internal/pathref`](pathref.md) has the rules. Path refs target paths, not nodes, so they live in their own `path_refs` table and the source tree can stay in `[workspace] ignore`.
+An edge type with `paths = true` records the workspace paths a page names in inline code (`` `server/ledger/core/service.go` ``) or in a link or image (`[the service](../server/ledger/core/service.go)`) as path refs of that type; [`internal/pathref`](pathref.md) has the rules. Path refs target paths, not nodes, so they live in their own `path_refs` table and the source tree can stay in `[workspace] ignore`.
 
 ```toml
 [edge-types.describes]
@@ -58,7 +59,18 @@ from  = ["technical"]
 paths = true
 ```
 
-`from` scopes extraction: only pages whose type the edge type allows are scanned, which is the main lever against false positives. A paths type may leave out `to` and `cardinality`. With no `to` it allows no node targets, so a frontmatter or wikilink edge of that type is reported as `edge-type-violation`; `cardinality` defaults to `many-to-many`. A type can set both `wikilinks = true` and `paths = true`, in which case `to`, `inverse`, `acyclic`, `hierarchy` and `ordered` still govern its node edges and don't touch its path refs.
+`from` scopes extraction: only pages whose type the edge type allows are scanned, which is the main lever against false positives. A paths type may leave out `to` and `cardinality`; `cardinality` defaults to `many-to-many`.
+
+With no `to`, the type is **paths-only** and allows no node targets. Its frontmatter values are then workspace paths, a declaration that doesn't depend on the inline-code heuristic:
+
+```markdown
+---
+type: technical
+describes: [server/ledger/core/service.go, Makefile]
+---
+```
+
+Each value is recorded as a path ref on the line it is written on, and `tusk edge add` / `edge remove` maintain it like any other frontmatter value. A value that can't be a workspace path (a URL, an absolute path) stays an edge, where doctor reports it, and so does a wikilink edge of the type (`edge-type-violation` when its target is a node). A type that declares `to` keeps reading frontmatter values as node ids. A type can set both `wikilinks = true` and `paths = true`, in which case `to`, `inverse`, `acyclic`, `hierarchy` and `ordered` still govern its node edges and don't touch its path refs.
 
 ### Lease TTL — `[lease]`
 

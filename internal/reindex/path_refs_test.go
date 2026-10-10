@@ -175,3 +175,71 @@ func TestRun_PathRefLinesSurviveDateSelfHeal(test *testing.T) {
 		test.Errorf("path refs = %v, want server/a.go on line 8", got)
 	}
 }
+
+func TestRun_RecordsLinkAndFrontmatterPaths(test *testing.T) {
+	root := test.TempDir()
+
+	writeNode(test, root, "technical/ledger.md", "type: technical\ndescribes: [server/a.go]\n",
+		"See [b](../server/b.go) and ![c](c.png), not [web](https://x.dev/d.go).\n")
+
+	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	runWithEdgeTypes(test, root, store, describesTechnical, nil)
+
+	want := []string{
+		"technical/ledger describes server/a.go:3",
+		"technical/ledger describes server/b.go:6",
+		"technical/ledger describes technical/c.png:6",
+	}
+
+	if got := storedPathRefs(test, store); !slices.Equal(got, want) {
+		test.Errorf("path refs =\n%v\nwant\n%v", got, want)
+	}
+
+	if got := describesTargets(test, store, "technical/ledger"); len(got) != 0 {
+		test.Errorf("a frontmatter path became an edge: %v", got)
+	}
+
+	// Declaring to makes the frontmatter value a node id again, on a plain run
+	// over the unchanged file.
+	mixed := manifest.EdgeTypes{
+		"describes": {From: []string{"technical"}, To: []string{"*"}, Cardinality: manifest.CardinalityManyToMany, Paths: true},
+	}
+
+	runWithEdgeTypes(test, root, store, mixed, nil)
+
+	if got := storedPathRefs(test, store); slices.Contains(got, want[0]) || len(got) != 2 {
+		test.Errorf("path refs with to = %v, want only the links", got)
+	}
+
+	if got := describesTargets(test, store, "technical/ledger"); !slices.Equal(got, []string{"server/a.go"}) {
+		test.Errorf("describes edges with to = %v, want server/a.go", got)
+	}
+}
+
+// describesTargets returns the targets of sourceID's describes edges.
+func describesTargets(test *testing.T, store *index.Index, sourceID string) []string {
+	test.Helper()
+
+	rows, listErr := index.NewEdgeRepo(store).ListBySource(sourceID)
+
+	if listErr != nil {
+		test.Fatalf("ListBySource: %v", listErr)
+	}
+
+	var targets []string
+
+	for _, row := range rows {
+		if row.Type == "describes" {
+			targets = append(targets, row.TargetID)
+		}
+	}
+
+	return targets
+}

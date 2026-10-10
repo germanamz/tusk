@@ -25,8 +25,8 @@ func newClaudeRefsCmd() *cobra.Command {
 		Use:   "refs <path>",
 		Short: "Print the reminder the Claude Code plugin adds after an edit",
 		Long: `Print the reminder the plugin adds after Claude Code edits a file: the
-vault pages that name the file, or a directory above it, in inline code, with
-the lines and sections they name it in. The pages that name the file itself
+vault pages that name the file, or a directory above it, in inline code, a
+link, or a frontmatter value, with the lines and sections they name it in. The pages that name the file itself
 come first, then those naming a nearer directory. At most --max pages are
 listed; a last line says how to see the rest.
 

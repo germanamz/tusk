@@ -11,7 +11,7 @@ import (
 	"github.com/germanamz/tusk/internal/pathref"
 )
 
-// PathRef is one workspace path a row's page names in inline code, under one
+// PathRef is one workspace path a row's page names, under one
 // paths edge type, with every place it is named. Exists is checked against the
 // disk when the query runs (exact case), so a ref to a renamed or deleted file
 // reads false.
@@ -59,7 +59,7 @@ func LoadPaths(db *sql.DB, workspaceRoot string, fileIDs []string, narrow []*fil
 	positions := map[string]int{}
 
 	for _, ref := range refs {
-		if !disk.Anchored(ref.Target) || !matchesAny(narrow, ref.Target) {
+		if !disk.Anchored(ref.Target) || !matchesAny(narrow, ref.Type, ref.Target) {
 			continue
 		}
 
@@ -72,7 +72,7 @@ func LoadPaths(db *sql.DB, workspaceRoot string, fileIDs []string, narrow []*fil
 			byFile[ref.SourceID] = append(byFile[ref.SourceID], PathRef{
 				Path:     ref.Target,
 				EdgeType: ref.Type,
-				Exists:   disk.Present(ref.Target),
+				Exists:   disk.Resolves(ref.Target),
 			})
 		}
 
@@ -107,6 +107,19 @@ func LoadPaths(db *sql.DB, workspaceRoot string, fileIDs []string, narrow []*fil
 	return byFile, nil
 }
 
+// LoadPathsForNode returns the path refs of one node for `node get --include
+// paths`, in the shape query rows carry. A sub-unit id has none: refs belong to
+// the file row, as they do on query rows.
+func LoadPathsForNode(db *sql.DB, workspaceRoot, id string) ([]PathRef, error) {
+	byFile, loadErr := LoadPaths(db, workspaceRoot, []string{id}, nil)
+
+	if loadErr != nil {
+		return nil, loadErr
+	}
+
+	return byFile[id], nil
+}
+
 // attachPaths loads the path refs of ids (one per result row, in row order) and
 // hands each row's refs to set. The outer names-path predicates of filterText
 // narrow what is listed, as LoadPaths describes.
@@ -139,13 +152,13 @@ func namesPathNarrowing(filterText string) []*filter.NamesPathPredicate {
 	return filter.OuterNamesPaths(expr)
 }
 
-func matchesAny(narrow []*filter.NamesPathPredicate, target string) bool {
+func matchesAny(narrow []*filter.NamesPathPredicate, edgeType, target string) bool {
 	if len(narrow) == 0 {
 		return true
 	}
 
 	for _, predicate := range narrow {
-		if predicate.Matches(target) {
+		if predicate.Matches(edgeType, target) {
 			return true
 		}
 	}

@@ -336,9 +336,9 @@ func toolJSON(payload any) (*mcpgo.CallToolResult, error) {
 
 func registerNodeGetTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_get",
-		mcpgo.WithDescription("Read a node by id (workspace-relative path without extension). Returns id, type, path, title, plus body / edges / properties when requested via include or fields."),
+		mcpgo.WithDescription("Read a node by id (workspace-relative path without extension). Returns id, type, path, title, plus body / edges / properties / paths when requested via include or fields."),
 		mcpgo.WithString("id", mcpgo.Required(), mcpgo.Description("Node id (e.g. \"notes/hi\")")),
-		mcpgo.WithArray("include", mcpgo.Description("Expand returned shape: body|edges|properties"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("include", mcpgo.Description("Expand returned shape: body|edges|properties|paths (paths: the workspace paths the page names, with lines and an exists flag; only when asked for)"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithArray("fields", mcpgo.Description("Project returned shape to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 	)
@@ -381,6 +381,18 @@ func registerNodeGetTool(srv *Server) {
 			edges = hydrated
 		}
 
+		var paths []query.PathRef
+
+		if result.IncludePaths {
+			hydrated, pathsErr := query.LoadPathsForNode(srv.runtime.Index.DB(), srv.runtime.Root, loaded.ID)
+
+			if pathsErr != nil {
+				return toolError(pathsErr), nil
+			}
+
+			paths = hydrated
+		}
+
 		payload := map[string]any{
 			"id":    loaded.ID,
 			"type":  loaded.Type,
@@ -400,12 +412,17 @@ func registerNodeGetTool(srv *Server) {
 			payload["body"] = string(loaded.Body)
 		}
 
+		if result.IncludePaths {
+			payload["paths"] = paths
+		}
+
 		if format == "compact" {
 			row := render.CompactRow{
 				ID:    loaded.ID,
 				Type:  loaded.Type,
 				Title: loaded.Title,
 				Edges: edges,
+				Paths: paths,
 			}
 
 			if result.IncludeBody {
@@ -468,7 +485,7 @@ func registerNodeListTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_node_list",
 		mcpgo.WithDescription("List nodes by type from the index — a convenience wrapper. For property / edge / hierarchy / recency filters, sorting, or semantic ranking, use tusk_query instead (it does everything `tusk node list` does and more). Use include / fields to expand rows with body / edges / properties in one round-trip. Sorted by id ascending. Returns up to 50 rows by default — raise take (with skip) to page through more."),
 		mcpgo.WithString("type", mcpgo.Description("Optional node type filter (e.g. \"ticket\"). Empty = all.")),
-		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|paths (paths = the workspace paths each page names in inline code)"), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|paths (paths = the workspace paths each page names in inline code, links or a paths-only frontmatter value)"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows (default 50)")),
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
@@ -644,7 +661,7 @@ const semanticDefaultMaxUnits = 3
 
 func registerQueryTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_query",
-		mcpgo.WithDescription("Run a structural, semantic, or hybrid query — the MCP equivalent of `tusk query` (no shell needed). Filter grammar: property predicates key=value / key:value / key!=value / key<|<=|>|>=value and ranges key=lo..hi; glob patterns on path and id (path=docs/product/* for one folder, path=docs/** for the subtree; quote to match a literal *); compose with AND / OR / NOT and parentheses; edge traversal edge-type-> (outgoing) and edge-type<- (incoming), chainable multi-hop (mentions-> tagged-> type=tag); hierarchy shortcuts tree=id / parent=id / root=id; recency modified-since:7d (or an ISO date); names-path=<path|glob> for the pages that name a workspace path in inline code (or a directory above it), when an edge type sets paths = true. Add semantic=\"...\" to rank by cosine similarity. Results default to 50 rows (structural) or 10 (semantic) — raise take for more. Use include / fields to expand or project rows in one round-trip. Full grammar: tusk_help(topic: \"filter\")."),
+		mcpgo.WithDescription("Run a structural, semantic, or hybrid query — the MCP equivalent of `tusk query` (no shell needed). Filter grammar: property predicates key=value / key:value / key!=value / key<|<=|>|>=value and ranges key=lo..hi; glob patterns on path and id (path=docs/product/* for one folder, path=docs/** for the subtree; quote to match a literal *); compose with AND / OR / NOT and parentheses; edge traversal edge-type-> (outgoing) and edge-type<- (incoming), chainable multi-hop (mentions-> tagged-> type=tag); hierarchy shortcuts tree=id / parent=id / root=id; recency modified-since:7d (or an ISO date); names-path=<path|glob> for the pages that name a workspace path in inline code, a link or a paths-only frontmatter value (or a directory above it), when an edge type sets paths = true; names-path:<edge-type>=<path> for one edge type's refs. Add semantic=\"...\" to rank by cosine similarity. Results default to 50 rows (structural) or 10 (semantic) — raise take for more. Use include / fields to expand or project rows in one round-trip. Full grammar: tusk_help(topic: \"filter\")."),
 		mcpgo.WithString("filter", mcpgo.Required(), mcpgo.Description("Filter expression, e.g. 'type=ticket AND priority>=2 AND modified-since:7d'. Empty string matches everything (useful as a semantic pre-filter). See the tool description for the grammar.")),
 		mcpgo.WithString("sort", mcpgo.Description("Sort spec (e.g. '+priority,-due')")),
 		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows (default 50 structural, 10 semantic)")),
@@ -1175,6 +1192,7 @@ func registerNodeMoveTool(srv *Server) {
 			srv.runtime.Manifest.EdgeTypes,
 			srv.runtime.Manifest.NodeTypes,
 			srv.runtime.PropertyDrift,
+			srv.runtime.Manifest.LineNumbering(),
 			nodeID,
 			newPath,
 		)

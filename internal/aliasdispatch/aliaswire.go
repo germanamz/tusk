@@ -56,6 +56,10 @@ func ResultPayload(result *DispatchResult) any {
 			envelope["body"] = string(getResult.Node.Body)
 		}
 
+		if getResult.IncludePaths {
+			envelope["paths"] = typed.Paths
+		}
+
 		return envelope
 
 	case *index.EdgeListResult:

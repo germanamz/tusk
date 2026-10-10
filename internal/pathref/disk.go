@@ -76,6 +76,19 @@ func (disk *Disk) Present(target string) bool {
 	return true
 }
 
+// Resolves reports whether a path ref's target names something on disk: it is
+// Present, or it names a markdown page by its node id (the path without
+// ".md"), the form an HTML href to a markdown node takes and the one a node
+// move writes. Readers of path refs use it; Present stays exact for callers
+// that check a real file path.
+func (disk *Disk) Resolves(target string) bool {
+	if disk.Present(target) {
+		return true
+	}
+
+	return path.Ext(target) != ".md" && disk.Present(target+".md")
+}
+
 // listing returns dir's entries by name, reading the directory on first use.
 // It returns nil for a directory that can't be read.
 func (disk *Disk) listing(dir string) map[string]fs.DirEntry {

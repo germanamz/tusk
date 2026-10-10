@@ -39,8 +39,8 @@ for any session started in the workspace root. It carries two things:
     its output (a short orientation plus the [context] digest) to the first
     message, the way CLAUDE.md is added. /clear and compaction re-read it.
   * A hook that runs "tusk claude refs" after the agent edits a file and,
-    when vault pages name that file in inline code (edge types with
-    paths = true), adds a short reminder listing them after the edit's
+    when vault pages name that file in inline code or a link (edge types
+    with paths = true), adds a short reminder listing them after the edit's
     result. Each file is mentioned once per session.
 
 Run "tusk claude install" once per workspace (or "tusk init --claude"), and

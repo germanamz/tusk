@@ -30,10 +30,12 @@ Three modes, all driven by the same command:
     alias (e.g. tree:wbs=id) set via hierarchy on an edge type in
     tusk.toml. Recency shortcut: modified-since: a duration or ISO date
     (e.g. modified-since:7d, modified-since:2026-05-23). Path refs:
-    names-path=<path> finds the pages that name a workspace path in
-    inline code, or a directory above it; names-path=<glob> matches the
-    named paths themselves (e.g. names-path=server/**). It needs an edge
-    type with paths = true in tusk.toml. Combine with AND, OR, NOT, and
+    names-path=<path> finds the pages that name a workspace path (in
+    inline code, a link, or a paths-only frontmatter value), or a
+    directory above it; names-path=<glob> matches the named paths
+    themselves (e.g. names-path=server/**). It needs an edge type with
+    paths = true in tusk.toml; names-path:<edge-type>=<path> matches
+    that edge type's refs only. Combine with AND, OR, NOT, and
     parens. (Both : and = bind property comparisons; pick whichever
     reads better.)
   * Semantic (--semantic STRING): nearest-neighbor search over
@@ -63,10 +65,11 @@ top of the file; absent for HTML), numbered under [workspace] line-numbering.
 document order on the outline); units_total reports how many there were.
 
 Path refs: --include paths lists the workspace paths each page names in
-inline code, one entry per path and edge type, with every line it is named
-on, the innermost section holding that line, and exists, a live check of the
-disk. Only spans whose first segment exists at the workspace root count as
-paths. Under a names-path filter the list keeps the refs the filter matched.
+inline code, links and images, or a paths-only frontmatter value, one entry
+per path and edge type, with every line it is named on, the innermost
+section holding that line, and exists, a live check of the disk. Only paths
+whose first segment exists at the workspace root count. Under a names-path
+filter the list keeps the refs the filter matched.
 
 Sub-unit addresses: a sub-unit's id appends a structural address to the file
 id, e.g. notes/doc#S1.2P3 (paragraph 3 of section 1.2) or notes/doc#S1.1T1R0C0
@@ -88,6 +91,9 @@ tusk query <filter> [flags]
 
   # Which pages describe this file (or a directory above it), and where
   tusk query 'names-path=server/ledger/core/service.go' --include paths
+
+  # The same, through one paths edge type only
+  tusk query 'names-path:describes=server/ledger/core/service.go'
 
   # Pure semantic over all notes
   tusk query 'type=note' --semantic 'cache invalidation strategies'

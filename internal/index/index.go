@@ -75,7 +75,8 @@ CREATE INDEX IF NOT EXISTS edges_source_path_idx ON edges(source_path);
 CREATE INDEX IF NOT EXISTS edges_source_type_idx ON edges(source, type);
 CREATE INDEX IF NOT EXISTS edges_kind_idx        ON edges(kind);
 
--- path_refs holds the workspace paths a page names in inline code, one row per
+-- path_refs holds the workspace paths a page names (in inline code, a link, or
+-- a paths-only frontmatter value), one row per
 -- (page, paths edge type, path, line). A path ref is an edge whose target is a
 -- path, not a node, so it lives here instead of in edges: the target needs no
 -- node row (source trees usually sit in [workspace] ignore), and no edge reader

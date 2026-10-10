@@ -200,6 +200,51 @@ func TestDispatcher_NodeGet(test *testing.T) {
 	}
 }
 
+// TestDispatcher_NodeGet_IncludePaths: the alias surface hydrates the page's
+// path refs on include:["paths"] and ResultPayload projects them onto "paths".
+func TestDispatcher_NodeGet_IncludePaths(test *testing.T) {
+	deps := setupWorkspace(test)
+
+	if mkErr := os.MkdirAll(filepath.Join(deps.WorkspaceRoot, "server"), 0o755); mkErr != nil {
+		test.Fatalf("mkdir: %v", mkErr)
+	}
+
+	if err := deps.Edges.ReplacePathRefs("notes/hello", []index.PathRefRow{{Type: "describes", Target: "server/x.go", Line: 6}}); err != nil {
+		test.Fatalf("seed path ref: %v", err)
+	}
+
+	alias := validatedAlias(test, "node get", map[string]any{
+		"id":      "notes/hello",
+		"include": []any{"paths"},
+	})
+
+	result, runErr := aliasdispatch.NewDispatcher(deps).Run(context.Background(), alias)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	wrapped, ok := result.Result.(*aliasdispatch.NodeGetResult)
+
+	if !ok {
+		test.Fatalf("Result type = %T, want *aliasdispatch.NodeGetResult", result.Result)
+	}
+
+	if len(wrapped.Paths) != 1 || wrapped.Paths[0].Path != "server/x.go" || wrapped.Paths[0].Exists {
+		test.Fatalf("wrapped.Paths = %+v, want server/x.go, missing on disk", wrapped.Paths)
+	}
+
+	envelope, ok := aliasdispatch.ResultPayload(result).(map[string]any)
+
+	if !ok {
+		test.Fatalf("ResultPayload type = %T, want map[string]any", aliasdispatch.ResultPayload(result))
+	}
+
+	if paths, ok := envelope["paths"].([]query.PathRef); !ok || len(paths) != 1 {
+		test.Errorf("envelope[paths] = %#v, want one path ref", envelope["paths"])
+	}
+}
+
 // TestDispatcher_NodeGet_IncludeEdges locks in issue #706 on the alias surface
 // (tusk run / tusk context): node get with include:["edges"] hydrates the
 // node's edges from the index, and ResultPayload projects them onto "edges".

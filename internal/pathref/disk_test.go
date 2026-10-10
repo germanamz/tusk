@@ -91,3 +91,34 @@ func TestDisk_UnreadableDirectoryCountsAsPresent(test *testing.T) {
 		test.Errorf("an unreadable directory can't prove a path missing")
 	}
 }
+
+func TestDisk_ResolvesMarkdownNodeIDs(test *testing.T) {
+	root := diskFixture(test)
+
+	for _, file := range []string{"docs/guide.md", "docs/page.html"} {
+		if writeErr := os.WriteFile(filepath.Join(root, file), []byte("x"), 0o644); writeErr != nil {
+			test.Fatalf("write: %v", writeErr)
+		}
+	}
+
+	disk := pathref.NewDisk(root)
+
+	cases := map[string]bool{
+		"docs/guide":    true,  // a markdown node id: the path without .md
+		"docs/guide.md": true,  // the file itself
+		"docs/page":     false, // an HTML id keeps its extension
+		"docs/Guide":    false, // case is still exact
+		"docs/missing":  false,
+		"go.mod":        true,
+	}
+
+	for target, want := range cases {
+		if got := disk.Resolves(target); got != want {
+			test.Errorf("Resolves(%q) = %v, want %v", target, got, want)
+		}
+	}
+
+	if disk.Present("docs/guide") {
+		test.Errorf("Present(docs/guide) = true; Present must stay exact for file checks")
+	}
+}

@@ -26,7 +26,7 @@ cardinality = "many-to-many" # one-to-one | one-to-many | many-to-one | many-to-
 ordered     = "order"        # optional; sort siblings by this property
 hierarchy   = "wbs"          # optional; enables tree=/parent=/root= shortcuts
 wikilinks   = true           # optional; [[wikilinks]] in body produce this edge
-paths       = true           # optional; workspace paths in inline code become path refs
+paths       = true           # optional; workspace paths in inline code and links become path refs
 # See tusk_help(topic: "edge-types").
 
 [embeddings]                  # required for semantic queries

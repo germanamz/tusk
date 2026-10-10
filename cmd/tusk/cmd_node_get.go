@@ -34,12 +34,20 @@ it (page.html has id "page.html").
 By default (no flags) the command prints the raw file to stdout
 verbatim — useful for piping into editors, less, or another tusk command.
 When --include, --fields, --format, or --json is passed the command emits
-structured output instead (compact for TTY, JSON otherwise).`,
+structured output instead (compact for TTY, JSON otherwise).
+
+--include paths lists the workspace paths the page names (in inline code,
+links, or a paths-only frontmatter value) under edge types with
+paths = true, each with its lines and a live exists flag, the way
+tusk query --include paths does. It is never part of the default shape.`,
 		Example: `  # Print the raw file
   tusk node get notes/hello
 
   # Structured JSON envelope with only the body
   tusk node get notes/hello --include body --format json
+
+  # The workspace paths a page names
+  tusk node get technical/ledger --include paths
 
   # Open in $EDITOR (round-trip through a temp file)
   tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md`,
@@ -107,6 +115,16 @@ structured output instead (compact for TTY, JSON otherwise).`,
 				payload.Edges = edges
 			}
 
+			if result.IncludePaths {
+				paths, pathsErr := query.LoadPathsForNode(store.DB(), ws.Root, result.Node.ID)
+
+				if pathsErr != nil {
+					return pathsErr
+				}
+
+				payload.Paths = paths
+			}
+
 			if format == formatJSON {
 				return writeJSON(cmd.OutOrStdout(), payload)
 			}
@@ -119,7 +137,7 @@ structured output instead (compact for TTY, JSON otherwise).`,
 		},
 	}
 
-	getCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand returned shape: body|edges|properties (comma-separated)")
+	getCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand returned shape: body|edges|properties|paths (comma-separated; paths lists the workspace paths the page names)")
 	getCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project returned shape to these fields (comma-separated)")
 	getCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact for TTY, json otherwise)")
 	getCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
@@ -139,10 +157,12 @@ type nodeGetPayload struct {
 	Body       string
 	Properties map[string]any
 	Edges      []query.EdgeRef
+	Paths      []query.PathRef
 
 	includeBody       bool
 	includeEdges      bool
 	includeProperties bool
+	includePaths      bool
 }
 
 // MarshalJSON honors the include filter: requested fields appear in the
@@ -167,14 +187,18 @@ func (payload nodeGetPayload) MarshalJSON() ([]byte, error) {
 		envelope["edges"] = payload.Edges
 	}
 
+	if payload.includePaths {
+		envelope["paths"] = payload.Paths
+	}
+
 	return json.Marshal(envelope)
 }
 
 // buildNodeGetPayload converts node.GetResult to nodeGetPayload, honoring the
-// IncludeBody / IncludeEdges / IncludeProperties flags computed by GetRun.
-// Edges are left empty here — node.GetRun reads only the nodes table, so the
-// caller hydrates them from the edges table (query.LoadEdgesForNode) when
-// requested, mirroring `query --include edges`.
+// IncludeBody / IncludeEdges / IncludeProperties / IncludePaths flags computed
+// by GetRun. Edges and paths are left empty here — node.GetRun reads only the
+// nodes table, so the caller hydrates them (query.LoadEdgesForNode,
+// query.LoadPathsForNode) when requested, mirroring `query --include`.
 func buildNodeGetPayload(result *node.GetResult) nodeGetPayload {
 	loaded := result.Node
 
@@ -188,6 +212,7 @@ func buildNodeGetPayload(result *node.GetResult) nodeGetPayload {
 		includeBody:       result.IncludeBody,
 		includeEdges:      result.IncludeEdges,
 		includeProperties: result.IncludeProperties,
+		includePaths:      result.IncludePaths,
 	}
 }
 
@@ -214,6 +239,10 @@ func renderNodeGetCompact(out io.Writer, payload nodeGetPayload, fields []string
 
 	if payload.includeProperties {
 		row.Properties = payload.Properties
+	}
+
+	if payload.includePaths {
+		row.Paths = payload.Paths
 	}
 
 	rows := []render.CompactRow{row}
