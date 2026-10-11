@@ -86,7 +86,7 @@ tusk web --open   # graph and reading views at http://127.0.0.1:7373
 tusk query 'type=package' --semantic "what happens when the index gets corrupted"
 ```
 
-Two rough edges on a first run: reindex logs a warning for each plain markdown file it skips ([#789](https://github.com/germanamz/tusk/issues/789)), and without Ollama it still builds the graph but exits 1 after failing to embed ([#787](https://github.com/germanamz/tusk/issues/787)).
+One rough edge on a first run: without Ollama it still builds the graph but exits 1 after failing to embed ([#787](https://github.com/germanamz/tusk/issues/787)).
 
 ## Use it on your own notes
 
