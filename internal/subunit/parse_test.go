@@ -492,6 +492,46 @@ func TestDeriveEdges_NoWikilinksReturnsNil(test *testing.T) {
 	}
 }
 
+// #788: code is never a link at the sub-unit level either. Unit text is
+// goldmark's rendered text, which has already lost the backticks around a code
+// span, so a unit's links come from its source span with code blanked. Only the
+// real link derives edges — on its own paragraph and on the section above it —
+// and no unit, the code block and the section included, links to an example.
+func TestDeriveEdges_SkipsCode(test *testing.T) {
+	source := "# The `[[id]]` form\n\n" +
+		"Write `[[id|Label]]` to alias; see [[real]].\n\n" +
+		"- a `[[id]]` bullet\n\n" +
+		"| form |\n| --- |\n| `[[id]]` |\n\n" +
+		"> quoted `[[id]]`\n\n" +
+		"```\n[[id]]\n```\n\n" +
+		"    [[id]] indented\n"
+
+	for _, lineEnding := range []string{"\n", "\r\n"} {
+		units, parseErr := Parse([]byte(strings.ReplaceAll(source, "\n", lineEnding)))
+
+		if parseErr != nil {
+			test.Fatalf("parse: %v", parseErr)
+		}
+
+		linked := map[string][]string{}
+
+		for _, unit := range units {
+			for _, edge := range DeriveEdges(unit, []string{"links-to"}) {
+				linked[string(unit.Kind)] = append(linked[string(unit.Kind)], edge.TargetID)
+			}
+		}
+
+		want := map[string][]string{
+			string(KindSection):   {"real"},
+			string(KindParagraph): {"real"},
+		}
+
+		if fmt.Sprint(linked) != fmt.Sprint(want) {
+			test.Errorf("line ending %q: links by kind = %v, want %v", lineEnding, linked, want)
+		}
+	}
+}
+
 // TestParse_OrdinalIsDepthFirstIndex checks ordinal monotonicity
 // across a fixture with mixed kinds.
 func TestParse_OrdinalIsDepthFirstIndex(test *testing.T) {

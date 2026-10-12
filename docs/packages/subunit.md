@@ -14,8 +14,8 @@ Parses a markdown file body into sub-document units (sections, paragraphs, list 
 - `Parse(source []byte) ([]Unit, error)` — goldmark-backed walk producing a deterministic, depth-first `[]Unit`. Each unit carries its `Address`, `ContentHash`, `ParentAddress`, `Ordinal`, kind-specific `Properties`, the synthesized `EmbedPayload`, and its byte span in `source` (`StartOffset` / `EndOffset`).
 - `AssignLines(units, file, bodyOffset, scheme)` — turns each unit's byte span into `StartLine` / `EndLine`, counted over the whole file under an `internal/linenum` scheme. `bodyOffset` is where the parsed body starts in the file (`node.Node.BodyOffset`), so frontmatter lines count.
 - `Unit` — one sub-document node. `Address` is the id suffix; `ContentHash` is the embed-payload fingerprint; `Hash` is the fallback id for kinds with no address rule.
-- `Sync.ApplyFile(ctx, fileRow, units)` — diffs the parsed units against existing rows **by address**, inserts/deletes/updates rows, rewrites `contains` edges, re-derives outbound wikilink edges for inserted and content-changed units, and enqueues embeds for new or content-changed leaves (sections are never enqueued). The reindex worker calls it for every page it re-parses, and `node.Service` calls it after `Create` and `Modify`, whose lease writes make the next reindex skip the page (#782).
-- `DeriveEdges` — wikilink extraction from a unit's text, through [`internal/wikilink`](wikilink.md), the scanner the file-level edges use too.
+- `Sync.ApplyFile(ctx, fileRow, units)` — diffs the parsed units against existing rows **by address**, inserts/deletes/updates rows, rewrites `contains` edges, rewrites the outbound wikilink edges of every unit whose links differ from the stored ones, and enqueues embeds for new or content-changed leaves (sections are never enqueued). The reindex worker calls it for every page it re-parses, and `node.Service` calls it after `Create` and `Modify`, whose lease writes make the next reindex skip the page (#782).
+- `DeriveEdges` — one edge per `Unit.Links` target per wikilink edge type. The markdown walker fills `Links` from the unit's byte span in the source with code blanked (`wikilink.MaskCodeIn`), so a link inside a code span or code block never becomes an edge (#788). A list item reads only its own paragraphs, not a sub-list nested between them. The HTML walker fills `Links` from the unit's text. Both go through [`internal/wikilink`](wikilink.md), the scanner the file-level edges use too.
 
 ## Structural address grammar
 
@@ -31,7 +31,7 @@ Examples: `notes/standup#S1.2P3`, `notes/standup#S1.1T1R2C0`, `notes/note#P1`.
 
 ## Stability contract
 
-- **Section addresses are positional and independent of heading text.** Editing a heading keeps its address (and every descendant address); only the section row's title/text and `content_hash` change. Any edit *inside* a section also turns over the section's `content_hash` (it covers the full subtree text), refreshing the section's outbound wikilink edges without touching its address.
+- **Section addresses are positional and independent of heading text.** Editing a heading keeps its address (and every descendant address); only the section row's title/text and `content_hash` change. Any edit *inside* a section also turns over the section's `content_hash` (it covers the full subtree text) without touching its address.
 - **Leaf addresses are stable under in-place edits:** rewriting a paragraph keeps `S1.2P3`; its `content_hash` turns over, driving a re-embed.
 - **Addresses shift under restructure** (insert/delete/reorder a block, move a heading). Because vectors are content-addressed (`internal/index` + `internal/embed`), a shifted-but-unchanged unit reuses its vector with no model call.
 
@@ -49,17 +49,19 @@ goldmark records a start position on every block, so `Parse` derives spans from 
 
 ## content_hash
 
-Each sub-unit row stores `content_hash` = sha256 of the **embed payload** (for leaves — a table cell's payload is `"<column-header>: <cell-text>"`), or sha256 of the section's `Text` for sections — for the markdown walker that is the heading **plus the full descendant body** (sections are never embedded, but their outbound wikilink edges are derived from that full text — the hash must turn over on any edit inside the section or the sync diff would leave the section's edge set stale; the HTML walker's section `Text` is heading-only, and its section edges derive from that same text, so hash and edge set stay in lockstep on both paths). For leaves it drives the sync re-embed decision and is the key the embedding store dedupes on: identical content anywhere in the workspace is embedded once and shared.
+Each sub-unit row stores `content_hash` = sha256 of the **embed payload** (for leaves — a table cell's payload is `"<column-header>: <cell-text>"`), or sha256 of the section's `Text` for sections — for the markdown walker that is the heading **plus the full descendant body**, and for the HTML walker the heading alone. The hash does not decide edges: a list item's or table cell's text is goldmark's rendered text, which drops the backticks around a code span, so wrapping a link in backticks changes what the unit links to and leaves its hash alone. For leaves it drives the sync re-embed decision and is the key the embedding store dedupes on: identical content anywhere in the workspace is embedded once and shared.
 
 ## How indexing works
 
 `Parse` walks the markdown once, assigning each unit its address and `content_hash`. `Sync.ApplyFile` then diffs those units against the file's existing sub-unit rows **by address**:
 
-- address only in the new set → insert the row; derive its outbound wikilink edges; enqueue an embed (leaves only).
-- address in both, `content_hash` changed → update the row; re-derive its outbound wikilink edges; re-enqueue the embed (leaves only).
-- address in both, only ordinal, properties, or line range changed → update the row; the payload is byte-identical, so the vector and edges still hold and nothing is re-enqueued. An edit above a passage shifts its lines this way, and rows written before line ranges existed (NULL lines) fill this way.
+- address only in the new set → insert the row; enqueue an embed (leaves only).
+- address in both, `content_hash` changed → update the row; re-enqueue the embed (leaves only).
+- address in both, only ordinal, properties, or line range changed → update the row; the payload is byte-identical, so the vector still holds and nothing is re-enqueued. An edit above a passage shifts its lines this way, and rows written before line ranges existed (NULL lines) fill this way.
 - address in both, unchanged → leave the row untouched.
 - address only in the old set → delete the row (its edges and embedding mapping cascade away).
+
+Outbound wikilink edges converge separately. `ApplyFile` reads the file's stored edges in one query (`EdgeRepo.ListBySourcePath`), derives each unit's edges from its `Links`, and rewrites only the units whose two sets differ. A new unit with no links writes nothing, an edit that leaves a unit's links alone writes nothing for it, and a forced re-process heals any unit whose stored edges drifted from its source.
 
 The embed drain (`internal/embed`) reads a leaf's `content_hash`; if a vector for that content already exists it just records the node→content mapping with no model call, otherwise it embeds once and stores the shared vector (see `internal/embed` and `internal/index` for the `embeddings` / `node_embeddings` tables). So a restructure that shifts addresses but not content costs no re-embedding, identical content across the workspace is embedded once, and `tusk doctor` measures embedding coverage by those mappings — sections, which are never embedded, are not flagged.
 

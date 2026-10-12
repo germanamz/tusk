@@ -44,7 +44,7 @@ import (
 // stamped, so nothing else would heal them.
 const (
 	edgeDerivationVersionKey = "edge_derivation_version"
-	edgeDerivationVersion    = "2026-10-10-node-write-subunits"
+	edgeDerivationVersion    = "2026-10-12-code-never-links"
 )
 
 // lineNumberingKey stores the [workspace].line-numbering scheme the sub-unit

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/germanamz/tusk/internal/wikilink"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -228,6 +227,10 @@ func walkListItem(
 			Properties: props,
 		}
 		finder.span(&listItem, item.Pos(), listItemEnd(finder, item))
+		// The span can run over a sub-list nested between two of the item's
+		// paragraphs; that sub-list is a unit of its own, so the item links
+		// only from the blocks its text comes from.
+		listItem.Links = finder.blockLinks(listItemTextBlocks(item))
 		emit(listItem)
 	}
 
@@ -244,18 +247,31 @@ func walkListItem(
 	}
 }
 
-// listItemEnd returns the end of a list item's own text: its paragraph and
-// text-block children, the same blocks extractListItemText reads. Nested
-// lists, code, and quotes are units of their own with their own spans.
-func listItemEnd(finder *spanFinder, item *ast.ListItem) int {
-	end := -1
+// listItemTextBlocks returns a list item's paragraph and text-block children,
+// the blocks extractListItemText reads. Nested lists, code, and quotes are units
+// of their own.
+func listItemTextBlocks(item *ast.ListItem) []ast.Node {
+	var blocks []ast.Node
 
 	for child := item.FirstChild(); child != nil; child = child.NextSibling() {
 		switch child.(type) {
 		case *ast.Paragraph, *ast.TextBlock:
-			if _, childEnd := finder.blockSpan(child); childEnd > end {
-				end = childEnd
-			}
+			blocks = append(blocks, child)
+		}
+	}
+
+	return blocks
+}
+
+// listItemEnd returns the end of a list item's own text: its last text block
+// (listItemTextBlocks). Nested lists, code, and quotes are units of their own
+// with their own spans.
+func listItemEnd(finder *spanFinder, item *ast.ListItem) int {
+	end := -1
+
+	for _, block := range listItemTextBlocks(item) {
+		if _, blockEnd := finder.blockSpan(block); blockEnd > end {
+			end = blockEnd
 		}
 	}
 
@@ -591,11 +607,11 @@ func makeTitle(body string) string {
 	return string(runes[:titleMaxLen-1]) + "…"
 }
 
-// DeriveEdges scans unit.Text for wikilink targets (reusing the
-// existing internal/node extractor) and returns one EdgeSpec per
-// target per edge type in wikilinkEdgeTypes. Order is preserved:
-// targets are emitted in first-seen order, and within a target the
-// edge types are emitted in the caller-supplied order.
+// DeriveEdges returns one EdgeSpec per unit.Links target per edge type in
+// wikilinkEdgeTypes. The walkers fill Links through internal/wikilink, the
+// scanner the file-level edges use too. Order is preserved: targets are
+// emitted in first-seen order, and within a target the edge types are emitted
+// in the caller-supplied order.
 //
 // The function is pure: it does not touch the index, the embed queue,
 // or any repository. Resolution of TargetID to a file id (and the
@@ -610,13 +626,12 @@ func DeriveEdges(unit Unit, wikilinkEdgeTypes []string) []EdgeSpec {
 		return nil
 	}
 
-	targets := wikilink.Extract([]byte(unit.Text))
-	if len(targets) == 0 {
+	if len(unit.Links) == 0 {
 		return nil
 	}
 
-	out := make([]EdgeSpec, 0, len(targets)*len(wikilinkEdgeTypes))
-	for _, target := range targets {
+	out := make([]EdgeSpec, 0, len(unit.Links)*len(wikilinkEdgeTypes))
+	for _, target := range unit.Links {
 		for _, edgeType := range wikilinkEdgeTypes {
 			out = append(out, EdgeSpec{
 				EdgeType: edgeType,

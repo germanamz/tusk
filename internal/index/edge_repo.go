@@ -172,6 +172,12 @@ func (repo *EdgeRepo) ListBySource(sourceID string) ([]EdgeRow, error) {
 	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE source_id = ? ORDER BY type, target_id`, sourceID)
 }
 
+// ListBySourcePath returns all edges declared by the file at sourcePath, its
+// own and its sub-units', ordered by source_id, type, then target_id.
+func (repo *EdgeRepo) ListBySourcePath(sourcePath string) ([]EdgeRow, error) {
+	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE source_path = ? ORDER BY source_id, type, target_id`, sourcePath)
+}
+
 // ListByTarget returns all edges where target_id = targetID, ordered by type then source_id.
 func (repo *EdgeRepo) ListByTarget(targetID string) ([]EdgeRow, error) {
 	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE target_id = ? ORDER BY type, source_id`, targetID)

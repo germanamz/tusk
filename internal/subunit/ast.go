@@ -101,6 +101,12 @@ type Unit struct {
 	// the unit, as with HTML, which keeps no source positions.
 	StartOffset int
 	EndOffset   int
+	// Links are the wikilink targets the unit names, in first-seen order, and
+	// what DeriveEdges turns into edges. The markdown walker reads them from the
+	// unit's source with code blanked (wikilink.MaskCodeIn), since Text has
+	// already lost the backticks around a code span and code never links (#788).
+	// The HTML walker reads them from Text.
+	Links []string
 	// StartLine and EndLine are the 1-based, inclusive file lines the span
 	// covers, set by AssignLines. 0 means unknown and is stored as NULL.
 	StartLine int

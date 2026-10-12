@@ -4,6 +4,7 @@ import (
 	"bytes"
 
 	"github.com/germanamz/tusk/internal/subunit"
+	"github.com/germanamz/tusk/internal/wikilink"
 	"golang.org/x/net/html"
 )
 
@@ -24,6 +25,9 @@ func Parse(source []byte) ([]subunit.Unit, error) {
 
 	emit := func(unit subunit.Unit) int {
 		unit = subunit.FinalizeUnit(unit, ctx, len(units))
+		// An HTML page keeps no source positions, so its units link from their
+		// text, which holds no markdown code to skip.
+		unit.Links = wikilink.ExtractText([]byte(unit.Text))
 		units = append(units, unit)
 
 		return unit.Ordinal

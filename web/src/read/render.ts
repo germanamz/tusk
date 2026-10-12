@@ -116,13 +116,12 @@ md.core.ruler.push('task_lists', (state) => {
 // own tokenization: a wikilink inside a fenced code block is never seen at
 // all (fence content is a single raw block token, never inline-parsed), and
 // one inside an inline code span is skipped because the 'backticks' rule
-// claims that span first. This mirrors internal/node's ExtractWikilinks,
-// which strips fenced code before matching for the same reason — the two
-// sides agree on what counts as a "real" wikilink without coordinating on it
-// directly.
+// claims that span first. This mirrors internal/wikilink's Extract, which
+// blanks inline code spans and code blocks before matching for the same
+// reason, so an edge exists exactly where this renders a link (#788).
 //
-// The inner-content class `[^[\]]+` matches internal/node/wikilinks.go's
-// wikilinkPattern exactly: neither `[` nor `]` may appear inside, so a
+// The inner-content class `[^[\]]+` matches internal/wikilink's pattern
+// exactly: neither `[` nor `]` may appear inside, so a
 // wikilink can never span brackets or run past its closing `]]`.
 const WIKILINK = /^\[\[([^[\]]+)\]\]/
 

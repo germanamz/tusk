@@ -774,3 +774,45 @@ func TestSync_ReparseDropsRemovedSectionSourcedEdges(test *testing.T) {
 		}
 	}
 }
+
+// #788: wrapping a link in backticks (or unwrapping one) changes what a unit
+// links to, but a list item's or table cell's text is goldmark's rendered text,
+// which drops the backticks, so its content hash holds still. The sync must
+// still converge each unit's edges on what its source links to now, both ways.
+func TestSync_BacktickOnlyEditConvergesEdges(test *testing.T) {
+	store := openSyncTestIndex(test)
+	loaded := referencesManifest(test)
+	sync, nodes, edges, _ := newSync(store, loaded)
+
+	parent := seedFileRow(test, nodes, "notes/src", "notes/src.md")
+	seedFileRow(test, nodes, "notes/target", "notes/target.md")
+
+	const linked = "# Top\n\n- see [[notes/target]]\n\n| link |\n| --- |\n| [[notes/target]] |\n"
+
+	steps := []struct {
+		body string
+		want int
+	}{
+		{body: linked, want: 1},
+		{body: strings.ReplaceAll(linked, "[[notes/target]]", "`[[notes/target]]`"), want: 0},
+		{body: linked, want: 1},
+	}
+
+	for index, step := range steps {
+		units, parseErr := subunit.Parse([]byte(step.body))
+
+		if parseErr != nil {
+			test.Fatalf("step %d: parse: %v", index, parseErr)
+		}
+
+		if _, applyErr := sync.ApplyFile(context.Background(), parent, units); applyErr != nil {
+			test.Fatalf("step %d: ApplyFile: %v", index, applyErr)
+		}
+
+		for _, sourceID := range []string{"notes/src#S1", "notes/src#S1L1", "notes/src#S1T1R1C0"} {
+			if targets := listReferences(test, edges, sourceID); len(targets) != step.want {
+				test.Errorf("step %d: %s targets = %v, want %d", index, sourceID, targets, step.want)
+			}
+		}
+	}
+}
