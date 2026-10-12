@@ -112,8 +112,8 @@ func TestRun_BOMFileIsIndexedNotSilentlyDropped(test *testing.T) {
 func TestRun_UnparseableFileIsNamedInSkipLog(test *testing.T) {
 	root := test.TempDir()
 
-	// No frontmatter → ParseFile fails → the file is skipped.
-	writeRaw(test, root, "broken.md", []byte("no frontmatter, just prose\n"))
+	// Frontmatter that does not decode → ParseFile fails → the file is skipped.
+	writeRaw(test, root, "broken.md", []byte(brokenFrontmatter))
 	// A healthy control so the pass still indexes something.
 	writeRaw(test, root, "good.md", []byte("---\ntype: note\n---\n# Ok\n\nbody\n"))
 
@@ -150,5 +150,55 @@ func TestRun_UnparseableFileIsNamedInSkipLog(test *testing.T) {
 
 	if !strings.Contains(out, "broken.md") {
 		test.Errorf("skip WARN did not name the offending file; got %q", out)
+	}
+}
+
+// TestRun_NonNodeFilesAreNotWarned guards #789: plain markdown with no
+// frontmatter or no type is not a node, which vaults rely on, so the worker
+// must not WARN about it the way it does a real parse failure. The report
+// still counts it under Skipped, and NotNodes says how many of those skips
+// were plain markdown.
+func TestRun_NonNodeFilesAreNotWarned(test *testing.T) {
+	root := test.TempDir()
+
+	writeRaw(test, root, "README.md", []byte("# Just prose\n\nNo frontmatter here.\n"))
+	writeRaw(test, root, "docs/untyped.md", []byte("---\ntitle: Untyped\n---\n\nBody.\n"))
+	writeRaw(test, root, "docs/broken.md", []byte(brokenFrontmatter))
+	writeRaw(test, root, "good.md", []byte("---\ntype: note\n---\n# Ok\n\nbody\n"))
+
+	store, openErr := index.Open(filepath.Join(root, ".tusk", "index.db"))
+	if openErr != nil {
+		test.Fatalf("open index: %v", openErr)
+	}
+
+	defer store.Close()
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+
+	report, runErr := reindex.Run(withGen(store, reindex.Config{
+		Root:   root,
+		Repo:   index.NewNodeRepo(store),
+		Logger: logger,
+	}))
+	if runErr != nil {
+		test.Fatalf("reindex.Run: %v", runErr)
+	}
+
+	if report.Skipped != 3 || report.NotNodes != 2 {
+		test.Errorf("Skipped = %d, NotNodes = %d; want 3 skipped, 2 of them not nodes",
+			report.Skipped, report.NotNodes)
+	}
+
+	out := buf.String()
+
+	for _, plain := range []string{"README.md", "docs/untyped.md"} {
+		if strings.Contains(out, plain) {
+			test.Errorf("plain markdown %s was logged at WARN; got %q", plain, out)
+		}
+	}
+
+	if !strings.Contains(out, "docs/broken.md") {
+		test.Errorf("the real parse failure lost its WARN; got %q", out)
 	}
 }

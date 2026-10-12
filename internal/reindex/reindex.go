@@ -217,6 +217,7 @@ type Report struct {
 	Indexed            int // number of node files freshly indexed or refreshed
 	Removed            int // number of stale rows deleted (file no longer on disk)
 	Skipped            int // number of files skipped (parse error or off-schema)
+	NotNodes           int // subset of Skipped: plain markdown with no frontmatter or no type
 	WorkflowViolations int // number of workflow validation failures (warn mode)
 	PropertyViolations int // number of property validation failures (warn mode)
 	RefDangling        int // number of ref_dangling issues surfaced
@@ -256,6 +257,7 @@ type Report struct {
 func (rep *Report) mergeDrain(other DrainReport) {
 	rep.Indexed += other.Indexed
 	rep.Skipped += other.Skipped
+	rep.NotNodes += other.NotNodes
 	rep.WorkflowViolations += other.WorkflowViolations
 	rep.PropertyViolations += other.PropertyViolations
 	rep.RefDangling += other.RefDangling
@@ -815,6 +817,7 @@ func Run(config Config) (*Report, error) {
 			"indexed", report.Indexed,
 			"removed", report.Removed,
 			"skipped", report.Skipped,
+			"not_nodes", report.NotNodes,
 			"workflow_violations", report.WorkflowViolations,
 			"property_violations", report.PropertyViolations,
 			"ref_dangling", report.RefDangling,

@@ -1356,7 +1356,7 @@ func reindexToolConfig(rt *Runtime, noEmbed bool) reindex.Config {
 
 func registerReindexTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_reindex",
-		mcpgo.WithDescription("Walk the workspace and bring the index up to date with disk — the MCP equivalent of `tusk reindex`. The embedding pass runs over Ollama and can be slow on a large vault; pass no_embed=true for a fast structural-only pass (embeddings still drain in the background). The response reports indexed/removed/skipped plus the remaining embed_queue_depth — poll tusk_status to watch it drain. An unreachable embedding backend doesn't fail the call: the index is still updated and embed_error names the cause."),
+		mcpgo.WithDescription("Walk the workspace and bring the index up to date with disk — the MCP equivalent of `tusk reindex`. The embedding pass runs over Ollama and can be slow on a large vault; pass no_embed=true for a fast structural-only pass (embeddings still drain in the background). The response reports indexed/removed/skipped (not_nodes counts the skips that are plain markdown with no frontmatter or no type) plus the remaining embed_queue_depth — poll tusk_status to watch it drain. An unreachable embedding backend doesn't fail the call: the index is still updated and embed_error names the cause."),
 		mcpgo.WithBoolean("no_embed", mcpgo.Description("Skip the synchronous embedding pass and return as soon as the structural index is up to date; pending embeddings drain in the background.")),
 	)
 
@@ -1398,6 +1398,7 @@ func registerReindexTool(srv *Server) {
 			"indexed":                 report.Indexed,
 			"removed":                 report.Removed,
 			"skipped":                 report.Skipped,
+			"not_nodes":               report.NotNodes,
 			"ref_healed":              report.RefHealed,
 			"embed_settings_requeued": report.EmbedSettingsRequeued,
 		}
@@ -1522,6 +1523,7 @@ func registerResetTool(srv *Server) {
 			"indexed":           report.Indexed,
 			"removed":           report.Removed,
 			"skipped":           report.Skipped,
+			"not_nodes":         report.NotNodes,
 			"epoch":             result.Epoch,
 			"deleted_artifacts": result.DeletedArtifacts,
 		})
@@ -1991,6 +1993,7 @@ func reloadToolHandler(ctx context.Context, request mcpgo.CallToolRequest, srv *
 				"indexed":                 report.Indexed,
 				"removed":                 report.Removed,
 				"skipped":                 report.Skipped,
+				"not_nodes":               report.NotNodes,
 				"workflow_violations":     report.WorkflowViolations,
 				"property_violations":     report.PropertyViolations,
 				"ref_dangling":            report.RefDangling,
@@ -2041,6 +2044,7 @@ func emptyReindexReport() map[string]any {
 		"indexed":                 0,
 		"removed":                 0,
 		"skipped":                 0,
+		"not_nodes":               0,
 		"workflow_violations":     0,
 		"property_violations":     0,
 		"ref_dangling":            0,

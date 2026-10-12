@@ -73,6 +73,7 @@ func RunReindexDrainer(ctx context.Context, config ReindexDrainerConfig) error {
 				config.Logger.Info("reindex drainer batch",
 					"indexed", report.Indexed,
 					"skipped", report.Skipped,
+					"not_nodes", report.NotNodes,
 				)
 			}
 

@@ -151,10 +151,12 @@ The index lives in `.tusk/tusk.db` (SQLite + WAL). It is **derived state** — d
 
 ```bash
 tusk reindex
-# Reindex done: 142 indexed, 0 removed, 3 skipped
+# Reindex done: 142 indexed, 0 removed, 3 skipped (2 not nodes)
 ```
 
 `reindex` walks the workspace, parses every `.md`, validates frontmatter against the manifest, resolves refs + wikilinks into edges, and enqueues embeddings.
+
+A skipped file is one reindex left out of the index. The `not nodes` count is plain markdown with no frontmatter or no `type:`, which is fine and gets no warning. Any other skip is a file reindex could not parse: it is logged as a warning and `tusk doctor` reports it.
 
 ### Live watcher
 

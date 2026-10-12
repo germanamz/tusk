@@ -254,7 +254,8 @@ proceeds.`,
 				logger.Info("reindex completed",
 					"indexed", report.Indexed,
 					"removed", report.Removed,
-					"skipped", report.Skipped)
+					"skipped", report.Skipped,
+					"not_nodes", report.NotNodes)
 			}
 
 			return nil
