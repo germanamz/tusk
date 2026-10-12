@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -885,6 +887,8 @@ func TestTool_Doctor_CleanReport(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()
 
+	markIndexBuilt(test, rt)
+
 	srv := mcp.NewServer(rt)
 
 	body, callErr := callTool(test, srv, "tusk_doctor", map[string]any{})
@@ -1568,6 +1572,59 @@ properties = [
 
 	if edge["source_id"] != "aref/auth" || edge["type"] != "assignee" {
 		test.Errorf("edge = %v, want aref/auth -[assignee]-> zref/alice", edge)
+	}
+}
+
+// TestTool_Reindex_UnreachableEmbedderReportsEmbedError pins #787 on the MCP
+// path: an unreachable embedding backend no longer fails tusk_reindex. The
+// index is updated and embed_error names the cause.
+func TestTool_Reindex_UnreachableEmbedderReportsEmbedError(test *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	endpoint := server.URL
+	server.Close() // every connection is now refused: a transport error
+
+	root := test.TempDir()
+
+	if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte(`[workspace]
+name = "x"
+
+[embeddings]
+provider = "ollama"
+model    = "test-model"
+endpoint = "`+endpoint+`"
+dim      = 3
+workers  = 1
+
+[node-types.note]
+properties = []
+`), 0o644); writeErr != nil {
+		test.Fatalf("write tusk.toml: %v", writeErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(root, "a.md"), []byte("---\ntype: note\n---\n\nbody\n"), 0o644); writeErr != nil {
+		test.Fatalf("write a.md: %v", writeErr)
+	}
+
+	rt, openErr := mcp.Open(root)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer rt.Close()
+
+	body, callErr := callTool(test, mcp.NewServer(rt), "tusk_reindex", map[string]any{})
+
+	if callErr != nil {
+		test.Fatalf("tusk_reindex failed on an unreachable embedder: %v", callErr)
+	}
+
+	if indexed, _ := body["indexed"].(float64); indexed != 1 {
+		test.Errorf("indexed = %v, want 1", body["indexed"])
+	}
+
+	if embedErr, _ := body["embed_error"].(string); !strings.Contains(embedErr, "connection refused") {
+		test.Errorf("embed_error = %q, want the transport error", body["embed_error"])
 	}
 }
 

@@ -39,13 +39,20 @@ func TestGoldenCLI_Status(test *testing.T) {
 }
 
 // TestGoldenCLI_Doctor pins `tusk doctor`: the clean report ("doctor: no issues")
-// plus the queue depths and the sub-unit / graph-expansion panes — exit 0.
+// plus the queue depths and the sub-unit / graph-expansion panes — exit 0. A
+// workspace no reindex pass has built warns index-not-built instead (#787).
 func TestGoldenCLI_Doctor(test *testing.T) {
 	runGoldenCLICases(test, []goldenCLICase{
 		{
-			name:       "doctor on a clean workspace reports no issues",
+			name:       "doctor on a clean, indexed workspace reports no issues",
+			setup:      reindexWorkspace,
 			args:       []string{"doctor"},
 			wantStdout: goldenDoctorClean,
+		},
+		{
+			name:       "doctor on a never-indexed workspace warns index-not-built",
+			args:       []string{"doctor"},
+			wantStdout: goldenDoctorNeverIndexed,
 		},
 	})
 }
@@ -118,8 +125,17 @@ const goldenTaskT = "---\ntype: task\ntitle: T\n---\n\nTask body.\n"
 // workspace: no issues, zeroed queue depths, the all-zero sub-unit pane, and the
 // graph-expansion pane reflecting the default manifest's [query.graph-expansion]
 // block (the default-pack edge types, minus those not declared as [edge-types]).
-const goldenDoctorClean = "doctor: no issues\n" +
-	"embed queue depth: 0\n" +
+const goldenDoctorClean = "doctor: no issues\n" + goldenDoctorCleanTail
+
+// goldenDoctorNeverIndexed is goldenDoctorClean for a workspace no reindex pass
+// has built: the one index-not-built warning, then the same panes.
+const goldenDoctorNeverIndexed = "doctor: 0 errors, 1 warning, 0 advice\n" +
+	"  warning  [index-not-built] no reindex pass has built this index, so files on disk may be unchecked; " +
+	"run `tusk doctor --reindex` or `tusk reindex` (tusk_reindex over MCP)\n" + goldenDoctorCleanTail
+
+// goldenDoctorCleanTail is the part of the doctor report after the issues: the
+// queue depths and the sub-unit and graph-expansion panes.
+const goldenDoctorCleanTail = "embed queue depth: 0\n" +
 	"reindex queue depth: 0\n" +
 	"sub-units:\n" +
 	"  total                 0\n" +

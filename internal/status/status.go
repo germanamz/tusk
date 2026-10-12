@@ -60,7 +60,7 @@ func Snapshot(config Config) (*SnapshotData, error) {
 
 	snap.ReindexQueueDepth = reindexDepth
 
-	last, lastErr := config.Meta.Get("last_reindex_at")
+	last, lastErr := config.Meta.Get(index.LastReindexAtKey)
 
 	if lastErr != nil {
 		return nil, lastErr

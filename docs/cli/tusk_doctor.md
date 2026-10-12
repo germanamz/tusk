@@ -21,7 +21,14 @@ Doctor exits 1 when an error is present, so "tusk doctor" works as a check
 after every edit. --fail-on=warning also fails on warnings; --fail-on=never
 always exits 0. Advice never fails the run.
 
+Doctor checks the index, not the files. Pass --reindex to bring the index up
+to date with disk first: the same pass as "tusk reindex", minus embedding, so
+it needs no Ollama. A CI runner starts without an index (.tusk/ is
+gitignored), so "tusk doctor --reindex" is the whole CI check.
+
 Doctor reports:
+  * Index not built: no reindex pass has ever written this index, so files on
+    disk may be unchecked. A warning; --reindex builds the index.
   * Skipped files: files reindex could not index because their frontmatter
     does not decode, an edge value has the wrong shape, or the path is a
     reserved id. Plain markdown with no frontmatter or no type is not a node
@@ -79,8 +86,11 @@ tusk doctor [flags]
   # Quick check before starting an MCP session
   tusk doctor && tusk mcp
 
-  # Strict check for CI: fail on warnings too
-  tusk doctor --fail-on=warning
+  # CI check on a fresh checkout: build the index, then check it
+  tusk doctor --reindex
+
+  # Strict check: fail on warnings too
+  tusk doctor --reindex --fail-on=warning
 
   # Report only; always exit 0
   tusk doctor --fail-on=never
@@ -95,6 +105,7 @@ tusk doctor [flags]
       --fail-on string   exit 1 when an issue at this severity or worse is present: error, warning, or never (default "error")
   -h, --help             help for doctor
       --no-migrate       skip auto-migration of legacy __cli__/__mcp__ edge rows (diagnostic-only run)
+      --reindex          bring the index up to date with disk before checking (structural pass, no embedding)
 ```
 
 ### Options inherited from parent commands

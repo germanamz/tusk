@@ -49,22 +49,17 @@ The filter is the same grammar `tusk query` takes, so you can try it there first
 
 ## Running doctor in CI
 
-`.tusk/` is gitignored, so a CI runner starts without an index, and doctor only checks what's in the index. Build it first. Two current gaps shape the recipe, both tracked in [#787](https://github.com/germanamz/tusk/issues/787):
-
-- `tusk doctor` on a checkout that was never indexed reports nothing and exits 0.
-- `tusk reindex` exits 1 when `[embeddings]` is configured and Ollama isn't reachable, which it usually isn't on a runner, even though the index itself was built.
-
-Until #787 lands, this works on GitHub Actions:
+`.tusk/` is gitignored, so a CI runner starts without an index, and doctor checks the index, not the files. `tusk doctor --reindex` builds the index from the checkout and then checks it. That pass skips embedding, so the runner doesn't need Ollama. On GitHub Actions:
 
 ```yaml
 - name: Install tusk
   run: |
     curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
     echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-- name: Build the index
-  run: tusk reindex || true   # exits 1 when it can't reach Ollama to embed; the index is still built
 - name: Check the vault
-  run: tusk doctor
+  run: tusk doctor --reindex
 ```
 
-The `|| true` also hides a reindex that fails for another reason. Doctor reports any file reindex couldn't parse as a `skipped-file` error, so the check still fails on broken files.
+Without `--reindex`, doctor on a fresh checkout reports an `index-not-built` warning rather than a clean vault. A warning exits 0, so add `--fail-on=warning` if you want a forgotten flag, or any other warning, to fail the job.
+
+`tusk reindex` also works on a runner. When it can't reach Ollama it still builds the index, says how many nodes are left to embed, and exits 0. Pass `--no-embed` to skip embedding, or `--strict-embed` to make an unreachable embedder fail the run.

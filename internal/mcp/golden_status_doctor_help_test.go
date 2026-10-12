@@ -42,13 +42,33 @@ func TestGoldenMCP_Doctor(test *testing.T) {
 	runGoldenMCPCases(test, []goldenMCPCase{
 		{
 			name:        "doctor on a clean workspace",
+			setup:       markIndexBuilt,
 			tool:        "tusk_doctor",
 			args:        map[string]any{},
 			wantIsError: false,
 			wantJSONObj: true,
 			wantText:    goldenMCPDoctorClean,
 		},
+		{
+			name:        "doctor on an index no reindex pass has built",
+			tool:        "tusk_doctor",
+			args:        map[string]any{},
+			wantIsError: false,
+			wantJSONObj: true,
+			wantText:    goldenMCPDoctorNeverIndexed,
+		},
 	})
+}
+
+// markIndexBuilt stamps the meta key a reindex pass writes, standing in for the
+// boot reindex a real daemon runs, so doctor doesn't report the seeded index as
+// never built.
+func markIndexBuilt(test *testing.T, rt *mcp.Runtime) {
+	test.Helper()
+
+	if setErr := rt.Meta.Set(index.LastReindexAtKey, "1"); setErr != nil {
+		test.Fatalf("stamp %s: %v", index.LastReindexAtKey, setErr)
+	}
 }
 
 // TestGoldenMCP_DoctorWorkflowViolation pins the structured issues array for a
@@ -61,6 +81,8 @@ func TestGoldenMCP_DoctorWorkflowViolation(test *testing.T) {
 		{
 			name: "doctor renders a workflow drift row's persisted detail",
 			setup: func(test *testing.T, rt *mcp.Runtime) {
+				markIndexBuilt(test, rt)
+
 				// Drift belongs to a live node; without the node row doctor's
 				// orphan filter (#685) would (correctly) drop the row.
 				if upsertErr := rt.Nodes.Upsert(index.NodeRow{
@@ -176,3 +198,10 @@ const goldenHelpIndex = `Available tusk_help topics:
   - workflow
 
 Call tusk_help(topic: "<name>") to read one.`
+
+// goldenMCPDoctorNeverIndexed is goldenMCPDoctorClean with the index-not-built
+// warning a runtime gets before any reindex pass (warning_count 1).
+const goldenMCPDoctorNeverIndexed = `{"advice_count":0,"embed_queue_depth":0,"error_count":0,"graph_expansion":{"candidate_multiplier":5,"edge_types":["references","parent","tagged","contains"],"empty_edge_types_no_op":false,"enabled":false,"hops":1,"invalid_edge_types":null,"unknown_edge_types":["parent","references","tagged"],"weight":0.2,"weight_zero_no_op":false},` +
+	`"issues":[{"kind":"index-not-built","severity":"warning","node_id":"","message":"no reindex pass has built this index, so files on disk may be unchecked; run ` +
+	"`tusk doctor --reindex` or `tusk reindex`" +
+	` (tusk_reindex over MCP)"}],"migrated":null,"migrated_count":0,"reindex_queue_depth":0,"sub_units":{"count_by_kind":{},"deduped_sub_units":0,"embed_queue_files":0,"embed_queue_sub_units":0,"orphaned_sub_units":0,"oversize_embed_payloads":0,"total":0},"warning_count":1}`

@@ -140,22 +140,12 @@ Setting ` + "`[embeddings] workers = 0`" + ` (or ` + "`TUSK_EMBED_WORKERS=0`" + 
 
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Initial reindex …")
 
+			// An unreachable embedding backend doesn't fail the pass: reindex.Run
+			// logs it and leaves the nodes queued (#787), so a down backend never
+			// stops the watcher from starting, and the per-event reindex drains
+			// the queue once it returns. Any error that does come back is real.
 			if _, runErr := reindex.Run(buildReindexConfig()); runErr != nil {
-				// A transport error means only the embedding backend was
-				// unreachable at startup — the node/edge index and validation
-				// already committed. Don't let a down backend stop the watcher from
-				// starting: its per-event reindex (and a manual `tusk reindex`) will
-				// drain the queued embeddings once the backend returns, matching the
-				// resilient MCP daemon. Any other error is a real failure and stays
-				// fatal. (Pre-#681 no embedder was wired, so boot never touched the
-				// backend; wiring the drainer must not make the backend a hard
-				// startup dependency.)
-				if !embed.IsTransportError(runErr) {
-					return runErr
-				}
-
-				logger.Warn("initial reindex: embedding backend unreachable; starting watcher anyway, embeddings will drain when it returns",
-					"err", runErr.Error())
+				return runErr
 			}
 
 			logger.Info("watch started", "root", ws.Root)

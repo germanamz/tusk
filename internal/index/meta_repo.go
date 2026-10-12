@@ -7,6 +7,11 @@ import (
 	"strconv"
 )
 
+// LastReindexAtKey is the meta key a completed reindex pass stamps with its
+// finish time (unix nanoseconds as a decimal string). Empty means no reindex
+// pass has ever run on this index: node writes add rows without setting it.
+const LastReindexAtKey = "last_reindex_at"
+
 // MetaRepo persists workspace-scoped key/value pairs in the `meta` table.
 type MetaRepo struct {
 	db *sql.DB
