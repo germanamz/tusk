@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.8.1](https://github.com/germanamz/tusk/compare/v2.8.0...v2.8.1) (2026-10-12)
+
+
+### Bug Fixes
+
+* **cli:** let tusk doctor gate CI and keep reindex green without Ollama ([#787](https://github.com/germanamz/tusk/issues/787)) ([#802](https://github.com/germanamz/tusk/issues/802)) ([fe5dbfc](https://github.com/germanamz/tusk/commit/fe5dbfc9f0f6c92fc9410c7e3583bd2546397ea3))
+* **reindex:** stop warning about plain markdown on reindex ([#789](https://github.com/germanamz/tusk/issues/789)) ([#805](https://github.com/germanamz/tusk/issues/805)) ([d75aa98](https://github.com/germanamz/tusk/commit/d75aa98658d7efd482665307260dec8a652adcf8))
+* **wikilink:** code never links, so tusk's own docs pass tusk doctor ([#788](https://github.com/germanamz/tusk/issues/788)) ([#804](https://github.com/germanamz/tusk/issues/804)) ([59b8262](https://github.com/germanamz/tusk/commit/59b826206510e2b688d072f73c7a916dead38d58))
+
 ## [2.8.0](https://github.com/germanamz/tusk/compare/v2.7.1...v2.8.0) (2026-10-10)
 
 
