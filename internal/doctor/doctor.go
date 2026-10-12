@@ -130,6 +130,13 @@ const (
 	// fails to parse or validate. NodeID is the rule name. A rule's
 	// violations are reported under their own kind (see RuleKindPrefix).
 	IssueRuleInvalid = "rule-invalid"
+
+	// IssueIndexNotBuilt surfaces an index no reindex pass has ever written
+	// (no LastReindexAtKey in meta): a fresh checkout, or a vault built only
+	// through node writes. Every other check reads the index, so files on disk
+	// may never have been checked and a clean report proves nothing. A warning,
+	// not an error: `tusk doctor --reindex` builds the index first.
+	IssueIndexNotBuilt = "index-not-built"
 )
 
 // Issue is a single problem the doctor surfaced. Severity is stamped from the
@@ -218,6 +225,7 @@ type Config struct {
 	Embeddings    *index.EmbeddingRepo
 	FileStates    *index.FileStateRepo // optional; nil = no skipped-file checks
 	DB            *sql.DB              // optional; nil = [rule.<name>] declarations are validated but not run
+	Meta          *index.MetaRepo      // optional; nil = no index-not-built check
 	Manifest      *manifest.Manifest
 	Root          string // workspace root; required for Migrate
 }
@@ -255,6 +263,7 @@ func Run(config Config) (*Report, error) {
 	// among them is cosmetic (it fixes the Issue listing order within a
 	// severity).
 	for _, check := range []func(Config) ([]Issue, error){
+		checkIndexBuilt,
 		checkSkippedFiles,
 		checkDanglingEdges,
 		checkPathRefs,
@@ -331,6 +340,29 @@ func manifestIssues(config Config) []Issue {
 	}
 
 	return issues
+}
+
+// checkIndexBuilt reports an index no reindex pass has ever written. No-op
+// without the meta repo.
+func checkIndexBuilt(config Config) ([]Issue, error) {
+	if config.Meta == nil {
+		return nil, nil
+	}
+
+	lastReindexAt, getErr := config.Meta.Get(index.LastReindexAtKey)
+
+	if getErr != nil {
+		return nil, fmt.Errorf("doctor: read %s: %w", index.LastReindexAtKey, getErr)
+	}
+
+	if lastReindexAt != "" {
+		return nil, nil
+	}
+
+	return []Issue{{
+		Kind:    IssueIndexNotBuilt,
+		Message: "no reindex pass has built this index, so files on disk may be unchecked; run `tusk doctor --reindex` or `tusk reindex` (tusk_reindex over MCP)",
+	}}, nil
 }
 
 // checkSkippedFiles reports every file reindex recorded as skipped for a fault,

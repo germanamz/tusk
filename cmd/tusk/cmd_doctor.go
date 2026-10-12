@@ -7,6 +7,7 @@ import (
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/spf13/cobra"
 )
 
@@ -118,8 +119,9 @@ func renderGraphExpansionPane(out io.Writer, pane *doctor.GraphExpansionPane) {
 
 func newDoctorCmd() *cobra.Command {
 	var (
-		noMigrate bool
-		failOn    string
+		noMigrate    bool
+		reindexFirst bool
+		failOn       string
 	)
 
 	doctorCmd := &cobra.Command{
@@ -138,7 +140,14 @@ Doctor exits 1 when an error is present, so "tusk doctor" works as a check
 after every edit. --fail-on=warning also fails on warnings; --fail-on=never
 always exits 0. Advice never fails the run.
 
+Doctor checks the index, not the files. Pass --reindex to bring the index up
+to date with disk first: the same pass as "tusk reindex", minus embedding, so
+it needs no Ollama. A CI runner starts without an index (.tusk/ is
+gitignored), so "tusk doctor --reindex" is the whole CI check.
+
 Doctor reports:
+  * Index not built: no reindex pass has ever written this index, so files on
+    disk may be unchecked. A warning; --reindex builds the index.
   * Skipped files: files reindex could not index because their frontmatter
     does not decode, an edge value has the wrong shape, or the path is a
     reserved id. Plain markdown with no frontmatter or no type is not a node
@@ -188,8 +197,11 @@ they are not flagged as missing embeddings.`,
   # Quick check before starting an MCP session
   tusk doctor && tusk mcp
 
-  # Strict check for CI: fail on warnings too
-  tusk doctor --fail-on=warning
+  # CI check on a fresh checkout: build the index, then check it
+  tusk doctor --reindex
+
+  # Strict check: fail on warnings too
+  tusk doctor --reindex --fail-on=warning
 
   # Report only; always exit 0
   tusk doctor --fail-on=never
@@ -225,6 +237,12 @@ they are not flagged as missing embeddings.`,
 
 				defer store.Close()
 
+				if reindexFirst {
+					if reindexErr := doctorReindex(cmd, ws.Root, store, loaded); reindexErr != nil {
+						return reindexErr
+					}
+				}
+
 				cfg := doctor.Config{
 					Nodes:         index.NewNodeRepo(store),
 					Edges:         index.NewEdgeRepo(store),
@@ -234,6 +252,7 @@ they are not flagged as missing embeddings.`,
 					Embeddings:    index.NewEmbeddingRepo(store),
 					FileStates:    index.NewFileStateRepo(store),
 					DB:            store.DB(),
+					Meta:          index.NewMetaRepo(store),
 					Manifest:      loaded,
 					Root:          ws.Root,
 				}
@@ -287,7 +306,37 @@ they are not flagged as missing embeddings.`,
 	}
 
 	doctorCmd.Flags().BoolVar(&noMigrate, "no-migrate", false, "skip auto-migration of legacy __cli__/__mcp__ edge rows (diagnostic-only run)")
+	doctorCmd.Flags().BoolVar(&reindexFirst, "reindex", false, "bring the index up to date with disk before checking (structural pass, no embedding)")
 	doctorCmd.Flags().StringVar(&failOn, "fail-on", doctorFailOnError, "exit 1 when an issue at this severity or worse is present: error, warning, or never")
 
 	return doctorCmd
+}
+
+// doctorReindex runs the structural pass behind `tusk doctor --reindex`. It
+// wires no embedder, so a CI runner without Ollama never waits on one, and it
+// runs at least one worker: with none the walk queues files without parsing
+// them and the index stays as empty as before. The caller holds the workspace
+// lock; reindex.Run never takes it, so the pass runs under it.
+func doctorReindex(cmd *cobra.Command, root string, store *index.Index, loaded *manifest.Manifest) error {
+	verbose, _ := cmd.Flags().GetBool("verbose")
+
+	config, configErr := cliReindexConfig(root, store, loaded, newLogger(cmd.ErrOrStderr(), verbose))
+
+	if configErr != nil {
+		return configErr
+	}
+
+	config.Workers = max(config.Workers, 1)
+
+	report, runErr := reindex.Run(config)
+
+	if runErr != nil {
+		return fmt.Errorf("doctor --reindex: %w", runErr)
+	}
+
+	// stderr, so stdout stays the report alone.
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Reindex done: %d indexed, %d removed, %d skipped\n",
+		report.Indexed, report.Removed, report.Skipped)
+
+	return nil
 }

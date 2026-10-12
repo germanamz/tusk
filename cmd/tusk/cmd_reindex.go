@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -14,6 +15,11 @@ import (
 )
 
 func newReindexCmd() *cobra.Command {
+	var (
+		noEmbed     bool
+		strictEmbed bool
+	)
+
 	reindexCmd := &cobra.Command{
 		Use:   "reindex",
 		Short: "Walk the workspace and bring the index up to date with disk",
@@ -21,9 +27,13 @@ func newReindexCmd() *cobra.Command {
 
 Reindex skips any file whose mtime and size are unchanged since the last
 pass and re-parses only the rest. Pass --force to re-read, re-hash, and
-re-process every file regardless. Embedding refreshes for changed nodes
-happen lazily — run "tusk watch" alongside, or in the background, to
-drain the embedding queue.
+re-process every file regardless.
+
+When [embeddings] is configured, reindex then embeds the nodes it queued. If
+the embedding backend can't be reached (Ollama stopped, or a CI runner without
+it), the index is still built: the summary says how many nodes stay queued,
+reindex exits 0, and a later reindex, "tusk watch" or "tusk mcp" embeds them.
+Pass --strict-embed to exit 1 in that case, or --no-embed to skip embedding.
 
 Run reindex after editing files outside Tusk (vim, Obsidian, scripts) or
 after changing node/edge declarations in tusk.toml. For a schema change on a
@@ -44,6 +54,12 @@ keeps a unit's address and re-embeds only the changed content; restructuring
 shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
 		Example: `  # Catch the index up with disk
   tusk reindex
+
+  # Build the index without embedding (no Ollama needed)
+  tusk reindex --no-embed
+
+  # Fail when embeddings can't be refreshed
+  tusk reindex --strict-embed
 
   # Pair with watch for continuous indexing while you author
   tusk watch &
@@ -82,46 +98,23 @@ shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
 
 			defer store.Close()
 
-			engine, buildErr := newBehaviorEngine(loaded)
+			config, configErr := cliReindexConfig(ws.Root, store, loaded, logger)
 
-			if buildErr != nil {
-				return buildErr
+			if configErr != nil {
+				return configErr
 			}
 
-			edgeRepo := index.NewEdgeRepo(store)
-			driftRepo := index.NewWorkflowDriftRepo(store)
+			config.Force = force
 
-			embedQueue := index.NewEmbedQueueRepo(store)
-
-			embedder, chunker := embed.NewFromManifest(loaded.Embeddings, logger)
-
-			var embeddingRepo *index.EmbeddingRepo
-
-			if embedder != nil {
-				embeddingRepo = index.NewEmbeddingRepo(store)
+			if !noEmbed {
+				if embedder, chunker := embed.NewFromManifest(loaded.Embeddings, logger); embedder != nil {
+					config.Embedder = embedder
+					config.Chunker = chunker
+					config.EmbeddingRepo = index.NewEmbeddingRepo(store)
+				}
 			}
 
-			report, runErr := reindex.Run(reindex.Config{
-				Root:            ws.Root,
-				Repo:            index.NewNodeRepo(store),
-				Edges:           edgeRepo,
-				EdgeTypes:       loaded.EdgeTypes,
-				WorkspaceIgnore: loaded.Workspace.Ignore,
-				EmbedQueue:      embedQueue,
-				EmbeddingRepo:   embeddingRepo,
-				Embedder:        embedder,
-				Chunker:         chunker,
-				Meta:            index.NewMetaRepo(store),
-				FileStates:      index.NewFileStateRepo(store),
-				Behaviors:       engine,
-				DriftLog:        driftRepo,
-				NodeTypes:       loaded.NodeTypes,
-				PropertyDrift:   index.NewPropertyDriftRepo(store),
-				Logger:          logger,
-				Workers:         resolveEmbedWorkers(loaded),
-				Manifest:        loaded,
-				Force:           force,
-			})
+			report, runErr := reindex.Run(config)
 
 			if runErr != nil {
 				return runErr
@@ -172,6 +165,12 @@ shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
 					report.EmbedSettingsRequeued, plural(report.EmbedSettingsRequeued))
 			}
 
+			if report.EmbedDeferred != nil {
+				queued, _ := config.EmbedQueue.DepthByKind("embed")
+
+				summaryExtras += fmt.Sprintf(", %d queued for embedding (embedder unreachable)", queued)
+			}
+
 			if len(violationParts) > 0 {
 				_, _ = fmt.Fprintf(out,
 					"Reindex done: %d indexed, %d removed, %d skipped%s (%s)\nRun `tusk doctor` to inspect violations\n",
@@ -182,13 +181,51 @@ shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
 					report.Indexed, report.Removed, report.Skipped, summaryExtras)
 			}
 
+			if strictEmbed && report.EmbedDeferred != nil {
+				return fmt.Errorf("reindex: embedding failed (--strict-embed): %w", report.EmbedDeferred)
+			}
+
 			return nil
 		},
 	}
 
 	reindexCmd.Flags().Bool("force", false, "re-process every file even if its mtime and size are unchanged")
+	reindexCmd.Flags().BoolVar(&noEmbed, "no-embed", false, "build the structural index only; leave the embedding queue for a later run")
+	reindexCmd.Flags().BoolVar(&strictEmbed, "strict-embed", false, "exit 1 when the embedding backend is unreachable")
+	reindexCmd.MarkFlagsMutuallyExclusive("no-embed", "strict-embed")
 
 	return reindexCmd
+}
+
+// cliReindexConfig builds the inline-drain reindex config the reindex and
+// doctor commands share: the full per-file set (validators, drift repos,
+// manifest) so every file is processed exactly as the background drainer would.
+// It wires no embedder; a caller that embeds sets Embedder, Chunker and
+// EmbeddingRepo itself.
+func cliReindexConfig(root string, store *index.Index, loaded *manifest.Manifest, logger *slog.Logger) (reindex.Config, error) {
+	engine, buildErr := newBehaviorEngine(loaded)
+
+	if buildErr != nil {
+		return reindex.Config{}, buildErr
+	}
+
+	return reindex.Config{
+		Root:            root,
+		Repo:            index.NewNodeRepo(store),
+		Edges:           index.NewEdgeRepo(store),
+		EdgeTypes:       loaded.EdgeTypes,
+		WorkspaceIgnore: loaded.Workspace.Ignore,
+		EmbedQueue:      index.NewEmbedQueueRepo(store),
+		Meta:            index.NewMetaRepo(store),
+		FileStates:      index.NewFileStateRepo(store),
+		Behaviors:       engine,
+		DriftLog:        index.NewWorkflowDriftRepo(store),
+		NodeTypes:       loaded.NodeTypes,
+		PropertyDrift:   index.NewPropertyDriftRepo(store),
+		Logger:          logger,
+		Workers:         resolveEmbedWorkers(loaded),
+		Manifest:        loaded,
+	}, nil
 }
 
 func plural(count int) string {

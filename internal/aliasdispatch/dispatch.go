@@ -405,6 +405,7 @@ func buildDoctorRequest(args map[string]any, deps Deps) (any, error) {
 			Embeddings:    deps.Embeddings,
 			FileStates:    deps.FileStates,
 			DB:            deps.Database,
+			Meta:          deps.Meta,
 			Manifest:      deps.Manifest,
 			Root:          deps.WorkspaceRoot,
 		},

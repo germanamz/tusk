@@ -86,7 +86,7 @@ tusk web --open   # graph and reading views at http://127.0.0.1:7373
 tusk query 'type=package' --semantic "what happens when the index gets corrupted"
 ```
 
-Two rough edges on a first run: reindex logs a warning for each plain markdown file it skips ([#789](https://github.com/germanamz/tusk/issues/789)), and without Ollama it still builds the graph but exits 1 after failing to embed ([#787](https://github.com/germanamz/tusk/issues/787)).
+One rough edge on a first run: reindex logs a warning for each plain markdown file it skips ([#789](https://github.com/germanamz/tusk/issues/789)). Without Ollama it still builds the graph, and its summary says how many nodes are left to embed.
 
 ## Use it on your own notes
 
@@ -175,7 +175,7 @@ None of these commands prompt.
 1. Install: `curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh` puts `tusk` in `~/.local/bin`. If `tusk --version` fails afterwards, that directory isn't on `PATH`.
 2. Create the workspace in the vault root: `tusk init --name <name>`. It exits 1 if `tusk.toml` already exists, which you can treat as already done.
 3. Declare types: `tusk pack add vault` adds note, meeting and decision types. It downloads the pack from GitHub, so it needs network access, and it exits 1 if run twice (`--force` overwrites). Or write `[node-types.*]` in `tusk.toml` yourself.
-4. Index: `tusk reindex`. If it exits 1 with `embed: aborting drain on transport error`, Ollama isn't reachable: the graph was built, and only semantic search is missing.
+4. Index: `tusk reindex`. If its summary ends with `queued for embedding (embedder unreachable)`, Ollama isn't reachable: the graph was built, and only semantic search is missing. It still exits 0.
 5. Connect the client as described in [Connect your agent](#connect-your-agent). For Claude Code, run `tusk claude install`.
 6. Verify: `tusk status` prints node counts by type, so non-zero counts mean files were indexed. `tusk doctor` exits 0 when the vault is healthy and 1 when an error is present, listing errors first.
 
@@ -201,7 +201,6 @@ A prompt you can paste into your agent:
 - A markdown file is a node only once it has a `type:` ([#790](https://github.com/germanamz/tusk/issues/790)).
 - One writer at a time per workspace: an advisory lock serializes writes from the CLI and the MCP server.
 - Similarity ranking is brute-force cosine in memory. That suits a personal or team vault, not millions of documents.
-- Running doctor in CI needs a workaround today ([#787](https://github.com/germanamz/tusk/issues/787)).
 
 ## Documentation
 

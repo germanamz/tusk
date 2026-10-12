@@ -943,6 +943,7 @@ func registerDoctorTool(srv *Server) {
 			Embeddings:    srv.runtime.Embeddings,
 			FileStates:    srv.runtime.FileState,
 			DB:            srv.runtime.Index.DB(),
+			Meta:          srv.runtime.Meta,
 			Manifest:      srv.runtime.Manifest,
 			Root:          srv.runtime.Root,
 		}
@@ -1355,7 +1356,7 @@ func reindexToolConfig(rt *Runtime, noEmbed bool) reindex.Config {
 
 func registerReindexTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_reindex",
-		mcpgo.WithDescription("Walk the workspace and bring the index up to date with disk — the MCP equivalent of `tusk reindex`. The embedding pass runs over Ollama and can be slow on a large vault; pass no_embed=true for a fast structural-only pass (embeddings still drain in the background). The response reports indexed/removed/skipped plus the remaining embed_queue_depth — poll tusk_status to watch it drain."),
+		mcpgo.WithDescription("Walk the workspace and bring the index up to date with disk — the MCP equivalent of `tusk reindex`. The embedding pass runs over Ollama and can be slow on a large vault; pass no_embed=true for a fast structural-only pass (embeddings still drain in the background). The response reports indexed/removed/skipped plus the remaining embed_queue_depth — poll tusk_status to watch it drain. An unreachable embedding backend doesn't fail the call: the index is still updated and embed_error names the cause."),
 		mcpgo.WithBoolean("no_embed", mcpgo.Description("Skip the synchronous embedding pass and return as soon as the structural index is up to date; pending embeddings drain in the background.")),
 	)
 
@@ -1399,6 +1400,13 @@ func registerReindexTool(srv *Server) {
 			"skipped":                 report.Skipped,
 			"ref_healed":              report.RefHealed,
 			"embed_settings_requeued": report.EmbedSettingsRequeued,
+		}
+
+		// The embedding backend was unreachable: the index is up to date and the
+		// queued nodes embed once it returns (#787). Name the cause so the agent
+		// doesn't wait on a queue that can't drain.
+		if report.EmbedDeferred != nil {
+			result["embed_error"] = report.EmbedDeferred.Error()
 		}
 
 		// Surface remaining embed work so the agent can see embeddings are

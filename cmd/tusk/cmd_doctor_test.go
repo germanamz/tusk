@@ -60,7 +60,8 @@ func TestDoctor_PrintsCleanReport(test *testing.T) {
 	chdir(test, root)
 	defer chdir(test, "")
 
-	out, runErr := runCLI("doctor")
+	// --reindex: a never-indexed workspace reports index-not-built (#787).
+	out, runErr := runCLI("doctor", "--reindex")
 
 	if runErr != nil {
 		test.Fatalf("CLI: %v\n%s", runErr, out)

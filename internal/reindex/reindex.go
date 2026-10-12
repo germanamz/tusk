@@ -133,7 +133,7 @@ type Config struct {
 	// Meta is required. At the start of each pass Run atomically bumps the
 	// `reindex_gen` key on Meta and stamps the resulting value on every
 	// file_state row it touches; at the end of the pass it records
-	// `last_reindex_at` (unix nanoseconds formatted as decimal string).
+	// index.LastReindexAtKey (unix nanoseconds formatted as decimal string).
 	Meta *index.MetaRepo
 
 	// FileStates is required. The walker upserts a file_state row for
@@ -229,6 +229,13 @@ type Report struct {
 	// embedding because the [embeddings] document settings changed (zero when
 	// they didn't). The drain re-embeds them under the new settings.
 	EmbedSettingsRequeued int
+
+	// EmbedDeferred is the transport error that stopped the embedding drain:
+	// the backend was unreachable (Ollama down, or absent on a CI runner). The
+	// structural pass still completed and the queued nodes wait for the next
+	// drain, so Run reports it here instead of failing; the caller decides how
+	// loudly to say so. Nil when embedding ran or no embedder was wired.
+	EmbedDeferred error
 
 	// Sub-unit pipeline counters (Plan 2 Task 3). All zero when the
 	// workspace's `sub-units` flag is false or when Config.Manifest is
@@ -744,7 +751,7 @@ func Run(config Config) (*Report, error) {
 	}
 
 	if config.Embedder != nil && config.Workers > 0 {
-		if _, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
+		_, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
 			Root:             config.Root,
 			Nodes:            config.Repo,
 			Queue:            config.EmbedQueue,
@@ -757,19 +764,37 @@ func Run(config Config) (*Report, error) {
 			Logger:           config.Logger,
 			Meta:             config.Meta,
 			Fingerprint:      drainFingerprint(config),
-		}); errors.Is(drainErr, embed.ErrSettingsSuperseded) {
+		})
+
+		switch {
+		case errors.Is(drainErr, embed.ErrSettingsSuperseded):
 			// This process's [embeddings] settings are stale; the walk itself
 			// succeeded and the queued work waits for an up-to-date process.
 			if config.Logger != nil {
 				config.Logger.Warn(drainErr.Error())
 			}
-		} else if drainErr != nil {
+		case embed.IsTransportError(drainErr):
+			// The backend is unreachable, which says nothing about the vault:
+			// the structural pass committed and the queued nodes embed on a
+			// later drain. Failing here used to skip the marker stamps below, so
+			// every later pass without the backend re-processed every file (#787).
+			report.EmbedDeferred = drainErr
+
+			if config.Logger != nil {
+				queued, _ := config.EmbedQueue.DepthByKind("embed")
+
+				config.Logger.Warn("reindex: embedding backend unreachable; nodes stay queued for the next drain",
+					"queued", queued,
+					"err", drainErr.Error(),
+				)
+			}
+		case drainErr != nil:
 			return nil, drainErr
 		}
 	}
 
-	if setErr := config.Meta.Set("last_reindex_at", fmt.Sprintf("%d", time.Now().UnixNano())); setErr != nil {
-		return nil, fmt.Errorf("reindex: record last_reindex_at: %w", setErr)
+	if setErr := config.Meta.Set(index.LastReindexAtKey, fmt.Sprintf("%d", time.Now().UnixNano())); setErr != nil {
+		return nil, fmt.Errorf("reindex: record %s: %w", index.LastReindexAtKey, setErr)
 	}
 
 	if setErr := config.Meta.Set(edgeDerivationVersionKey, edgeDerivationVersion); setErr != nil {

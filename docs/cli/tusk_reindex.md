@@ -12,9 +12,13 @@ Walk the workspace and bring the SQLite index up to date with disk.
 
 Reindex skips any file whose mtime and size are unchanged since the last
 pass and re-parses only the rest. Pass --force to re-read, re-hash, and
-re-process every file regardless. Embedding refreshes for changed nodes
-happen lazily — run "tusk watch" alongside, or in the background, to
-drain the embedding queue.
+re-process every file regardless.
+
+When [embeddings] is configured, reindex then embeds the nodes it queued. If
+the embedding backend can't be reached (Ollama stopped, or a CI runner without
+it), the index is still built: the summary says how many nodes stay queued,
+reindex exits 0, and a later reindex, "tusk watch" or "tusk mcp" embeds them.
+Pass --strict-embed to exit 1 in that case, or --no-embed to skip embedding.
 
 Run reindex after editing files outside Tusk (vim, Obsidian, scripts) or
 after changing node/edge declarations in tusk.toml. For a schema change on a
@@ -44,6 +48,12 @@ tusk reindex [flags]
   # Catch the index up with disk
   tusk reindex
 
+  # Build the index without embedding (no Ollama needed)
+  tusk reindex --no-embed
+
+  # Fail when embeddings can't be refreshed
+  tusk reindex --strict-embed
+
   # Pair with watch for continuous indexing while you author
   tusk watch &
   tusk reindex
@@ -52,8 +62,10 @@ tusk reindex [flags]
 ### Options
 
 ```
-      --force   re-process every file even if its mtime and size are unchanged
-  -h, --help    help for reindex
+      --force          re-process every file even if its mtime and size are unchanged
+  -h, --help           help for reindex
+      --no-embed       build the structural index only; leave the embedding queue for a later run
+      --strict-embed   exit 1 when the embedding backend is unreachable
 ```
 
 ### Options inherited from parent commands
