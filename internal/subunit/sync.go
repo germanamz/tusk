@@ -201,13 +201,10 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 
 		// The address still resolves but ordinal, content, properties, and/or
 		// lines moved. Upsert the row (new ordinal / content_hash / properties_json);
-		// when the content changed, re-derive edges (all kinds — a unit's edge
-		// set derives from the same Text its content hash covers, so a hash
-		// turnover is exactly an edge-set turnover) and re-enqueue the embed for
-		// leaves (the enqueue loop below skips sections itself). A property-only
-		// or line-only change re-upserts the row without re-embedding or
-		// re-deriving edges: the payload and Text are byte-identical, so the
-		// vector and edge set still hold.
+		// when the content changed, re-enqueue the embed for leaves (the enqueue
+		// loop below skips sections itself). A property-only or line-only change
+		// re-upserts the row without re-embedding: the payload is byte-identical,
+		// so the vector still holds. Edges converge separately, below.
 		reorderRows = append(reorderRows, row)
 
 		if !sameContent {
@@ -256,16 +253,36 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 		result.Deleted = len(deleteIDs)
 	}
 
-	// Re-derive outbound wikilink edges for newly inserted units, batched into
-	// one transaction (delete-then-insert per sub-unit) instead of one commit
-	// per sub-unit.
+	// Converge every unit's outbound wikilink edges on what it links to now,
+	// rewriting only the units whose stored edges differ, in one transaction
+	// (delete-then-insert per sub-unit). A content-hash turnover cannot stand in
+	// for a link change: a list item's or table cell's text is goldmark's
+	// rendered text, which drops the backticks around a code span, so wrapping
+	// a link in backticks changes the unit's links but not its hash (#788).
+	storedEdges, storedErr := sync.EdgeRepo.ListBySourcePath(fileRow.Path)
+
+	if storedErr != nil {
+		return nil, fmt.Errorf("subunit sync: list edges for %s: %w", fileRow.ID, storedErr)
+	}
+
+	storedBySource := make(map[string][]index.EdgeRow, len(units))
+
+	for _, edge := range storedEdges {
+		storedBySource[edge.SourceID] = append(storedBySource[edge.SourceID], edge)
+	}
+
 	wikilinkEdgeNames := wikilinkEdgeTypeNames(sync.Manifest)
 
 	var edgeBatches []index.EdgeBatch
 
-	for _, unit := range insertedUnits {
+	for _, unit := range units {
 		subunitID := subunitRowID(fileRow.ID, unitAddress(unit))
 		edges := buildOutboundEdges(unit, subunitID, fileRow.Path, wikilinkEdgeNames)
+
+		if sameEdgeSet(storedBySource[subunitID], edges) {
+			continue
+		}
+
 		edgeBatches = append(edgeBatches, index.EdgeBatch{SourceID: subunitID, SourcePath: fileRow.Path, Edges: edges})
 	}
 
@@ -481,6 +498,29 @@ func wikilinkEdgeTypeNames(loaded *manifest.Manifest) []string {
 	}
 
 	return names
+}
+
+// sameEdgeSet reports whether stored and derived hold the same edges, in any
+// order. Both come from one source id and path, and neither repeats an edge
+// (the edges table is unique over them; DeriveEdges dedupes its targets).
+func sameEdgeSet(stored, derived []index.EdgeRow) bool {
+	if len(stored) != len(derived) {
+		return false
+	}
+
+	storedSet := make(map[index.EdgeRow]struct{}, len(stored))
+
+	for _, edge := range stored {
+		storedSet[edge] = struct{}{}
+	}
+
+	for _, edge := range derived {
+		if _, found := storedSet[edge]; !found {
+			return false
+		}
+	}
+
+	return true
 }
 
 // buildOutboundEdges runs DeriveEdges against the unit and shapes the

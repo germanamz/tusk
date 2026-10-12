@@ -28,4 +28,4 @@ Heart of the data layer. Parses markdown frontmatter, validates properties again
 
 `ResolveRefs` falls back from `Properties` to `Edges` because `reindex.go` reorders the pipeline (`ResolveEdges` runs first there). `Service.Create` runs `ResolveRefs` before `ResolveEdges` to avoid the fallback. Two code paths with different value-source assumptions — handoff §residual to clean up by re-ordering reindex's pipeline.
 
-The wikilink scanner lives in [`internal/wikilink`](wikilink.md), which also documents its known gaps around code spans and fences. It moved out of this package so `internal/subunit` no longer imports `node`, which lets the service run the sub-unit pass itself.
+The wikilink scanner lives in [`internal/wikilink`](wikilink.md), which also documents why a link inside code is not a link: `MaterializeWikilinks` derives no edge from it, and a `tusk node move` leaves it as written (#788). It moved out of this package so `internal/subunit` no longer imports `node`, which lets the service run the sub-unit pass itself.

@@ -395,7 +395,7 @@ func TestRename_RewritesBodyWikilinksOnDisk(test *testing.T) {
 
 	if _, refErr := service.Create(node.CreateInput{
 		RelPath: "notes/referrer.md", Type: "note", Title: "Referrer",
-		Body: []byte("see [[notes/target]] for context\n\n```\n[[notes/target]] in code is rewritten too\n```\n"),
+		Body: []byte("see [[notes/target]] for context\n\n```\n[[notes/target]] in code is left alone\n```\n"),
 	}); refErr != nil {
 		test.Fatalf("create referrer: %v", refErr)
 	}
@@ -423,12 +423,10 @@ func TestRename_RewritesBodyWikilinksOnDisk(test *testing.T) {
 		test.Errorf("body wikilink not rewritten:\n%s", string(content))
 	}
 
-	// Fenced code is rewritten too: the sub-unit pipeline derives edges
-	// from code-block content (fence markers are absent from unit text),
-	// so leaving `[[old]]` inside a fence would flip the code-block and
-	// section edges back to the dead id on the next re-parse.
-	if !strings.Contains(string(content), "```\n[[notes/renamed]] in code is rewritten too\n```") {
-		test.Errorf("fenced code block not rewritten:\n%s", string(content))
+	// Code never links at any level, the code-block and section sub-units
+	// included, so the example in the fence is left as written (#788).
+	if !strings.Contains(string(content), "```\n[[notes/target]] in code is left alone\n```") {
+		test.Errorf("fenced code block rewritten:\n%s", string(content))
 	}
 
 	referrerEdges, _ := edgeRepo.ListBySource("notes/referrer")

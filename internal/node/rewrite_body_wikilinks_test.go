@@ -54,6 +54,25 @@ func TestRewriteBodyWikilinks(test *testing.T) {
 			input: body + "spaced [[ notes/old ]] out\n",
 			want:  body + "spaced [[notes/new]] out\n",
 		},
+		{
+			// #788: code never links, so a move leaves the example alone and
+			// rewrites only the real link beside it.
+			name:  "inline code is not rewritten",
+			input: body + "the form `[[notes/old|Label]]` and a link [[notes/old]]\n",
+			want:  body + "the form `[[notes/old|Label]]` and a link [[notes/new]]\n",
+		},
+		{
+			name:  "fenced and indented code is not rewritten",
+			input: body + "```\n[[notes/old]]\n```\n\n    [[notes/old]]\n\n[[notes/old]]\n",
+			want:  body + "```\n[[notes/old]]\n```\n\n    [[notes/old]]\n\n[[notes/new]]\n",
+		},
+		{
+			// A literal triple backtick inside inline code is not a fence, so
+			// the links after it still move.
+			name:  "triple backtick in inline code does not hide later links",
+			input: body + "a fence is `` ``` ``\n\nsee [[notes/old]]\n",
+			want:  body + "a fence is `` ``` ``\n\nsee [[notes/new]]\n",
+		},
 	}
 
 	for _, testCase := range cases {

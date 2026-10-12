@@ -49,7 +49,9 @@ blocks:
 
 - **`wikilinks = true`** — body wikilinks (`[[path/to/target]]`)
   materialize as edges of this type. A navigational shorthand useful
-  for prose; distinct from typed frontmatter edges.
+  for prose; distinct from typed frontmatter edges. A wikilink inside
+  inline code or a code block is an example, not a link, and makes no
+  edge.
 
 - **`paths = true`** records the workspace paths a page names as path
   refs of this type: inline code (`` `server/ledger/core/service.go` ``),

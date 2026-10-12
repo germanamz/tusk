@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/germanamz/tusk/internal/linenum"
+	"github.com/germanamz/tusk/internal/wikilink"
 	"github.com/yuin/goldmark/ast"
 )
 
@@ -40,10 +41,13 @@ type spanFinder struct {
 	// crlfAt holds the normalized offset of each LF that replaced a CRLF
 	// pair, ascending. Each one sits one byte left of its original position.
 	crlfAt []int
+	// masked is source with every code span and code block blanked, the
+	// bytes a unit's links are read from: code never links (#788).
+	masked []byte
 }
 
 func newSpanFinder(source []byte, doc ast.Node, crlfAt []int) *spanFinder {
-	finder := &spanFinder{source: source, crlfAt: crlfAt}
+	finder := &spanFinder{source: source, crlfAt: crlfAt, masked: wikilink.MaskCodeIn(doc, source)}
 
 	_ = ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if entering && node.Type() == ast.TypeBlock && node.Pos() >= 0 {
@@ -59,7 +63,7 @@ func newSpanFinder(source []byte, doc ast.Node, crlfAt []int) *spanFinder {
 }
 
 // span maps a normalized [start, end) span onto the original source and
-// writes it to unit.
+// writes it to unit, along with the links the span holds outside code.
 func (finder *spanFinder) span(unit *Unit, start, end int) {
 	if start < 0 || end <= start {
 		return
@@ -67,6 +71,21 @@ func (finder *spanFinder) span(unit *Unit, start, end int) {
 
 	unit.StartOffset = finder.original(start)
 	unit.EndOffset = finder.original(end-1) + 1
+	unit.Links = wikilink.ExtractText(finder.masked[start:end])
+}
+
+// blockLinks returns the links in blocks' spans outside code, in first-seen
+// order across the blocks.
+func (finder *spanFinder) blockLinks(blocks []ast.Node) []string {
+	var joined []byte
+
+	for _, block := range blocks {
+		if start, end := finder.blockSpan(block); start >= 0 {
+			joined = append(append(joined, finder.masked[start:end]...), '\n')
+		}
+	}
+
+	return wikilink.ExtractText(joined)
 }
 
 // original maps a normalized offset back to the source Parse was handed:

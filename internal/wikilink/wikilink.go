@@ -7,6 +7,11 @@ import (
 	"bytes"
 	"regexp"
 	"strings"
+
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/text"
 )
 
 // pattern matches `[[target]]` and the Obsidian aliased form
@@ -30,11 +35,21 @@ func SplitAlias(inner string) (target, alias string) {
 	return strings.TrimSpace(inner), ""
 }
 
-// Extract returns the unique list of wikilink targets from body, in first-seen
-// order, ignoring fenced code blocks (```…```).
+// Extract returns the unique list of wikilink targets from a markdown body, in
+// first-seen order. Code never links: a `[[target]]` inside an inline code span
+// or a fenced or indented code block is an example of the syntax, not a
+// reference, so MaskCode blanks it before the scan. That is how the web reader
+// renders a page too, so an edge exists exactly where the reader shows a link.
 func Extract(body []byte) []string {
-	stripped := stripFencedCodeBlocks(body)
-	matches := pattern.FindAllSubmatch(stripped, -1)
+	return ExtractText(MaskCode(body))
+}
+
+// ExtractText returns the unique list of wikilink targets in text, in
+// first-seen order, scanning every byte. It is for text with no markdown code
+// left in it: a slice of MaskCode's output, or the plain text of an HTML page.
+// Targets are alias-stripped and trimmed, and keep any `#section` fragment.
+func ExtractText(text []byte) []string {
+	matches := pattern.FindAllSubmatch(text, -1)
 
 	seen := map[string]struct{}{}
 	var ordered []string
@@ -57,32 +72,72 @@ func Extract(body []byte) []string {
 	return ordered
 }
 
-// stripFencedCodeBlocks returns body with content inside triple-backtick fences
-// replaced by blank space so pattern doesn't match into code samples.
-func stripFencedCodeBlocks(body []byte) []byte {
-	const fence = "```"
+// markdownParser matches the sub-unit and path-ref parsers' extensions, so a
+// code span inside a table cell or a task-list item parses the same way here as
+// it does there.
+var markdownParser = goldmark.New(
+	goldmark.WithExtensions(
+		extension.Table,
+		extension.TaskList,
+	),
+)
 
-	stripped := make([]byte, 0, len(body))
-	rest := body
+// MaskCode returns a copy of the markdown body with the content of every code
+// span and code block (fenced, tilde-fenced or indented) replaced by spaces.
+// Line breaks stay and the length is unchanged, so an offset found in the mask
+// indexes the same byte of body: the move rewriter finds links in the mask and
+// edits the original, and the sub-unit parser cuts each unit's links out of it
+// by the unit's byte span.
+//
+// What counts as code is goldmark's CommonMark reading, the parser the sub-unit
+// and path-ref passes use: a run of N backticks opens a span that closes at the
+// next run of exactly N, and an unmatched run is literal text. Only content is
+// blanked; the backtick and fence markers stay, and cannot form a link.
+func MaskCode(body []byte) []byte {
+	return MaskCodeIn(markdownParser.Parser().Parse(text.NewReader(body)), body)
+}
 
-	for {
-		openIndex := bytes.Index(rest, []byte(fence))
+// MaskCodeIn is MaskCode for a body the caller has already parsed: doc must be
+// the tree goldmark built from source. The sub-unit parser uses it so its units
+// and their links come from one parse.
+func MaskCodeIn(doc ast.Node, source []byte) []byte {
+	masked := bytes.Clone(source)
 
-		if openIndex < 0 {
-			stripped = append(stripped, rest...)
-			return stripped
+	_ = ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
 		}
 
-		stripped = append(stripped, rest[:openIndex]...)
+		switch typed := node.(type) {
+		case *ast.CodeSpan:
+			for child := typed.FirstChild(); child != nil; child = child.NextSibling() {
+				if segment, isText := child.(*ast.Text); isText {
+					blank(masked, segment.Segment)
+				}
+			}
 
-		afterOpen := rest[openIndex+len(fence):]
-		closeIndex := bytes.Index(afterOpen, []byte(fence))
+			return ast.WalkSkipChildren, nil
+		case *ast.FencedCodeBlock, *ast.CodeBlock:
+			lines := typed.Lines()
 
-		if closeIndex < 0 {
-			// Unterminated fence — drop the rest.
-			return stripped
+			for index := range lines.Len() {
+				blank(masked, lines.At(index))
+			}
+
+			return ast.WalkSkipChildren, nil
 		}
 
-		rest = afterOpen[closeIndex+len(fence):]
+		return ast.WalkContinue, nil
+	})
+
+	return masked
+}
+
+// blank overwrites segment's bytes in masked with spaces, keeping line breaks.
+func blank(masked []byte, segment text.Segment) {
+	for offset := segment.Start; offset < segment.Stop; offset++ {
+		if masked[offset] != '\n' && masked[offset] != '\r' {
+			masked[offset] = ' '
+		}
 	}
 }

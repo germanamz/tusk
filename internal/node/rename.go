@@ -767,27 +767,39 @@ func requoteAttrValue(value string, quote byte) string {
 // the region after the closing frontmatter delimiter. The `#fragment` (group 1)
 // and any `|Label` display suffix (group 2) are preserved verbatim, so a rename
 // retargets the id without disturbing the deep-link address or the display text
-// (#690). Fenced code blocks are rewritten too: file-level extraction skips
-// fences, but the sub-unit pipeline derives edges from code-block content
-// (fence markers are absent from unit text), so a `[[oldID]]` left inside a
-// fence would flip the code-block and enclosing-section edges back to the dead
-// id on the next re-parse.
+// (#690). Code is left as written: a `[[oldID]]` inside an inline code span or a
+// code block is an example of the syntax, and no level of the index derives an
+// edge from it (#788). Links are found in wikilink.MaskCode's mask, the view
+// wikilink.Extract scans, and replaced in the original bytes.
 func rewriteBodyWikilinks(content []byte, oldID, newID string) []byte {
 	offset := bodyOffset(content)
 	pattern := regexp.MustCompile(`\[\[\s*` + regexp.QuoteMeta(oldID) + `(#[^\[\]|]*)?\s*(\|[^\[\]]*)?\s*\]\]`)
-
-	// ReplaceAllFunc rather than a $1 template: ids come from user paths,
-	// so newID must be inserted verbatim, never expanded.
-	replaceLink := func(match []byte) []byte {
-		groups := pattern.FindSubmatch(match)
-
-		return []byte("[[" + newID + string(groups[1]) + string(groups[2]) + "]]")
-	}
+	body := content[offset:]
 
 	var out bytes.Buffer
 
 	out.Write(content[:offset])
-	out.Write(pattern.ReplaceAllFunc(content[offset:], replaceLink))
+
+	last := 0
+
+	// Built by hand rather than from a $1 template: ids come from user paths,
+	// so newID must be inserted verbatim, never expanded.
+	for _, match := range pattern.FindAllSubmatchIndex(wikilink.MaskCode(body), -1) {
+		out.Write(body[last:match[0]])
+		out.WriteString("[[" + newID)
+
+		for group := 1; group <= 2; group++ {
+			if start := match[2*group]; start >= 0 {
+				out.Write(body[start:match[2*group+1]])
+			}
+		}
+
+		out.WriteString("]]")
+
+		last = match[1]
+	}
+
+	out.Write(body[last:])
 
 	return out.Bytes()
 }
