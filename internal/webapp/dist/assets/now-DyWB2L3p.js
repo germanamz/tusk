@@ -1,1 +1,0 @@
-import{o as e}from"./isObject-BNleAbAq.js";var t=function(){return e.Date.now()};export{t};
