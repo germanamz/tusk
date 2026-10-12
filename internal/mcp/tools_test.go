@@ -1499,6 +1499,30 @@ func TestTool_Reindex(test *testing.T) {
 	}
 }
 
+// TestTool_Reindex_ReportsNotNodes pins #789 on the MCP path: the response
+// splits plain markdown out of the skip count, so an agent can tell a vault's
+// prose from files reindex could not parse.
+func TestTool_Reindex_ReportsNotNodes(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	if writeErr := os.WriteFile(filepath.Join(rt.Root, "plain.md"), []byte("# Just prose\n"), 0o644); writeErr != nil {
+		test.Fatalf("write plain.md: %v", writeErr)
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_reindex", map[string]any{})
+
+	if callErr != nil {
+		test.Fatalf("tusk_reindex: %v", callErr)
+	}
+
+	if body["not_nodes"] != float64(1) || body["skipped"] != float64(1) {
+		test.Errorf("skipped = %v, not_nodes = %v; want 1 and 1", body["skipped"], body["not_nodes"])
+	}
+}
+
 // TestTool_Reindex_ResolvesForwardRefs pins issue #677 on the MCP path: the
 // tool drains inline, so its config must carry NodeTypes/PropertyDrift for
 // ref resolution — and the heal pass — to run at all. The referencing file

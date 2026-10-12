@@ -82,6 +82,7 @@ type WorkerConfig struct {
 type DrainReport struct {
 	Indexed            int
 	Skipped            int
+	NotNodes           int
 	WorkflowViolations int
 	PropertyViolations int
 	RefDangling        int
@@ -96,6 +97,7 @@ type DrainReport struct {
 func (rep *DrainReport) merge(other DrainReport) {
 	rep.Indexed += other.Indexed
 	rep.Skipped += other.Skipped
+	rep.NotNodes += other.NotNodes
 	rep.WorkflowViolations += other.WorkflowViolations
 	rep.PropertyViolations += other.PropertyViolations
 	rep.RefDangling += other.RefDangling
@@ -310,19 +312,25 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 	parsed, parseErr := node.ParseContentFile(relPath, content)
 
 	if parseErr != nil {
-		// A parse failure drops the file from the index and is counted only as
-		// an anonymous "skipped" in the report. Name it so the omission is not
+		// A file with no frontmatter or no type is not a node, which vaults rely
+		// on for plain markdown: it is neither recorded for doctor (#759) nor
+		// warned about (#789), only counted so the summary can tell it apart.
+		if errors.Is(parseErr, node.ErrMissingFrontmatter) || errors.Is(parseErr, node.ErrMissingType) {
+			if cfg.Logger != nil {
+				cfg.Logger.Debug("reindex skip: not a node", "path", relPath, "err", parseErr.Error())
+			}
+
+			report.NotNodes++
+
+			return skipWithoutFault(cfg, relPath)
+		}
+
+		// A real parse failure drops the file from the index and is counted only
+		// as an anonymous "skipped" in the report. Name it so the omission is not
 		// silent — a file that never appears in any query is otherwise invisible
 		// (#682 item 2).
 		if cfg.Logger != nil {
 			cfg.Logger.Warn("reindex skip: unparseable file", "path", relPath, "err", parseErr.Error())
-		}
-
-		// A file with no frontmatter or no type is not a node, which vaults rely
-		// on for plain markdown, so only a real failure is recorded for doctor
-		// (#759).
-		if errors.Is(parseErr, node.ErrMissingFrontmatter) || errors.Is(parseErr, node.ErrMissingType) {
-			return skipWithoutFault(cfg, relPath)
 		}
 
 		return skipWithFault(cfg, relPath, parseErr)

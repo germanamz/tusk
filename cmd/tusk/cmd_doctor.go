@@ -335,8 +335,8 @@ func doctorReindex(cmd *cobra.Command, root string, store *index.Index, loaded *
 	}
 
 	// stderr, so stdout stays the report alone.
-	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Reindex done: %d indexed, %d removed, %d skipped\n",
-		report.Indexed, report.Removed, report.Skipped)
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Reindex done: %d indexed, %d removed, %s\n",
+		report.Indexed, report.Removed, skippedSummary(report))
 
 	return nil
 }

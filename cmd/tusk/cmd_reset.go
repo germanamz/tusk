@@ -137,8 +137,8 @@ model. It requires confirmation; pass --yes to skip the prompt.`,
 			}
 
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(),
-				"Reset done: %d indexed, %d removed, %d skipped (epoch %d)\n",
-				report.Indexed, report.Removed, report.Skipped, result.Epoch)
+				"Reset done: %d indexed, %d removed, %s (epoch %d)\n",
+				report.Indexed, report.Removed, skippedSummary(report), result.Epoch)
 
 			return nil
 		},

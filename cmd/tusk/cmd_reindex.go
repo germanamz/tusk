@@ -173,12 +173,12 @@ shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
 
 			if len(violationParts) > 0 {
 				_, _ = fmt.Fprintf(out,
-					"Reindex done: %d indexed, %d removed, %d skipped%s (%s)\nRun `tusk doctor` to inspect violations\n",
-					report.Indexed, report.Removed, report.Skipped, summaryExtras,
+					"Reindex done: %d indexed, %d removed, %s%s (%s)\nRun `tusk doctor` to inspect violations\n",
+					report.Indexed, report.Removed, skippedSummary(report), summaryExtras,
 					strings.Join(violationParts, ", "))
 			} else {
-				_, _ = fmt.Fprintf(out, "Reindex done: %d indexed, %d removed, %d skipped%s\n",
-					report.Indexed, report.Removed, report.Skipped, summaryExtras)
+				_, _ = fmt.Fprintf(out, "Reindex done: %d indexed, %d removed, %s%s\n",
+					report.Indexed, report.Removed, skippedSummary(report), summaryExtras)
 			}
 
 			if strictEmbed && report.EmbedDeferred != nil {
@@ -226,6 +226,19 @@ func cliReindexConfig(root string, store *index.Index, loaded *manifest.Manifest
 		Workers:         resolveEmbedWorkers(loaded),
 		Manifest:        loaded,
 	}, nil
+}
+
+// skippedSummary renders a summary line's skip count, naming how many of the
+// skips were plain markdown that is not a node rather than a fault (#789).
+func skippedSummary(report *reindex.Report) string {
+	switch report.NotNodes {
+	case 0:
+		return fmt.Sprintf("%d skipped", report.Skipped)
+	case 1:
+		return fmt.Sprintf("%d skipped (1 not a node)", report.Skipped)
+	default:
+		return fmt.Sprintf("%d skipped (%d not nodes)", report.Skipped, report.NotNodes)
+	}
 }
 
 func plural(count int) string {

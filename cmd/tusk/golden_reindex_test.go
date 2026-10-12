@@ -32,6 +32,37 @@ func TestGoldenCLI_ReindexWorkflow(test *testing.T) {
 	})
 }
 
+// TestGoldenCLI_ReindexNotNodes pins the #789 split of the skip count: plain
+// markdown with no frontmatter or no type is not a node, so the summary names
+// how many skips were that rather than a fault.
+func TestGoldenCLI_ReindexNotNodes(test *testing.T) {
+	runGoldenCLICases(test, []goldenCLICase{
+		{
+			name:     "plain markdown is counted as not nodes",
+			manifest: kanbanWorkflowManifest,
+			setup: func(test *testing.T, root string) {
+				writeFile(test, root, "tickets/demo.md", goldenTicketActive)
+				writeFile(test, root, "README.md", "# Just prose\n")
+				writeFile(test, root, "notes/untyped.md", "---\ntitle: Untyped\n---\n\nBody.\n")
+			},
+			args:       []string{"reindex"},
+			wantStdout: "Reindex done: 1 indexed, 0 removed, 2 skipped (2 not nodes)\n",
+		},
+		{
+			name:     "a broken file is a skip but not a non-node",
+			manifest: kanbanWorkflowManifest,
+			setup: func(test *testing.T, root string) {
+				writeFile(test, root, "tickets/demo.md", goldenTicketActive)
+				writeFile(test, root, "README.md", "# Just prose\n")
+				writeFile(test, root, "broken.md", "---\ntype: [unclosed\n---\n")
+			},
+			args:               []string{"reindex"},
+			wantStdout:         "Reindex done: 1 indexed, 0 removed, 2 skipped (1 not a node)\n",
+			wantStderrContains: "path=broken.md",
+		},
+	})
+}
+
 // kanbanWorkflowManifest is the inline equivalent of `pack add kanban`: a
 // three-state workflow over the `ticket` type. Sub-units are disabled so the
 // reindex/doctor output reflects only the ticket node itself (no paragraph

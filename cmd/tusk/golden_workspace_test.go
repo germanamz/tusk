@@ -39,12 +39,12 @@ func TestGoldenCLI_Workspace(test *testing.T) {
 			wantStdout: "Reindex done: 0 indexed, 1 removed, 0 skipped\n",
 		},
 		{
-			name: "reindex skips an off-schema file",
+			name: "reindex skips a file with no type as not a node",
 			setup: func(test *testing.T, root string) {
 				writeFile(test, root, "junk/loose.md", goldenNoTypeFile)
 			},
 			args:       []string{"reindex"},
-			wantStdout: "Reindex done: 0 indexed, 0 removed, 1 skipped\n",
+			wantStdout: "Reindex done: 0 indexed, 0 removed, 1 skipped (1 not a node)\n",
 		},
 		{
 			// Same `reindex` command, schema config: a ticket missing its
