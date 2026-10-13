@@ -3,8 +3,8 @@
 A type pack is a bundle of node-type and edge-type declarations that
 can be merged into the workspace manifest. Use packs to seed a new
 workspace with sensible defaults instead of writing the schema by hand.
-Built-in pack names are fetched over the network from the project's
-published packs, so installing one by name needs connectivity.
+Built-in packs (kanban, tags, vault) are compiled into tusk, so
+installing one by name works offline; a URL is fetched.
 
 ## Installing
 

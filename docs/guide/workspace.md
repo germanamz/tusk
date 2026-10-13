@@ -42,6 +42,22 @@ See [[notes/auth-rfc]] for context.
 - Other frontmatter keys are either **properties** (string / int / date / enum / ref / list-of) or **edges** (declared in `tusk.toml`).
 - `[[notes/auth-rfc]]` body wikilinks materialize as edges to that node id for any edge type declared with `wikilinks = true` (e.g. the `vault` pack's `references` edge). The Obsidian aliased form `[[notes/auth-rfc|the auth RFC]]` links to the same node id — the text after `|` is display only — and a `tusk node move` retargets the id while keeping the display text. A wikilink inside inline code or a code block is an example, not a link: it makes no edge, and a move leaves it as written.
 
+### Folders of plain markdown
+
+Markdown without a `type:` is not a node, so an existing Obsidian vault or `docs/` folder indexes as an empty graph. Set a default type to index it as it is:
+
+```toml
+[workspace]
+name = "notes"
+default-type = "note"
+```
+
+Every `.md` or `.mdx` file with no type of its own (no frontmatter, or frontmatter without `type:`) is then indexed as a `note`. The type must be declared under `[node-types]`; the `vault` pack declares `note`. An adopted file takes its title from `title:`, then from its first `# ` heading, then from its file name, and any frontmatter it has still applies. HTML pages still need their `tusk:type` meta, since untyped HTML is usually build output.
+
+Tusk never adds a type to these files. Reindex leaves them as they are, and `tusk node modify` writes frontmatter only when the change sets a property, so editing the body of a plain file keeps it plain. Changing or removing `default-type` re-processes every file on the next reindex, and files it no longer covers leave the index.
+
+`tusk init` sets this up when the folder already holds untyped markdown: it reports how many files it found, adds the `vault` pack, and writes `default-type = "note"`. Pass `--no-adopt` to keep those files out.
+
 ## Edges connect nodes
 
 Edges are typed, declared in the manifest, and can be created two ways:
@@ -128,7 +144,7 @@ Instead of declaring everything by hand, `tusk pack add <name>` splices a curate
 | `kanban` | `ticket` node with workflow-validated `status`; `parent` (WBS) + `blocks` edges |
 | `dev` | `spec`, `plan`, `handoff`, `package` — dogfooding pack for tracking software projects |
 
-Packs compose: add `vault` + `tags` + `kanban` and you have notes, decisions, tags, and a kanban workflow on top.
+Packs compose: add `vault` + `tags` + `kanban` and you have notes, decisions, tags, and a kanban workflow on top. `vault`, `tags` and `kanban` are compiled into tusk, so adding them by name works offline; `dev` installs by URL.
 
 ```bash
 tusk pack add vault
@@ -156,7 +172,7 @@ tusk reindex
 
 `reindex` walks the workspace, parses every `.md`, validates frontmatter against the manifest, resolves refs + wikilinks into edges, and enqueues embeddings.
 
-A skipped file is one reindex left out of the index. The `not nodes` count is plain markdown with no frontmatter or no `type:`, which is fine and gets no warning. Any other skip is a file reindex could not parse: it is logged as a warning and `tusk doctor` reports it.
+A skipped file is one reindex left out of the index. The `not nodes` count is plain markdown with no frontmatter or no `type:` (in a workspace without `default-type`), plus HTML with no `tusk:type`; these are fine and get no warning. Any other skip is a file reindex could not parse: it is logged as a warning and `tusk doctor` reports it.
 
 ### Live watcher
 
@@ -168,7 +184,8 @@ Runs fsnotify against the workspace and applies edits incrementally. Drains the 
 
 ### What gets indexed
 
-- Every `.md` file with a `type:` field, anywhere in the workspace.
+- Every `.md` file with a `type:` field, anywhere in the workspace, and every
+  other `.md` file too when `[workspace] default-type` is set.
 - Every `.html` / `.htm` file with a `<meta name="tusk:type">` tag — indexed
   over its **prose** (tags stripped, entities decoded), with `<meta name="tusk:*">`
   becoming typed node properties and `data-*` attributes captured as lenient

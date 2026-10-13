@@ -91,6 +91,14 @@ func pathRefsFingerprint(edgeTypes manifest.EdgeTypes) string {
 	return strings.Join(parts, ";")
 }
 
+// defaultTypeKey stores the [workspace].default-type the index was built
+// under. Turning it on adopts plain files the last pass skipped, and turning
+// it off drops the nodes it adopted, yet neither file changed on disk, so the
+// incremental skip would never re-read them. When the configured type differs,
+// Run forces one full re-process. A workspace without the key stores "", so
+// an index from before #790 needs no pass. Stamped after the pass succeeds.
+const defaultTypeKey = "default_type"
+
 // nodeIDForPath derives a node id from a workspace-relative path, delegating to
 // index.NodeIDForPath — the single id rule shared with the node parse dispatch.
 // Markdown keeps its historical bare-stem id (strips ".md"); every other
@@ -215,7 +223,7 @@ func RebuildConfig(root string, idx *index.Index, loaded *manifest.Manifest) Con
 // Report summarizes a reindex pass.
 type Report struct {
 	Indexed            int // number of node files freshly indexed or refreshed
-	Removed            int // number of stale rows deleted (file no longer on disk)
+	Removed            int // number of files whose node rows were deleted: gone from disk, or no longer a node
 	Skipped            int // number of files skipped (parse error or off-schema)
 	NotNodes           int // subset of Skipped: plain markdown with no frontmatter or no type
 	WorkflowViolations int // number of workflow validation failures (warn mode)
@@ -253,9 +261,12 @@ type Report struct {
 
 // mergeDrain folds a DrainReport's per-file counters into rep. The fields
 // mirror DrainReport.merge; only the counters the per-file path produces are
-// accumulated (Removed and Generation are owned by the walk, not the drain).
+// accumulated (Generation is owned by the walk; Removed is shared, since the
+// walk reaps files that are gone and the drain drops files that stopped being
+// nodes).
 func (rep *Report) mergeDrain(other DrainReport) {
 	rep.Indexed += other.Indexed
+	rep.Removed += other.Removed
 	rep.Skipped += other.Skipped
 	rep.NotNodes += other.NotNodes
 	rep.WorkflowViolations += other.WorkflowViolations
@@ -363,6 +374,24 @@ func Run(config Config) (*Report, error) {
 			config.Logger.Info("reindex: path-ref configuration changed; forcing full re-process",
 				"stored", pathRefsMarker,
 				"current", pathRefsConfig,
+			)
+		}
+	}
+
+	defaultType := config.Manifest.DefaultType()
+	defaultTypeMarker, defaultTypeMarkerErr := config.Meta.Get(defaultTypeKey)
+
+	if defaultTypeMarkerErr != nil {
+		return nil, fmt.Errorf("reindex: read %s: %w", defaultTypeKey, defaultTypeMarkerErr)
+	}
+
+	if defaultTypeMarker != defaultType {
+		config.Force = true
+
+		if config.Logger != nil {
+			config.Logger.Info("reindex: default type changed; forcing full re-process",
+				"stored", defaultTypeMarker,
+				"current", defaultType,
 			)
 		}
 	}
@@ -619,29 +648,9 @@ func Run(config Config) (*Report, error) {
 				continue
 			}
 
-			nodeID := nodeIDForPath(candidate.Path)
-
-			if deleteErr := config.Repo.DeleteByPath(candidate.Path); deleteErr != nil {
+			if dropErr := dropFileNode(config.Repo, config.Edges, config.EmbedQueue, candidate.Path); dropErr != nil {
 				_ = release()
-				return nil, fmt.Errorf("reindex: delete node %s: %w", candidate.Path, deleteErr)
-			}
-
-			if config.Edges != nil {
-				if deleteErr := config.Edges.DeleteBySource(nodeID); deleteErr != nil {
-					_ = release()
-					return nil, fmt.Errorf("reindex: delete edges %s: %w", nodeID, deleteErr)
-				}
-
-				// Wake referrers whose derived edge pointed at this now-deleted
-				// node so the drain re-resolves them: retarget if the ref's
-				// title now resolves elsewhere (a bare fs rename), or drop the
-				// edge and record ref drift if the target is gone (#689). The
-				// incoming edges themselves survive DeleteBySource (which only
-				// removes rows sourced FROM nodeID), so this reads them first.
-				if enqErr := node.EnqueueDerivedReferrers(config.Edges, config.EmbedQueue, nodeID); enqErr != nil {
-					_ = release()
-					return nil, enqErr
-				}
+				return nil, dropErr
 			}
 
 			if releaseErr := release(); releaseErr != nil {
@@ -811,6 +820,10 @@ func Run(config Config) (*Report, error) {
 		return nil, fmt.Errorf("reindex: record %s: %w", pathRefsKey, setErr)
 	}
 
+	if setErr := config.Meta.Set(defaultTypeKey, defaultType); setErr != nil {
+		return nil, fmt.Errorf("reindex: record %s: %w", defaultTypeKey, setErr)
+	}
+
 	if config.Logger != nil {
 		config.Logger.Info("reindex walk complete",
 			"root", config.Root,
@@ -829,6 +842,34 @@ func Run(config Config) (*Report, error) {
 	}
 
 	return report, nil
+}
+
+// dropFileNode deletes the rows relPath owned as a node: the file row and its
+// sub-units, which take their edges and path refs with them by FK cascade,
+// and the file's own edges. The reaper calls it for a file that is gone, and
+// the drain for one still on disk that stopped being a node (#790).
+func dropFileNode(repo *index.NodeRepo, edges *index.EdgeRepo, queue *index.EmbedQueueRepo, relPath string) error {
+	nodeID := nodeIDForPath(relPath)
+
+	if deleteErr := repo.DeleteByPath(relPath); deleteErr != nil {
+		return fmt.Errorf("reindex: delete node %s: %w", relPath, deleteErr)
+	}
+
+	if edges == nil {
+		return nil
+	}
+
+	if deleteErr := edges.DeleteBySource(nodeID); deleteErr != nil {
+		return fmt.Errorf("reindex: delete edges %s: %w", nodeID, deleteErr)
+	}
+
+	// Wake referrers whose derived edge pointed at this now-deleted node so
+	// the drain re-resolves them: retarget if the ref's title now resolves
+	// elsewhere (a bare fs rename), or drop the edge and record ref drift if
+	// the target is gone (#689). The incoming edges themselves survive
+	// DeleteBySource (which only removes rows sourced FROM nodeID), so this
+	// reads them first.
+	return node.EnqueueDerivedReferrers(edges, queue, nodeID)
 }
 
 // appendUnique appends value to slice only if not already present.

@@ -12,15 +12,17 @@ import (
 	"github.com/germanamz/tusk/internal/workspace"
 )
 
-// AddPack fetches pack content from source, validates it, detects
-// collisions with the user's tusk.toml, and atomically writes the
+// AddPack loads pack content from source (see LoadPack), validates it,
+// detects collisions with the user's tusk.toml, and atomically writes the
 // merged manifest. Returns the first error encountered without
 // modifying tusk.toml.
 func AddPack(ctx context.Context, source string, force bool, workspaceRoot string) error {
-	rawURL, resolveErr := Resolve(source)
+	// Load before taking the lock: an unknown name fails fast, and a URL
+	// fetch never holds the workspace lock while it waits on the network.
+	packBody, loadErr := LoadPack(ctx, source)
 
-	if resolveErr != nil {
-		return resolveErr
+	if loadErr != nil {
+		return loadErr
 	}
 
 	workspaceLock, lockErr := lock.NewWorkspaceLock(workspaceRoot)
@@ -43,12 +45,6 @@ func AddPack(ctx context.Context, source string, force bool, workspaceRoot strin
 		return fmt.Errorf("pack add: read tusk.toml: %w", readErr)
 	}
 
-	packBody, fetchErr := Fetch(ctx, rawURL)
-
-	if fetchErr != nil {
-		return fetchErr
-	}
-
 	pack, validateErr := Validate(packBody)
 
 	if validateErr != nil {
@@ -62,7 +58,7 @@ func AddPack(ctx context.Context, source string, force bool, workspaceRoot strin
 	}
 
 	if len(collisions) > 0 && !force {
-		return fmt.Errorf("pack add: cannot apply pack from %s: %d colliding sections in tusk.toml:%s\nre-run with --force to overwrite, or remove the colliding sections by hand", rawURL, len(collisions), formatCollisionList(collisions))
+		return fmt.Errorf("pack add: cannot apply pack from %s: %d colliding sections in tusk.toml:%s\nre-run with --force to overwrite, or remove the colliding sections by hand", source, len(collisions), formatCollisionList(collisions))
 	}
 
 	finalBody := userBody

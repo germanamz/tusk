@@ -7,7 +7,8 @@ type Node struct {
 	ID         string              // workspace-relative path without extension
 	Path       string              // workspace-relative path with extension
 	Type       string              // value of the required `type:` frontmatter field
-	Title      string              // value of the optional `title:` frontmatter field; empty if absent
+	Title      string              // value of the optional `title:` frontmatter field; empty if absent, unless Adopted
+	Adopted    bool                // Type is the fallback ParseFileAs was given, not the file's own: the file has no `type:`, so writers must not add one
 	Properties map[string]any      // frontmatter keys NOT matching a declared edge type
 	Edges      map[string][]string // edge-type-name → ordered list of target node ids
 	PathValues map[string][]string // paths-only edge-type-name → the workspace paths its frontmatter value names; set by ResolveEdges, recorded as path refs by PathRefs

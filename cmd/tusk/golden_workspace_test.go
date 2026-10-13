@@ -15,6 +15,17 @@ func TestGoldenCLI_Workspace(test *testing.T) {
 			wantStdout: "Initialized Tusk workspace at <WS>\n",
 		},
 		{
+			name:   "init adopts the markdown already in the folder",
+			noInit: true,
+			setup: func(test *testing.T, root string) {
+				writeFile(test, root, "notes/plain.md", goldenNoTypeFile)
+			},
+			args: []string{"init", "--name", "test"},
+			wantStdout: "Initialized Tusk workspace at <WS>\n" +
+				"Found 1 markdown file without a type: it will be indexed as a note.\n" +
+				"Added the vault pack and default-type = \"note\" to tusk.toml; remove default-type to index typed files only.\n",
+		},
+		{
 			name:       "init refuses an already-initialized workspace",
 			args:       []string{"init", "--name", "test"},
 			wantErr:    true,

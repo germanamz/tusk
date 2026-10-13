@@ -81,6 +81,7 @@ type WorkerConfig struct {
 // subset of reindex.Report fields the per-file path produces.
 type DrainReport struct {
 	Indexed            int
+	Removed            int
 	Skipped            int
 	NotNodes           int
 	WorkflowViolations int
@@ -96,6 +97,7 @@ type DrainReport struct {
 
 func (rep *DrainReport) merge(other DrainReport) {
 	rep.Indexed += other.Indexed
+	rep.Removed += other.Removed
 	rep.Skipped += other.Skipped
 	rep.NotNodes += other.NotNodes
 	rep.WorkflowViolations += other.WorkflowViolations
@@ -281,6 +283,29 @@ func skipWithoutFault(cfg WorkerConfig, relPath string) error {
 	return errSkipFile
 }
 
+// dropFormerNode drops the rows of a file that is still on disk but no longer
+// parses as a node: its `type:` was removed, or the default type that adopted
+// it was turned off. The reaper only drops rows for files that are gone, so
+// without this the node outlived its type indefinitely (#790). Reports
+// whether there was a node to drop.
+func dropFormerNode(cfg WorkerConfig, relPath string) (bool, error) {
+	row, getErr := cfg.Repo.Get(nodeIDForPath(relPath))
+
+	if errors.Is(getErr, index.ErrNodeNotFound) {
+		return false, nil
+	}
+
+	if getErr != nil {
+		return false, fmt.Errorf("reindex: look up %s: %w", relPath, getErr)
+	}
+
+	if row.Path != relPath {
+		return false, nil
+	}
+
+	return true, dropFileNode(cfg.Repo, cfg.Edges, cfg.EmbedQueue, relPath)
+}
+
 // processReindexJob performs the per-file work for one reindex queue row:
 // reads the file, parses, upserts node + edges, runs workflow/property/ref
 // drift, applies sub-unit sync, and stamps file_state. Mirrors the BRIDGE
@@ -309,7 +334,9 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 		return fmt.Errorf("reindex: stat %s: %w", relPath, statErr)
 	}
 
-	parsed, parseErr := node.ParseContentFile(relPath, content)
+	// A markdown file with no type of its own is indexed under the workspace
+	// default type when one is set (#790), and is not a node otherwise.
+	parsed, parseErr := node.ParseContentFileAs(relPath, content, cfg.Manifest.DefaultType())
 
 	if parseErr != nil {
 		// A file with no frontmatter or no type is not a node, which vaults rely
@@ -320,7 +347,17 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 				cfg.Logger.Debug("reindex skip: not a node", "path", relPath, "err", parseErr.Error())
 			}
 
+			dropped, dropErr := dropFormerNode(cfg, relPath)
+
+			if dropErr != nil {
+				return dropErr
+			}
+
 			report.NotNodes++
+
+			if dropped {
+				report.Removed++
+			}
 
 			return skipWithoutFault(cfg, relPath)
 		}
@@ -342,7 +379,9 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 	// queryable and keeping doctor free of spurious date type-mismatch drift.
 	// A time.Time present here also means the markdown file can be rewritten to
 	// its quoted canonical form (self-heal), reflected in the returned bytes.
-	if node.CanonicalizeDates(parsed, cfg.NodeTypes) {
+	// An adopted file is never written (#790), so its dates are canonical in
+	// the index only and the file keeps whatever form it was authored in.
+	if node.CanonicalizeDates(parsed, cfg.NodeTypes) && !parsed.Adopted {
 		content, stat = selfHealDate(cfg, relPath, absPath, content, stat)
 
 		// The heal rewrites frontmatter only, so the body is still a suffix of

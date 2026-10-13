@@ -134,13 +134,14 @@ func declaredPathLines(file []byte, pathValues map[string][]string, scheme linen
 // page's edges, because its writes stamp file_state and the next reindex skips
 // the file. A parse failure, or a frontmatter edge value of the wrong shape,
 // leaves the refs as they were: the write itself succeeded, and reindex reports
-// the file.
-func syncPathRefs(edges *index.EdgeRepo, relPath string, file []byte, edgeTypes manifest.EdgeTypes, scheme linenum.Scheme) error {
+// the file. nodeType is the page's indexed type, the parse fallback for a page
+// adopted under the workspace default type (#790).
+func syncPathRefs(edges *index.EdgeRepo, relPath string, file []byte, nodeType string, edgeTypes manifest.EdgeTypes, scheme linenum.Scheme) error {
 	if edges == nil {
 		return nil
 	}
 
-	parsed, parseErr := ParseContentFile(relPath, file)
+	parsed, parseErr := ParseContentFileAs(relPath, file, nodeType)
 
 	if parseErr != nil {
 		return nil

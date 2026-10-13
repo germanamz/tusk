@@ -11,6 +11,7 @@ no MCP tool to edit it — open the file directly, then call
 name      = "my-brain"
 sub-units = true             # parse markdown headings into sub-unit nodes
 line-numbering = "lf"        # what ends a line in matched-unit `lines`
+default-type = "note"        # optional; index markdown with no `type:` as this type
 
 [node-types.<name>]
 properties = [
@@ -107,6 +108,23 @@ The schemes only disagree on files with lone CRs or Unicode
 separators. Changing the value renumbers every sub-unit on the next
 reindex; nothing is re-embedded.
 
+## Default type
+
+Markdown without a `type:` in its frontmatter is not a node, so a
+folder of plain notes indexes as an empty graph. `[workspace].default-type`
+opts in: every `.md`/`.mdx` file with no type of its own (no
+frontmatter, or frontmatter without `type:`) is indexed as that type.
+The type must be declared under `[node-types]`. HTML still needs its
+`tusk:type` meta.
+
+An adopted file takes its title from `title:`, else its first `# `
+heading, else its file name. Tusk never adds a type to it: reindex
+leaves it as is, and `tusk_node_modify` writes frontmatter only when the
+change sets a property. Changing or removing the key re-processes every
+file on the next reindex, and files it no longer covers leave the index.
+`tusk init` sets it to `note` (with the vault pack) when the folder
+already holds untyped markdown.
+
 ## Embedding model settings
 
 Optional `[embeddings]` keys that match tusk to the embedding model. All
@@ -146,8 +164,8 @@ explicitly to "" opts out and silences the suggestion for that side.
 ## Packs
 
 A "type pack" is a bundle of node-type + edge-type declarations
-(e.g. the `kanban` pack with a ticket workflow). Built-in names
-(kanban, tags, vault) are fetched over the network. Install via the
+(e.g. the `kanban` pack with a ticket workflow). Built-in packs
+(kanban, tags, vault) are compiled into tusk. Install via the
 CLI: `tusk pack add kanban`. See `tusk_help(topic: "packs")`.
 
 ## After editing

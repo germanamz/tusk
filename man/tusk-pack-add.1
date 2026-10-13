@@ -14,9 +14,9 @@ Copy a type pack's node and edge type declarations into tusk.toml.
 
 .PP
 The pack is a built-in name (kanban, tags, vault) or a URL. Built-in
-names are fetched over the network from the project's published packs, so
-adding one by name needs connectivity; pass a full URL (or a file:// URL)
-to install from elsewhere.
+packs are compiled into tusk, so adding one by name works offline and
+matches this binary's version; pass a full URL (or a file:// URL) to
+install a pack from elsewhere.
 
 .PP
 Idempotent for a given pack: re-running with the same pack is a no-op

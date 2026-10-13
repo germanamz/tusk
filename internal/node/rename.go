@@ -206,6 +206,10 @@ func Rename(
 	// constraint forever (#687).
 	newID := nodeIDForPath(newRelPath)
 	oldPath := row.Path
+
+	// The moved file's indexed type, read before its rows move: the parse
+	// fallback for a file adopted under the workspace default type (#790).
+	movedType := fileNodeType(nodeRepo, row)
 	oldAbs := filepath.Join(root, oldPath)
 	newAbs := filepath.Join(root, newRelPath)
 
@@ -415,7 +419,7 @@ func Rename(
 		return nil, fmt.Errorf("node: re-read %s: %w", newRelPath, readMovedErr)
 	}
 
-	if syncErr := syncPathRefs(edgeRepo, newRelPath, movedContent, edgeTypes, lineNumbering); syncErr != nil {
+	if syncErr := syncPathRefs(edgeRepo, newRelPath, movedContent, movedType, edgeTypes, lineNumbering); syncErr != nil {
 		return nil, syncErr
 	}
 
@@ -445,16 +449,20 @@ func Rename(
 			return nil, fmt.Errorf("node: re-read %s: %w", relPath, readErr)
 		}
 
+		// A referrer adopted under the workspace default type (#790) has no
+		// type of its own; its indexed type stands in for it.
+		referrerType := indexedType(nodeRepo, relPath)
+
 		// The rewrite retargeted what the referrer's links name (an HTML
 		// href now points at the new path), so its path refs follow.
-		if syncErr := syncPathRefs(edgeRepo, relPath, content, edgeTypes, lineNumbering); syncErr != nil {
+		if syncErr := syncPathRefs(edgeRepo, relPath, content, referrerType, edgeTypes, lineNumbering); syncErr != nil {
 			return nil, syncErr
 		}
 
 		// ParseContentFile dispatches markdown vs HTML the same way the
 		// reindex worker does — an HTML referrer has no frontmatter and
 		// would abort the whole rename through plain ParseFile.
-		parsed, parseErr := ParseContentFile(relPath, content)
+		parsed, parseErr := ParseContentFileAs(relPath, content, referrerType)
 
 		if parseErr != nil {
 			return nil, parseErr

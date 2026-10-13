@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"path"
+	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/germanamz/tusk/internal/subunit"
 )
 
 // ErrMissingFrontmatter indicates the file does not begin with a YAML frontmatter block.
@@ -26,9 +30,23 @@ var utf8BOM = []byte("\xef\xbb\xbf")
 // path (with extension); the canonical id is derived via nodeIDForPath (markdown
 // strips ".md"; a retained-extension kind like .mdx keeps it).
 func ParseFile(relPath string, content []byte) (*Node, error) {
+	return ParseFileAs(relPath, content, "")
+}
+
+// ParseFileAs parses like ParseFile but adopts a file with no type of its own
+// (no frontmatter, or frontmatter without `type:`) as fallbackType instead of
+// rejecting it (#790). The adopted node keeps whatever frontmatter the file
+// has, takes its title from `title:`, else the first level-one heading, else
+// the file name, and is marked Adopted. With no frontmatter the whole file,
+// less a leading BOM, is the body. An empty fallbackType adopts nothing, so
+// the errors are ParseFile's.
+func ParseFileAs(relPath string, content []byte, fallbackType string) (*Node, error) {
 	frontmatterBytes, body, splitErr := splitFrontmatter(content)
 
-	if splitErr != nil {
+	switch {
+	case errors.Is(splitErr, ErrMissingFrontmatter) && fallbackType != "":
+		body = bytes.TrimPrefix(content, utf8BOM)
+	case splitErr != nil:
 		return nil, splitErr
 	}
 
@@ -38,13 +56,28 @@ func ParseFile(relPath string, content []byte) (*Node, error) {
 		return nil, fmt.Errorf("node: decode frontmatter %s: %w", relPath, decodeErr)
 	}
 
-	typeValue, hasType := properties["type"].(string)
+	// A frontmatter block holding only `null` decodes to a nil map; writers
+	// set keys on Properties, so keep it a map.
+	if properties == nil {
+		properties = map[string]any{}
+	}
 
-	if !hasType || typeValue == "" {
-		return nil, ErrMissingType
+	typeValue, hasType := properties["type"].(string)
+	adopted := !hasType || typeValue == ""
+
+	if adopted {
+		if fallbackType == "" {
+			return nil, ErrMissingType
+		}
+
+		typeValue = fallbackType
 	}
 
 	title, _ := properties["title"].(string)
+
+	if adopted && title == "" {
+		title = adoptedTitle(relPath, body)
+	}
 
 	properties = normalizeYAMLNumbers(properties)
 	properties = normalizeWikilinkSequences(properties)
@@ -54,12 +87,25 @@ func ParseFile(relPath string, content []byte) (*Node, error) {
 		Path:       relPath,
 		Type:       typeValue,
 		Title:      title,
+		Adopted:    adopted,
 		Properties: properties,
 		Body:       body,
 		// Every trim in splitFrontmatter cuts from the front, so body is
 		// always a suffix of content.
 		BodyOffset: len(content) - len(body),
 	}, nil
+}
+
+// adoptedTitle names an adopted node that has no `title:`: its first
+// level-one heading, else its file name without the extension.
+func adoptedTitle(relPath string, body []byte) string {
+	if heading := subunit.FirstHeading(body); heading != "" {
+		return heading
+	}
+
+	name := path.Base(relPath)
+
+	return strings.TrimSuffix(name, path.Ext(name))
 }
 
 // splitFrontmatter returns the YAML body (without delimiters) and the remaining
