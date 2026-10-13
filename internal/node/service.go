@@ -669,7 +669,7 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		}
 	}
 
-	if syncErr := syncPathRefs(service.edges, parsed.Path, rendered, service.edgeTypes, service.lineNumbering); syncErr != nil {
+	if syncErr := syncPathRefs(service.edges, parsed.Path, rendered, parsed.Type, service.edgeTypes, service.lineNumbering); syncErr != nil {
 		return nil, syncErr
 	}
 
@@ -735,12 +735,16 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		changed       bool
 	)
 
+	// The file's indexed type is the fallback for a file adopted under the
+	// workspace default type (#790), which has no type of its own.
+	fallbackType := fileNodeType(service.repo, row)
+
 	mutator := func(current []byte) (Mutation, error) {
 		if current == nil {
 			return Mutation{}, fmt.Errorf("node: %s: file vanished", row.Path)
 		}
 
-		parsedBefore, parseBeforeErr := ParseFile(row.Path, current)
+		parsedBefore, parseBeforeErr := ParseFileAs(row.Path, current, fallbackType)
 
 		if parseBeforeErr != nil {
 			return Mutation{}, parseBeforeErr
@@ -800,7 +804,7 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 			return Mutation{}, renderErr
 		}
 
-		newParsed, reparseErr := ParseFile(row.Path, newRendered)
+		newParsed, reparseErr := ParseFileAs(row.Path, newRendered, fallbackType)
 
 		if reparseErr != nil {
 			return Mutation{}, reparseErr
@@ -940,7 +944,7 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 	}
 
 	// A frontmatter change moves every body line, so the refs' lines move too.
-	if syncErr := syncPathRefs(service.edges, reparsed.Path, rendered, service.edgeTypes, service.lineNumbering); syncErr != nil {
+	if syncErr := syncPathRefs(service.edges, reparsed.Path, rendered, reparsed.Type, service.edgeTypes, service.lineNumbering); syncErr != nil {
 		return nil, syncErr
 	}
 
@@ -1239,7 +1243,7 @@ func (service *Service) Get(nodeID string) (*Node, error) {
 		return nil, fmt.Errorf("node: read %s: %w", row.Path, readErr)
 	}
 
-	return ParseContentFile(row.Path, content)
+	return ParseContentFileAs(row.Path, content, fileNodeType(service.repo, row))
 }
 
 // List returns nodes from the index matching filter. Bodies are not loaded.
@@ -1342,9 +1346,16 @@ func renderMarkdown(properties map[string]any, body []byte) ([]byte, error) {
 
 	var out bytes.Buffer
 
-	out.WriteString("---\n")
-	out.Write(frontmatter.Bytes())
-	out.WriteString("---\n\n")
+	// A file adopted under the workspace default type (#790) may have no
+	// frontmatter at all. With nothing to emit, write the body alone so an
+	// edit that sets no property leaves it that way; a typed node always has
+	// at least its type.
+	if len(root.Content) > 0 {
+		out.WriteString("---\n")
+		out.Write(frontmatter.Bytes())
+		out.WriteString("---\n\n")
+	}
+
 	out.Write(body)
 
 	if !bytes.HasSuffix(body, []byte("\n")) {

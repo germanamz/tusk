@@ -167,6 +167,11 @@ type WorkspaceSection struct {
 	// internal/linenum). Empty means linenum.DefaultScheme. Consumers should
 	// call Manifest.LineNumbering instead of reading this directly.
 	LineNumbering string `toml:"line-numbering"`
+
+	// DefaultType mirrors the on-disk `default-type` key: the declared node
+	// type a markdown file with no `type:` of its own is indexed as. Empty
+	// (the default) leaves such files out of the index (#790).
+	DefaultType string `toml:"default-type"`
 }
 
 // EmbeddingsSection configures the active embedding provider.
@@ -377,6 +382,16 @@ func (loaded *Manifest) LineNumbering() linenum.Scheme {
 	}
 
 	return scheme
+}
+
+// DefaultType returns the node type a markdown file without a `type:` is
+// indexed as, or "" when the workspace sets none or the manifest is nil.
+func (loaded *Manifest) DefaultType() string {
+	if loaded == nil {
+		return ""
+	}
+
+	return loaded.Workspace.DefaultType
 }
 
 // SubUnitsEnabled returns true when the workspace opts into sub-unit

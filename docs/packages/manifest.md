@@ -23,6 +23,7 @@ Loads and validates `tusk.toml`. Decodes `[workspace]`, `[node-types.X]`, `[edge
 - `(*Manifest).DeclaresUserNodeTypes() bool` — whether the manifest declares a node type beyond the built-in sub-document types. Checks that validate against declared types skip a vault that declares none.
 - `PathEdgeTypeNames(EdgeTypes) []string` — the edge types that set `paths = true`, sorted. Reindex fingerprints them, the filter's `names-path` requires one, and `tusk claude refs` stays silent without one.
 - `(EdgeType) PathsOnly() bool` — `paths = true` with no `to`. Such a type allows no node targets, so its frontmatter values are read as workspace paths and recorded as path refs, not edges.
+- `(*Manifest).DefaultType() string` — the `[workspace] default-type`: the node type a markdown file with no `type:` of its own is indexed as (#790), `""` when unset or the manifest is nil. `Load` rejects a type not declared under `[node-types]`.
 - `(*Manifest).LineNumbering() linenum.Scheme` — the `[workspace] line-numbering` scheme sub-unit line ranges are numbered with (`lf` when unset). `Load` rejects any value other than `lf`, `universal`, or `unicode`.
 
 ## Notes

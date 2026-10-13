@@ -1450,8 +1450,18 @@ func Migrate(config Config) (*MigrationReport, error) {
 			keepByPath[row.SourcePath] = append(keepByPath[row.SourcePath], row)
 		}
 
+		// A source adopted under the workspace default type (#790) has no type
+		// of its own to parse; its indexed type stands in for it.
+		sourceType := ""
+
+		if config.Nodes != nil {
+			if sourceRow, getErr := config.Nodes.Get(sourceID); getErr == nil {
+				sourceType = sourceRow.Type
+			}
+		}
+
 		for _, row := range rows {
-			if writeErr := node.AddEdgeToFrontmatter(config.Root, row.SourceID, row.Type, row.TargetID, config.Manifest.EdgeTypes, config.Manifest.NodeTypes); writeErr != nil {
+			if writeErr := node.AddEdgeToFrontmatter(config.Root, row.SourceID, sourceType, row.Type, row.TargetID, config.Manifest.EdgeTypes, config.Manifest.NodeTypes); writeErr != nil {
 				report.Unmigrated = append(report.Unmigrated, legacyEdgeIssue(row, fmt.Sprintf("cannot migrate: %v", writeErr)))
 				keepByPath[row.SourcePath] = append(keepByPath[row.SourcePath], row)
 

@@ -69,7 +69,7 @@ func (service *Service) AddEdge(edgeType, sourceID, targetID string) error {
 		}
 	}
 
-	if writeErr := AddEdgeToFrontmatter(service.root, sourceID, edgeType, targetID, service.edgeTypes, service.nodeTypes); writeErr != nil {
+	if writeErr := AddEdgeToFrontmatter(service.root, sourceID, fileNodeType(service.repo, sourceRow), edgeType, targetID, service.edgeTypes, service.nodeTypes); writeErr != nil {
 		return writeErr
 	}
 
@@ -85,7 +85,9 @@ func (service *Service) RemoveEdge(edgeType, sourceID, targetID string) error {
 		return fmt.Errorf("edge type %q %w", edgeType, ErrEdgeTypeNotDeclared)
 	}
 
-	if writeErr := RemoveEdgeFromFrontmatter(service.root, sourceID, edgeType, targetID, service.edgeTypes, service.nodeTypes); writeErr != nil {
+	sourceType := indexedType(service.repo, index.FilePathForID(sourceID))
+
+	if writeErr := RemoveEdgeFromFrontmatter(service.root, sourceID, sourceType, edgeType, targetID, service.edgeTypes, service.nodeTypes); writeErr != nil {
 		return writeErr
 	}
 
@@ -144,7 +146,10 @@ func edgeAdjacency(rows []index.EdgeRow) map[string][]string {
 
 // AddEdgeToFrontmatter loads sourceID's markdown file under workspaceRoot,
 // inserts targetID under the edge-type key in frontmatter (respecting the
-// edge type's cardinality), and atomically rewrites the file.
+// edge type's cardinality), and atomically rewrites the file. sourceType is
+// the source's indexed type: a file adopted under the workspace default type
+// (#790) has none of its own, and its declared date properties still decide
+// how an unquoted date is re-emitted. The rewrite never adds a type.
 //
 // Cardinality rules:
 //   - one-to-one / many-to-one: single target per source. If the key is
@@ -181,7 +186,7 @@ func setEdgeTargets(props map[string]any, edgeName string, targets []string) {
 }
 
 func AddEdgeToFrontmatter(
-	workspaceRoot, sourceID, edgeName, targetID string,
+	workspaceRoot, sourceID, sourceType, edgeName, targetID string,
 	edgeTypes manifest.EdgeTypes,
 	nodeTypes map[string]manifest.NodeType,
 ) error {
@@ -199,7 +204,7 @@ func AddEdgeToFrontmatter(
 		return fmt.Errorf("edgewrite: read %s: %w", sourcePath, readErr)
 	}
 
-	parsed, parseErr := ParseFile(index.FilePathForID(sourceID), content)
+	parsed, parseErr := ParseFileAs(index.FilePathForID(sourceID), content, sourceType)
 
 	if parseErr != nil {
 		return fmt.Errorf("edgewrite: parse %s: %w", sourcePath, parseErr)
@@ -261,12 +266,13 @@ func AddEdgeToFrontmatter(
 // RemoveEdgeFromFrontmatter removes targetID from the edge-name key on
 // sourceID's frontmatter. Idempotent: succeeds with no-op if the edge is
 // not present. Removes the key entirely when the last target is removed.
+// sourceType is the source's indexed type, as for AddEdgeToFrontmatter.
 //
 // Callers MUST serialize concurrent calls on the same source file (e.g.,
 // hold the workspace lock). The function performs an unguarded read-mutate-
 // write cycle; concurrent callers would produce a lost-update.
 func RemoveEdgeFromFrontmatter(
-	workspaceRoot, sourceID, edgeName, targetID string,
+	workspaceRoot, sourceID, sourceType, edgeName, targetID string,
 	edgeTypes manifest.EdgeTypes,
 	nodeTypes map[string]manifest.NodeType,
 ) error {
@@ -282,7 +288,7 @@ func RemoveEdgeFromFrontmatter(
 		return fmt.Errorf("edgewrite: read %s: %w", sourcePath, readErr)
 	}
 
-	parsed, parseErr := ParseFile(index.FilePathForID(sourceID), content)
+	parsed, parseErr := ParseFileAs(index.FilePathForID(sourceID), content, sourceType)
 
 	if parseErr != nil {
 		return fmt.Errorf("edgewrite: parse %s: %w", sourcePath, parseErr)
@@ -391,7 +397,7 @@ func ReindexSource(
 		return fmt.Errorf("edgewrite: read %s: %w", relPath, readErr)
 	}
 
-	parsed, parseErr := ParseFile(relPath, content)
+	parsed, parseErr := ParseFileAs(relPath, content, indexedType(nodes, relPath))
 
 	if parseErr != nil {
 		return fmt.Errorf("edgewrite: parse %s: %w", relPath, parseErr)

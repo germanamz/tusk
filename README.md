@@ -86,32 +86,35 @@ tusk web --open   # graph and reading views at http://127.0.0.1:7373
 tusk query 'type=package' --semantic "what happens when the index gets corrupted"
 ```
 
-One rough edge on a first run: reindex logs a warning for each plain markdown file it skips ([#789](https://github.com/germanamz/tusk/issues/789)). Without Ollama it still builds the graph, and its summary says how many nodes are left to embed.
+Without Ollama, reindex still builds the graph, and its summary says how many nodes are left to embed.
 
 ## Use it on your own notes
 
+Point it at the folder you already have:
+
 ```bash
 cd ~/notes
-tusk init --name notes
-tusk pack add vault   # note, meeting and decision types, plus wikilink edges
+tusk init --name notes   # finds your markdown and indexes it as notes
 tusk reindex
-tusk doctor
+tusk web --open
 ```
 
-A markdown file becomes a node once its frontmatter has a `type:`. Its path, minus the extension, is its id, and `[[folder/other-note]]` wikilinks become edges.
+When the folder already holds markdown, `init` says how many files have no `type:`, adds the `vault` pack (note, meeting and decision types, plus wikilink edges) and sets `default-type = "note"` in `tusk.toml`. Every file then indexes as a note without being edited: its path, minus the extension, is its id, its first `# ` heading is its title, and `[[folder/other-note]]` wikilinks become edges.
+
+Frontmatter can still give a file another type and properties:
 
 ```markdown
 ---
-type: note
-title: Auth RFC
+type: decision
+title: Use SSO
 ---
 
-# Auth RFC
+# Use SSO
 
-Builds on [[decisions/sso-provider]].
+Builds on [[notes/auth-rfc]].
 ```
 
-Files without a `type:` are left alone. An opt-in setting that indexes them as notes is [#790](https://github.com/germanamz/tusk/issues/790), and resolving Obsidian's short `[[note-name]]` links is [#791](https://github.com/germanamz/tusk/issues/791). Until those land, an existing Obsidian vault needs `type:` added to its files and links written as paths.
+Pass `tusk init --no-adopt`, or delete `default-type` from `tusk.toml`, to index only files with a `type:`. Obsidian's short `[[note-name]]` links don't resolve yet ([#791](https://github.com/germanamz/tusk/issues/791)), so links between adopted notes need to be written as paths for now.
 
 [Workspaces, nodes and the manifest](docs/guide/workspace.md) covers types, edges, type packs and what gets indexed.
 
@@ -173,8 +176,8 @@ The server's tools, and why agents should prefer them over the CLI, are in [docs
 None of these commands prompt.
 
 1. Install: `curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh` puts `tusk` in `~/.local/bin`. If `tusk --version` fails afterwards, that directory isn't on `PATH`.
-2. Create the workspace in the vault root: `tusk init --name <name>`. It exits 1 if `tusk.toml` already exists, which you can treat as already done.
-3. Declare types: `tusk pack add vault` adds note, meeting and decision types. It downloads the pack from GitHub, so it needs network access, and it exits 1 if run twice (`--force` overwrites). Or write `[node-types.*]` in `tusk.toml` yourself.
+2. Create the workspace in the vault root: `tusk init --name <name>`. It exits 1 if `tusk.toml` already exists, which you can treat as already done. If the folder holds markdown without a `type:`, init adds the vault pack and sets `default-type = "note"` so those files index as notes, and says so in its output; `--no-adopt` skips this.
+3. Declare types, unless init already added the vault pack: `tusk pack add vault` adds note, meeting and decision types. Built-in packs ship inside tusk, so it works offline. It exits 1 if run twice (`--force` overwrites). Or write `[node-types.*]` in `tusk.toml` yourself.
 4. Index: `tusk reindex`. If its summary ends with `queued for embedding (embedder unreachable)`, Ollama isn't reachable: the graph was built, and only semantic search is missing. It still exits 0.
 5. Connect the client as described in [Connect your agent](#connect-your-agent). For Claude Code, run `tusk claude install`.
 6. Verify: `tusk status` prints node counts by type, so non-zero counts mean files were indexed. `tusk doctor` exits 0 when the vault is healthy and 1 when an error is present, listing errors first.
@@ -193,12 +196,11 @@ A prompt you can paste into your agent:
 
 **A vector database or RAG pipeline** scales further, with more embedding models and hosted options. Tusk's index is derived from files you can read and review, and structure (types, edges, rules) is queryable in the same call as similarity. Tusk only talks to Ollama today.
 
-**Agent-memory MCP servers** are easier to start with, because the agent just writes memories. Most keep them in a database, a JSON file or a hosted service, which you can't diff, review or fix in an editor. Tusk asks for more upfront (a schema and typed files), and in return you can review the memory.
+**Agent-memory MCP servers** are easier to start with, because the agent just writes memories. Most keep them in a database, a JSON file or a hosted service, which you can't diff, review or fix in an editor. Tusk asks for more upfront (a schema), and in return you can review the memory.
 
 ### Where tusk falls short
 
 - Semantic search needs Ollama running locally. There's no hosted embedding provider yet.
-- A markdown file is a node only once it has a `type:` ([#790](https://github.com/germanamz/tusk/issues/790)).
 - One writer at a time per workspace: an advisory lock serializes writes from the CLI and the MCP server.
 - Similarity ranking is brute-force cosine in memory. That suits a personal or team vault, not millions of documents.
 

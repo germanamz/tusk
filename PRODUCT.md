@@ -51,7 +51,10 @@ modeling vocabulary.
 
 - **Nodes are markdown — or HTML — files.** Any `.md` file with a `type:` field
   in YAML frontmatter is a node; its workspace-relative path (minus the `.md`
-  extension) is its canonical id. There is no separate id field. `.html`/`.htm`
+  extension) is its canonical id. There is no separate id field. A workspace can
+  opt into a default type (`[workspace] default-type`) so a folder of plain
+  markdown indexes as it is, without tusk writing a type into any file.
+  `.html`/`.htm`
   files that declare `<meta name="tusk:type">` are first-class nodes too: an HTML
   pass extracts DOM text as indexable prose and `data-*` attributes as signals,
   mirroring the markdown sub-unit pass under a `source = "html"` namespace (HTML

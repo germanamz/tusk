@@ -609,7 +609,10 @@ func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueR
 		return chunkSource{}, outcomeFailed
 	}
 
-	parsed, parseErr := node.ParseContentFile(row.Path, content)
+	// The row's type is the fallback for a file adopted under the workspace
+	// default type (#790): the index already holds it as a node, and the file
+	// has no type of its own to parse.
+	parsed, parseErr := node.ParseContentFileAs(row.Path, content, row.Type)
 
 	if parseErr != nil {
 		retryOrDrop(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, parseErr)

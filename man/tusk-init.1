@@ -18,6 +18,13 @@ minimal default schema, bootstraps the SQLite index under .tusk/, and appends
 a .tusk/ ignore stanza to .gitignore if one is present.
 
 .PP
+If the directory already holds markdown without a type: in its frontmatter,
+init says how many such files it found, adds the vault pack and sets
+[workspace] default-type = "note", so "tusk reindex" indexes them as notes
+without editing them. --no-adopt skips this and leaves untyped files out of
+the index.
+
+.PP
 With --claude it also installs the Claude Code plugin, as "tusk claude
 install" does.
 
@@ -40,6 +47,10 @@ and running "tusk reindex".
 \fB--name\fP="my-brain"
 	workspace name written into tusk.toml
 
+.PP
+\fB--no-adopt\fP[=false]
+	leave markdown without a type: out of the index instead of indexing it as notes
+
 
 .SH OPTIONS INHERITED FROM PARENT COMMANDS
 \fB-v\fP, \fB--verbose\fP[=false]
@@ -50,6 +61,12 @@ and running "tusk reindex".
 .EX
   # Create a workspace named "my-brain" in the current directory
   tusk init --name my-brain
+
+  # Index a folder of notes you already have
+  cd ~/notes && tusk init --name notes && tusk reindex
+
+  # Leave markdown without a type out of the index
+  tusk init --name my-brain --no-adopt
 
   # Create it and set up Claude Code sessions for it
   tusk init --name my-brain --claude

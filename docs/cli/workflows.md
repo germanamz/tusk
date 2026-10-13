@@ -16,7 +16,7 @@ sensible schema.
 # Create tusk.toml and .tusk/
 tusk init --name my-brain
 
-# Seed it with a type pack (here: kanban; fetched over the network)
+# Seed it with a type pack (here: kanban; built in, so no network needed)
 tusk pack add kanban
 
 # Confirm the manifest is valid and the index is healthy

@@ -583,6 +583,29 @@ func normalizeLineEndings(source []byte) ([]byte, []int) {
 	return out, crlfAt
 }
 
+// FirstHeading returns the title of source's first top-level level-one
+// heading, ATX or setext, cut the way a section's title is; "" when the
+// document has none. A file indexed under the workspace default type has no
+// title of its own, so it takes one from here (#790).
+func FirstHeading(source []byte) string {
+	source, _ = normalizeLineEndings(source)
+	doc := markdownParser.Parser().Parse(text.NewReader(source))
+
+	for child := doc.FirstChild(); child != nil; child = child.NextSibling() {
+		heading, isHeading := child.(*ast.Heading)
+
+		if !isHeading || heading.Level != 1 {
+			continue
+		}
+
+		if title := makeTitle(normalizedText(source, heading)); title != "" {
+			return title
+		}
+	}
+
+	return ""
+}
+
 // makeTitle returns a single-line excerpt of body suitable for the
 // nodes.title column. Strips line breaks and truncates with an
 // ellipsis. Never empty unless body is empty.

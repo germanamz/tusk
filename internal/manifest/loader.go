@@ -235,6 +235,10 @@ func Validate(loaded *Manifest) error {
 		return validateErr
 	}
 
+	if validateErr := validateDefaultType(loaded); validateErr != nil {
+		return validateErr
+	}
+
 	if validateErr := resolveOrdered(loaded); validateErr != nil {
 		return validateErr
 	}
@@ -667,6 +671,23 @@ func validateRefTargets(loaded *Manifest) error {
 				return fmt.Errorf("manifest: node-types.%s.%s: ref to unknown node-type %q", typeName, prop.Name, prop.To)
 			}
 		}
+	}
+
+	return nil
+}
+
+// validateDefaultType rejects a [workspace] default-type that names no
+// declared node type: reindex would otherwise index every untyped file under
+// a type nothing describes.
+func validateDefaultType(loaded *Manifest) error {
+	defaultType := loaded.Workspace.DefaultType
+
+	if defaultType == "" {
+		return nil
+	}
+
+	if _, declared := loaded.NodeTypes[defaultType]; !declared {
+		return fmt.Errorf("manifest: workspace.default-type = %q is not a declared node-type; declare [node-types.%s] or remove the key", defaultType, defaultType)
 	}
 
 	return nil
