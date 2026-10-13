@@ -63,7 +63,8 @@ modeling vocabulary.
 - **Edges are typed and declared.** Frontmatter keys are either properties or
   edges; the manifest decides which, and enforces edge legality (`from`/`to`
   types, cardinality, ordering, acyclicity). Body wikilinks materialize
-  navigational edges. An edge type with `paths = true` also records the
+  navigational edges, written as a path, relative to the page, or by file
+  name the way Obsidian writes them. An edge type with `paths = true` also records the
   workspace paths a page names in inline code, links, or its own
   frontmatter, so a source file can find the pages that describe it and
   doctor can say when one names a path that is gone.

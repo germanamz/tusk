@@ -249,6 +249,14 @@ func DrainReindexQueue(ctx context.Context, cfg WorkerConfig) (DrainReport, erro
 
 	waitGroup.Wait()
 
+	// The drain stored every name-form wikilink as written, and the files it
+	// indexed or dropped may be the ones those names find. Resolve them now
+	// that the whole batch is in, so the order files were drained in never
+	// decides what a [[name]] links to (#791).
+	if firstErr == nil && (report.Indexed > 0 || report.Removed > 0) {
+		firstErr = index.ResolveLinks(cfg.Repo, cfg.Edges, cfg.Manifest.LinkCase())
+	}
+
 	return report, firstErr
 }
 
@@ -522,7 +530,7 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 			}
 
 			if cfg.PropertyDrift != nil {
-				refLookup := node.NewIndexRefLookup(cfg.Repo)
+				refLookup := node.NewIndexRefLookup(cfg.Repo, cfg.Manifest.LinkCase())
 				refResult := node.ResolveRefs(parsed, cfg.NodeTypes, refLookup)
 				refNow := time.Now().UnixNano()
 
@@ -584,7 +592,7 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 	}
 
 	if cfg.Edges != nil {
-		edgeRows := flattenEdges(parsed, cfg.NodeTypes)
+		edgeRows := node.EdgeRows(parsed, cfg.NodeTypes)
 
 		if upsertErr := cfg.Edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
 			return upsertErr

@@ -7,6 +7,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/germanamz/tusk/internal/linenum"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // EdgeTypes is a named map of edge-type declarations keyed by edge-type name.
@@ -172,6 +173,12 @@ type WorkspaceSection struct {
 	// type a markdown file with no `type:` of its own is indexed as. Empty
 	// (the default) leaves such files out of the index (#790).
 	DefaultType string `toml:"default-type"`
+
+	// LinkCase mirrors the on-disk `link-case` key: whether a name-form
+	// wikilink ([[auth-rfc]]) matches file names in any letter case or only
+	// in the file's own (#791). Empty means wikilink.DefaultCase. Consumers
+	// should call Manifest.LinkCase instead of reading this directly.
+	LinkCase string `toml:"link-case"`
 }
 
 // EmbeddingsSection configures the active embedding provider.
@@ -382,6 +389,24 @@ func (loaded *Manifest) LineNumbering() linenum.Scheme {
 	}
 
 	return scheme
+}
+
+// LinkCase returns how a name-form wikilink's name is compared with file
+// names. An unset key, or a nil manifest, yields wikilink.DefaultCase. Load
+// rejects unknown values, so a loaded manifest never reaches the fallback; a
+// hand-built one with a bad value also gets the default.
+func (loaded *Manifest) LinkCase() wikilink.Case {
+	if loaded == nil {
+		return wikilink.DefaultCase
+	}
+
+	linkCase, parseErr := wikilink.ParseCase(loaded.Workspace.LinkCase)
+
+	if parseErr != nil {
+		return wikilink.DefaultCase
+	}
+
+	return linkCase
 }
 
 // DefaultType returns the node type a markdown file without a `type:` is

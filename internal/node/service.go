@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 	"github.com/germanamz/tusk/internal/leaseconfig"
 	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/wikilink"
 	"gopkg.in/yaml.v3"
 )
 
@@ -283,7 +285,7 @@ func DepsFromIndex(workspaceRoot string, store *index.Index, loaded *manifest.Ma
 		Behaviors:     behaviors,
 		Drift:         index.NewWorkflowDriftRepo(store),
 		Warnings:      warnings,
-		Refs:          NewIndexRefLookup(nodes),
+		Refs:          NewIndexRefLookup(nodes, loaded.LinkCase()),
 		FileState:     index.NewFileStateRepo(store),
 		WorkerID:      index.WorkerID(),
 		LeaseTTL:      leaseconfig.Resolve(loaded.Lease.TTLSeconds),
@@ -625,7 +627,7 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 			return nil, fmt.Errorf("behavior %s rejected create: %w", rejector, fireErr)
 		}
 
-		for _, edgeRow := range flattenEdges(parsed, service.nodeTypes) {
+		for _, edgeRow := range EdgeRows(parsed, service.nodeTypes) {
 			if rejector, fireErr := service.behaviors.FireEdgeAddValidate(edgeRow); fireErr != nil {
 				return nil, fmt.Errorf("behavior %s rejected edge add: %w", rejector, fireErr)
 			}
@@ -661,7 +663,7 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 		return nil, persistErr
 	}
 
-	edgeRows := flattenEdges(parsed, service.nodeTypes)
+	edgeRows := EdgeRows(parsed, service.nodeTypes)
 
 	if service.edges != nil {
 		if upsertErr := service.edges.UpsertAll(parsed.ID, parsed.Path, edgeRows); upsertErr != nil {
@@ -675,6 +677,13 @@ func (service *Service) Create(input CreateInput) (*Node, error) {
 
 	if syncErr := service.syncSubUnits(fileRow, parsed, rendered); syncErr != nil {
 		return nil, syncErr
+	}
+
+	// A new file can be the one a dangling [[name]] was waiting for, or a
+	// second file with a name links already resolve to; either way every
+	// name-form link is re-resolved, this file's own included.
+	if resolveErr := service.resolveLinks(); resolveErr != nil {
+		return nil, resolveErr
 	}
 
 	if service.embedQueue != nil {
@@ -938,7 +947,7 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 		// UpsertContentEdges, not UpsertAll: these are the file's own
 		// frontmatter/body edges. Its kind='structural' contains rows belong to
 		// the sub-unit pass below, which rewrites them itself (#680).
-		if upsertErr := service.edges.UpsertContentEdges(reparsed.ID, reparsed.Path, flattenEdges(reparsed, service.nodeTypes)); upsertErr != nil {
+		if upsertErr := service.edges.UpsertContentEdges(reparsed.ID, reparsed.Path, EdgeRows(reparsed, service.nodeTypes)); upsertErr != nil {
 			return nil, upsertErr
 		}
 	}
@@ -951,6 +960,11 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 	// The same shift moves the sub-units' lines, and a new body replaces them.
 	if syncErr := service.syncSubUnits(fileRow, reparsed, rendered); syncErr != nil {
 		return nil, syncErr
+	}
+
+	// The rewrite stored this file's name-form links as written.
+	if resolveErr := service.resolveLinks(); resolveErr != nil {
+		return nil, resolveErr
 	}
 
 	if service.embedQueue != nil {
@@ -1007,6 +1021,13 @@ func (service *Service) Modify(input ModifyInput) (*Node, error) {
 	return reparsed, nil
 }
 
+// resolveLinks points every name-form wikilink edge at the file its name
+// resolves to now (index.ResolveLinks). A read-only service has no edges and
+// skips it.
+func (service *Service) resolveLinks() error {
+	return index.ResolveLinks(service.repo, service.edges, service.manifest.LinkCase())
+}
+
 // atomicWrite writes content to a sibling temp file and renames over absPath.
 func atomicWrite(absPath string, content []byte) error {
 	dir := filepath.Dir(absPath)
@@ -1055,37 +1076,85 @@ func (service *Service) resolveTargetType(targetID string) (string, bool) {
 	return row.Type, true
 }
 
-// flattenEdges turns parsed.Edges (map of edge-type → []targetID) into the
-// EdgeRow shape expected by index.EdgeRepo.UpsertAll.
+// EdgeRows turns parsed.Edges (map of edge-type → []targetID) into the
+// EdgeRow shape expected by index.EdgeRepo.UpsertAll: one row per edge type and
+// distinct target. Every writer of a file's content edges goes through it.
 //
 // Each row is tagged with `kind`: "derived" when the edge-type name matches a
 // ref-property declared on parsedNode.Type (synthesized by the manifest
 // loader's `synthesizeRefEdgeTypes`); "direct" for every other edge. Source
 // is left NULL — structural sub-unit edges never come through this code path.
-func flattenEdges(parsedNode *Node, nodeTypes map[string]manifest.NodeType) []index.EdgeRow {
+//
+// A direct edge's frontmatter value written as a wikilink
+// (relates-to: "[[auth-rfc|RFC]]") names its target the way a body link does:
+// the alias is dropped, a relative path resolves from this file, and a file
+// name is kept as the row's Link for the index to resolve (#791). Before, the
+// brackets were stored as part of the target, so the edge always dangled. A
+// ref property's values are not touched: ResolveRefs has already resolved
+// them, or dropped them.
+func EdgeRows(parsedNode *Node, nodeTypes map[string]manifest.NodeType) []index.EdgeRow {
 	refProps := refPropertyNamesForType(parsedNode.Type, nodeTypes)
 
 	var rows []index.EdgeRow
 
-	for edgeType, targets := range parsedNode.Edges {
+	for edgeType, values := range parsedNode.Edges {
 		kind := "direct"
 
 		if _, isRef := refProps[edgeType]; isRef {
 			kind = "derived"
 		}
 
-		for _, target := range targets {
+		seen := make(map[string]struct{}, len(values))
+
+		for _, value := range values {
+			target, link := value, ""
+
+			if kind == "direct" {
+				target, link = directEdgeTarget(parsedNode, edgeType, value)
+			}
+
+			if _, duplicate := seen[target]; duplicate {
+				continue
+			}
+
+			seen[target] = struct{}{}
+
 			rows = append(rows, index.EdgeRow{
 				Type:       edgeType,
 				SourceID:   parsedNode.ID,
 				TargetID:   target,
 				SourcePath: parsedNode.Path,
 				Kind:       kind,
+				Link:       link,
 			})
 		}
 	}
 
 	return rows
+}
+
+// directEdgeTarget returns the target a direct edge stores for one value of
+// edgeType, and the link text when that target is a file name the index
+// resolves: a frontmatter wikilink is unwrapped like a body link, a body link
+// MaterializeWikilinks marked as a name keeps its mark, and a bare frontmatter
+// value is a node id as written.
+func directEdgeTarget(parsedNode *Node, edgeType, value string) (string, string) {
+	if match := refWikilinkPattern.FindStringSubmatch(strings.TrimSpace(value)); len(match) == 2 {
+		inner, _ := wikilink.SplitAlias(match[1])
+		target := wikilink.Normalize(inner, parsedNode.Path)
+
+		if wikilink.IsName(inner) {
+			return target, target
+		}
+
+		return target, ""
+	}
+
+	if slices.Contains(parsedNode.NameLinks[edgeType], value) {
+		return value, value
+	}
+
+	return value, ""
 }
 
 // refPropertyNamesForType returns the set of property names that are
@@ -1113,8 +1182,8 @@ func refPropertyNamesForType(typeName string, nodeTypes map[string]manifest.Node
 // to fire EdgeRemove / EdgeAdd hooks for. A row identifies its edge by
 // (Type, SourceID, TargetID); ordering matches flattenEdges.
 func diffEdgeSets(before, after *Node, nodeTypes map[string]manifest.NodeType) (removed, added []index.EdgeRow) {
-	beforeRows := flattenEdges(before, nodeTypes)
-	afterRows := flattenEdges(after, nodeTypes)
+	beforeRows := EdgeRows(before, nodeTypes)
+	afterRows := EdgeRows(after, nodeTypes)
 
 	type key struct {
 		typeName string

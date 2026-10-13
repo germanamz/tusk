@@ -41,10 +41,11 @@ import (
 // doctor reports (#759): a broken file is otherwise never re-read. Bump it as
 // well when a fix stops another writer leaving rows stale, as with the sub-units
 // node create/modify never synced (#782): the pass skips the files those writes
-// stamped, so nothing else would heal them.
+// stamped, so nothing else would heal them. And bump it when an edge row gains
+// a field the pass fills, as with the link text of name-form wikilinks (#791).
 const (
 	edgeDerivationVersionKey = "edge_derivation_version"
-	edgeDerivationVersion    = "2026-10-12-code-never-links"
+	edgeDerivationVersion    = "2026-10-13-name-form-wikilinks"
 )
 
 // lineNumberingKey stores the [workspace].line-numbering scheme the sub-unit
@@ -98,6 +99,13 @@ func pathRefsFingerprint(edgeTypes manifest.EdgeTypes) string {
 // Run forces one full re-process. A workspace without the key stores "", so
 // an index from before #790 needs no pass. Stamped after the pass succeeds.
 const defaultTypeKey = "default_type"
+
+// linkCaseKey stores the [workspace].link-case the index's name-form wikilinks
+// were resolved under. Body links re-resolve on every pass anyway
+// (index.ResolveLinks), but a ref property's [[name]] is resolved when its file
+// is parsed, so a changed setting forces one full re-process. Stamped after the
+// pass succeeds.
+const linkCaseKey = "link_case"
 
 // nodeIDForPath derives a node id from a workspace-relative path, delegating to
 // index.NodeIDForPath — the single id rule shared with the node parse dispatch.
@@ -392,6 +400,24 @@ func Run(config Config) (*Report, error) {
 			config.Logger.Info("reindex: default type changed; forcing full re-process",
 				"stored", defaultTypeMarker,
 				"current", defaultType,
+			)
+		}
+	}
+
+	linkCase := string(config.Manifest.LinkCase())
+	linkCaseMarker, linkCaseMarkerErr := config.Meta.Get(linkCaseKey)
+
+	if linkCaseMarkerErr != nil {
+		return nil, fmt.Errorf("reindex: read %s: %w", linkCaseKey, linkCaseMarkerErr)
+	}
+
+	if linkCaseMarker != linkCase {
+		config.Force = true
+
+		if config.Logger != nil {
+			config.Logger.Info("reindex: link case changed; forcing full re-process",
+				"stored", linkCaseMarker,
+				"current", linkCase,
 			)
 		}
 	}
@@ -761,6 +787,14 @@ func Run(config Config) (*Report, error) {
 		}
 	}
 
+	// The reap above may have removed the file a [[name]] resolved to, or the
+	// second file that made a name ambiguous, with nothing left for a drain
+	// to do. Resolve every name-form link against the node set this pass
+	// leaves (#791).
+	if resolveErr := index.ResolveLinks(config.Repo, config.Edges, config.Manifest.LinkCase()); resolveErr != nil {
+		return nil, fmt.Errorf("reindex: resolve links: %w", resolveErr)
+	}
+
 	if config.Embedder != nil && config.Workers > 0 {
 		_, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
 			Root:             config.Root,
@@ -822,6 +856,10 @@ func Run(config Config) (*Report, error) {
 
 	if setErr := config.Meta.Set(defaultTypeKey, defaultType); setErr != nil {
 		return nil, fmt.Errorf("reindex: record %s: %w", defaultTypeKey, setErr)
+	}
+
+	if setErr := config.Meta.Set(linkCaseKey, linkCase); setErr != nil {
+		return nil, fmt.Errorf("reindex: record %s: %w", linkCaseKey, setErr)
 	}
 
 	if config.Logger != nil {
@@ -961,62 +999,4 @@ func propertyErrorKindString(kind node.PropertyErrorKind) string {
 		// ErrCannotUnsetRequired cannot fire from reindex (no before state).
 		return ""
 	}
-}
-
-// flattenEdges turns parsed.Edges into the EdgeRow shape expected by EdgeRepo.
-//
-// Each row is tagged with `kind`:
-//   - "derived" — the edge-type name matches a ref-property declared on
-//     parsedNode.Type (i.e. it was synthesized by `synthesizeRefEdgeTypes`).
-//   - "direct"  — every other edge (frontmatter-direct, wikilink-resolved,
-//     etc.). Phase 3 Task 3 will refine the direct/wikilink split; this task
-//     uses "direct" as the placeholder for everything non-derived.
-//
-// Source is left NULL: Phase 3 only writes a non-NULL source for structural
-// sub-unit edges, which never come through this code path.
-func flattenEdges(parsedNode *node.Node, nodeTypes map[string]manifest.NodeType) []index.EdgeRow {
-	refProps := refPropertyNamesForType(parsedNode.Type, nodeTypes)
-
-	var rows []index.EdgeRow
-
-	for edgeType, targets := range parsedNode.Edges {
-		kind := "direct"
-
-		if _, isRef := refProps[edgeType]; isRef {
-			kind = "derived"
-		}
-
-		for _, target := range targets {
-			rows = append(rows, index.EdgeRow{
-				Type:       edgeType,
-				SourceID:   parsedNode.ID,
-				TargetID:   target,
-				SourcePath: parsedNode.Path,
-				Kind:       kind,
-			})
-		}
-	}
-
-	return rows
-}
-
-// refPropertyNamesForType returns the set of property names that are
-// ref-shaped on the given node type. Returns an empty (non-nil) map when the
-// type is unknown or has no ref properties.
-func refPropertyNamesForType(typeName string, nodeTypes map[string]manifest.NodeType) map[string]struct{} {
-	out := map[string]struct{}{}
-
-	nodeType, declared := nodeTypes[typeName]
-
-	if !declared {
-		return out
-	}
-
-	for _, prop := range nodeType.Properties {
-		if manifest.IsRefProperty(prop) {
-			out[prop.Name] = struct{}{}
-		}
-	}
-
-	return out
 }

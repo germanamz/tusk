@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // newRenameDestService builds a lease-capable Service plus the shared repos a
@@ -54,7 +55,7 @@ func TestRename_CaseOnlyRenameSucceeds(test *testing.T) {
 
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/foo", "notes/Foo",
+		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/foo", "notes/Foo",
 	)
 
 	if renameErr != nil {
@@ -87,7 +88,7 @@ func TestRename_RejectsCrossExtensionDestination(test *testing.T) {
 
 	_, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/x", "notes/b.txt",
+		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/x", "notes/b.txt",
 	)
 
 	if !errors.Is(renameErr, node.ErrExtensionMismatch) {
@@ -116,7 +117,7 @@ func TestRename_MDXKeepsExtensionInID(test *testing.T) {
 
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/guide.mdx", "notes/manual.mdx",
+		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/guide.mdx", "notes/manual.mdx",
 	)
 
 	if renameErr != nil {
@@ -148,7 +149,7 @@ func TestRename_RejectsMDXToMarkdownCrossExtension(test *testing.T) {
 
 	_, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/x.mdx", "notes/x.md",
+		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/x.mdx", "notes/x.md",
 	)
 
 	if !errors.Is(renameErr, node.ErrExtensionMismatch) {
@@ -172,7 +173,7 @@ func TestRename_RejectsDestinationInIgnoredDir(test *testing.T) {
 
 	_, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/r", ".tusk/evil.md",
+		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/r", ".tusk/evil.md",
 	)
 
 	if !errors.Is(renameErr, node.ErrDestinationIgnored) {

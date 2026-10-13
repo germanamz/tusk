@@ -144,7 +144,7 @@ func TestRewriteFrontmatterEdgeValues(test *testing.T) {
 
 	for _, testCase := range cases {
 		test.Run(testCase.name, func(subtest *testing.T) {
-			got := string(rewriteFrontmatterEdgeValues([]byte(testCase.input), "tickets/old", "tickets/new", edgeTypes, nil))
+			got := string(rewriteFrontmatterEdgeValues([]byte(testCase.input), "tickets/old", "tickets/new", idMove("tickets/old", "tickets/new"), edgeTypes, nil))
 
 			if got != testCase.want {
 				subtest.Errorf("rewrite:\n got: %q\nwant: %q", got, testCase.want)
@@ -196,7 +196,7 @@ func TestRewriteFrontmatterEdgeValues_RefPropertyWikilinkSequence(test *testing.
 
 	for _, testCase := range cases {
 		test.Run(testCase.name, func(subtest *testing.T) {
-			got := string(rewriteFrontmatterEdgeValues([]byte(testCase.input), "people/old", "people/new", edgeTypes, nodeTypes))
+			got := string(rewriteFrontmatterEdgeValues([]byte(testCase.input), "people/old", "people/new", idMove("people/old", "people/new"), edgeTypes, nodeTypes))
 
 			if got != testCase.want {
 				subtest.Errorf("rewrite:\n got: %q\nwant: %q", got, testCase.want)

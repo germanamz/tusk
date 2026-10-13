@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/reindex"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // adoptedFixture is a workspace whose plain markdown is indexed under
@@ -241,7 +242,7 @@ func TestAdopted_MoveRewritesAdoptedReferrer(test *testing.T) {
 		fixture.loaded.EdgeTypes,
 		fixture.loaded.NodeTypes,
 		nil,
-		fixture.loaded.LineNumbering(),
+		fixture.loaded.LineNumbering(), wikilink.DefaultCase,
 		"ideas/old",
 		"ideas/new.md",
 	); renameErr != nil {

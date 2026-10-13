@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -33,7 +34,8 @@ import (
 //
 // queue may be nil (referrer wake-up is then skipped): the reindex reap wakes
 // the same referrers, so callers without a queue simply defer convergence to
-// the next reindex.
+// the next reindex. linkCase is how name-form wikilinks match file names when
+// the delete re-resolves them.
 func Delete(
 	root string,
 	nodeRepo *index.NodeRepo,
@@ -42,6 +44,7 @@ func Delete(
 	queue *index.EmbedQueueRepo,
 	workerID string,
 	leaseTTL time.Duration,
+	linkCase wikilink.Case,
 	nodeID string,
 ) error {
 	row, getErr := nodeRepo.Get(nodeID)
@@ -79,7 +82,10 @@ func Delete(
 		return deletePathErr
 	}
 
-	return nil
+	// The deleted file no longer answers to its name: a [[name]] that
+	// resolved to it dangles, and one that was ambiguous between it and
+	// another file now resolves to the other (#791).
+	return index.ResolveLinks(nodeRepo, edgeRepo, linkCase)
 }
 
 // EnqueueDerivedReferrers re-enqueues every file whose DERIVED edge resolved to
@@ -164,6 +170,7 @@ func Rename(
 	nodeTypes map[string]manifest.NodeType,
 	propertyDrift *index.PropertyDriftRepo,
 	lineNumbering linenum.Scheme,
+	linkCase wikilink.Case,
 	oldID, newRelPath string,
 ) (*RenamePlan, error) {
 	row, getErr := nodeRepo.Get(oldID)
@@ -352,12 +359,70 @@ func Rename(
 		return sourceFile
 	}
 
+	// The file names as they stand before the move, read while the node rows
+	// still have the old id: every link is judged by what it named here.
+	namesBefore, namesErr := nodeRepo.LinkNames(linkCase)
+
+	if namesErr != nil {
+		return nil, namesErr
+	}
+
+	move := newLinkMove(namesBefore, oldID, newID, newRelPath)
+
+	// Another note whose name the moved file now shares loses its [[name]]
+	// links to ambiguity, or to the moved file outright when it lands at the
+	// root under that name. Its referrers are rewritten too (to its full id),
+	// so a move never breaks or redirects a link (#791).
+	collisionFiles, collisionErr := collisionReferrers(edgeRepo, namesBefore, oldID, wikilink.FileName(newRelPath))
+
+	if collisionErr != nil {
+		return nil, collisionErr
+	}
+
+	// The name-form links each rewritten file now reads differently, keyed by
+	// where the file lives after the move.
+	renamedLinks := map[string][]linkRename{}
+
 	for _, sourceFile := range affectedFiles {
 		relSource := currentPath(sourceFile)
 		absSource := filepath.Join(root, relSource)
 
-		if rewriteErr := rewriteEdgeReferences(absSource, relSource, oldID, newID, edgeTypes, nodeTypes); rewriteErr != nil {
+		rewrite, rewriteErr := rewriteEdgeReferences(absSource, relSource, sourceFile, move, edgeTypes, nodeTypes)
+
+		if rewriteErr != nil {
 			return nil, rewriteErr
+		}
+
+		renamedLinks[relSource] = rewrite.renames
+	}
+
+	// The moved file's own relative links were written from its old folder:
+	// re-render them from the new one so they keep naming the same files. A
+	// self-referencing note was rewritten above, with the same base.
+	if !slices.Contains(affectedFiles, oldPath) && !IsHTMLPath(newRelPath) {
+		rewrite, rewriteErr := rewriteEdgeReferences(newAbs, newRelPath, oldPath, move, edgeTypes, nodeTypes)
+
+		if rewriteErr != nil {
+			return nil, rewriteErr
+		}
+
+		renamedLinks[newRelPath] = rewrite.renames
+	}
+
+	for _, sourceFile := range collisionFiles {
+		if slices.Contains(affectedFiles, sourceFile) || sourceFile == oldPath {
+			continue
+		}
+
+		rewrite, rewriteErr := rewriteEdgeReferences(filepath.Join(root, sourceFile), sourceFile, sourceFile, move, edgeTypes, nodeTypes)
+
+		if rewriteErr != nil {
+			return nil, rewriteErr
+		}
+
+		if rewrite.changed {
+			affectedFiles = append(affectedFiles, sourceFile)
+			renamedLinks[sourceFile] = rewrite.renames
 		}
 	}
 
@@ -403,6 +468,7 @@ func Rename(
 			SourcePath: newRelPath,
 			Kind:       edge.Kind,
 			Source:     edge.Source,
+			Link:       edge.Link,
 		})
 	}
 
@@ -439,7 +505,7 @@ func Rename(
 	// Re-derive each affected file's file-level edges from its rewritten
 	// content — frontmatter refs and body wikilinks alike — so the index
 	// reflects the new target id.
-	refLookup := NewIndexRefLookup(nodeRepo)
+	refLookup := NewIndexRefLookup(nodeRepo, linkCase)
 
 	for _, sourceFile := range affectedFiles {
 		relPath := currentPath(sourceFile)
@@ -500,9 +566,26 @@ func Rename(
 		// `contains` edges are supplied by the sub-unit pipeline, which does
 		// not run on this path — a blanket delete would drop them until the
 		// referrer's bytes next change (#680).
-		if upsertErr := edgeRepo.UpsertContentEdges(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
+		if upsertErr := edgeRepo.UpsertContentEdges(parsed.ID, parsed.Path, EdgeRows(parsed, nodeTypes)); upsertErr != nil {
 			return nil, upsertErr
 		}
+	}
+
+	// The re-derive rebuilt only file-level rows. A renamed link is also
+	// carried by the rows of the sub-units around it, and by the moved file's
+	// re-based rows, which still hold the old text.
+	for sourcePath, renames := range renamedLinks {
+		for _, rename := range renames {
+			if renameErr := edgeRepo.RenameLink(sourcePath, rename.oldName, rename.newName); renameErr != nil {
+				return nil, renameErr
+			}
+		}
+	}
+
+	// Every name-form link in the vault resolves against the moved file's new
+	// name now, including the ones the re-derive above stored as written.
+	if resolveErr := index.ResolveLinks(nodeRepo, edgeRepo, linkCase); resolveErr != nil {
+		return nil, resolveErr
 	}
 
 	// Report where each touched file lives now — for a self-referencing
@@ -590,6 +673,39 @@ func abandonRenameLeases(repo *index.FileStateRepo, loPath, hiPath, workerID str
 	return cause
 }
 
+// collisionReferrers returns the files that link to a note other than oldID
+// whose file name matches newName before the move: the notes whose [[name]]
+// links the moved file can take over by arriving under that name.
+func collisionReferrers(edgeRepo *index.EdgeRepo, before *wikilink.Names, oldID, newName string) ([]string, error) {
+	named, candidates, _ := before.ResolveName(newName)
+
+	if named != "" {
+		candidates = append(candidates, named)
+	}
+
+	var files []string
+
+	for _, candidate := range candidates {
+		if candidate == oldID {
+			continue
+		}
+
+		referring, listErr := edgeRepo.ListByTargetOrSubUnits(candidate)
+
+		if listErr != nil {
+			return nil, listErr
+		}
+
+		for _, sourceFile := range uniqueSourcePaths(referring) {
+			if !slices.Contains(files, sourceFile) {
+				files = append(files, sourceFile)
+			}
+		}
+	}
+
+	return files, nil
+}
+
 func uniqueSourcePaths(edges []index.EdgeRow) []string {
 	seen := map[string]struct{}{}
 	var ordered []string
@@ -611,21 +727,26 @@ func uniqueSourcePaths(edges []index.EdgeRow) []string {
 }
 
 // rewriteEdgeReferences reads the referrer at absPath (whose workspace-relative
-// path is relPath) and rewrites every reference to oldID as one to newID, then
-// writes the file back atomically. A markdown referrer's references live in
-// frontmatter edge values and body [[wikilinks]]; an HTML referrer's live in
-// <a href> values, which resolve to node ids the same way the edge derivation
-// does — so the two content kinds take disjoint rewriters. nodeTypes lets the
-// frontmatter rewriter tell a title-resolved ref property from an id-resolved
-// edge type.
-func rewriteEdgeReferences(absPath, relPath, oldID, newID string, edgeTypes manifest.EdgeTypes, nodeTypes map[string]manifest.NodeType) error {
+// path is relPath) and rewrites every reference the move changes, then writes
+// the file back atomically. It reports whether the file changed and which
+// name-form links it renamed. A markdown referrer's references live in
+// frontmatter edge values and body [[wikilinks]], judged by move as they read
+// from base: the referrer's own path, except for the moved file itself, whose
+// links were written from its old folder. An HTML referrer's live in <a href>
+// values, which resolve to node ids the same way the edge derivation does, so
+// the two content kinds take disjoint rewriters. nodeTypes lets the frontmatter
+// rewriter tell a title-resolved ref property from an id-resolved edge type.
+func rewriteEdgeReferences(absPath, relPath, base string, move *linkMove, edgeTypes manifest.EdgeTypes, nodeTypes map[string]manifest.NodeType) (linkRewrite, error) {
 	content, readErr := os.ReadFile(absPath)
 
 	if readErr != nil {
-		return fmt.Errorf("node: read %s: %w", absPath, readErr)
+		return linkRewrite{}, fmt.Errorf("node: read %s: %w", absPath, readErr)
 	}
 
-	var rewritten []byte
+	var (
+		rewritten []byte
+		renames   []linkRename
+	)
 
 	if IsHTMLPath(relPath) {
 		// HTML referrers carry no YAML frontmatter and no [[wikilinks]] — their
@@ -633,24 +754,164 @@ func rewriteEdgeReferences(absPath, relPath, oldID, newID string, edgeTypes mani
 		// the reference following the move, the HTML counterpart of the markdown
 		// wikilink rewrite below; without it the re-derive loop re-parses the
 		// stale href and reverts the retargeted edge to the dead id (#687).
-		rewritten = rewriteHTMLHrefs(content, relPath, oldID, newID)
+		rewritten = rewriteHTMLHrefs(content, relPath, move.oldID, move.newID)
 	} else {
-		rewritten = rewriteFrontmatterEdgeValues(content, oldID, newID, edgeTypes, nodeTypes)
-		rewritten = rewriteBodyWikilinks(rewritten, oldID, newID)
+		retarget := move.retargetFrom(base, relPath)
+
+		// Record every name the rewrite changes: the rows of the file's
+		// sub-units carry the old text, and only the file's own rows are
+		// re-derived from disk.
+		recording := func(pathPart string) (string, bool) {
+			newPath, changed := retarget(pathPart)
+
+			if changed && wikilink.IsName(pathPart) && !slices.Contains(renames, linkRename{pathPart, newPath}) {
+				renames = append(renames, linkRename{oldName: pathPart, newName: newPath})
+			}
+
+			return newPath, changed
+		}
+
+		rewritten = rewriteFrontmatterEdgeValues(content, move.oldID, move.newID, recording, edgeTypes, nodeTypes)
+		rewritten = rewriteBodyLinks(rewritten, recording)
 	}
 
 	// Skip the write when nothing changed (e.g. an HTML referrer whose only
 	// <a href> points elsewhere) — a byte-identical rewrite would still bump
 	// the mtime and wake the watcher for nothing.
 	if bytes.Equal(rewritten, content) {
-		return nil
+		return linkRewrite{}, nil
 	}
 
 	if writeErr := os.WriteFile(absPath, rewritten, 0o644); writeErr != nil {
-		return fmt.Errorf("node: write %s: %w", absPath, writeErr)
+		return linkRewrite{}, fmt.Errorf("node: write %s: %w", absPath, writeErr)
 	}
 
-	return nil
+	return linkRewrite{changed: true, renames: renames}, nil
+}
+
+// linkRewrite is what rewriteEdgeReferences did to one file: whether it wrote
+// it, and which name-form links it changed.
+type linkRewrite struct {
+	changed bool
+	renames []linkRename
+}
+
+// linkRename is one name-form link a move rewrote: [[oldName]] now reads
+// [[newName]], a name or a full id.
+type linkRename struct {
+	oldName string
+	newName string
+}
+
+// linkRetarget maps the path part of a link (its target without a #fragment or
+// |alias) to what the link should say after a move. false leaves the link as
+// written.
+type linkRetarget func(pathPart string) (string, bool)
+
+// retargetLinkTarget applies retarget to a whole link target, keeping its
+// #fragment.
+func retargetLinkTarget(target string, retarget linkRetarget) (string, bool) {
+	pathPart, fragment := wikilink.SplitFragment(strings.TrimSpace(target))
+	newPath, changed := retarget(pathPart)
+
+	if !changed {
+		return "", false
+	}
+
+	return newPath + fragment, true
+}
+
+// linkMove decides how a move changes each link in the vault. It holds the
+// file names before the move and after it, so a link is judged by whether it
+// still names the file it named: the rule that keeps a move from breaking or
+// redirecting any link (#791).
+//
+//   - A workspace path naming the moved file takes its new id.
+//   - A relative path is re-rendered from where its file lives now, naming the
+//     moved file's new id, or the same file as before.
+//   - A name keeps its text while it still names the same file. When it no
+//     longer does (the moved file was renamed, or another file now shares the
+//     name), it becomes that file's name if the name alone still finds it, and
+//     its full id otherwise. That covers the files whose links pointed at
+//     another note the moved file now shares a name with.
+type linkMove struct {
+	oldID  string
+	newID  string
+	before *wikilink.Names
+	after  *wikilink.Names
+}
+
+// newLinkMove builds the linkMove for a move of oldID to newID at newPath, from
+// the file names as they stand before it.
+func newLinkMove(before *wikilink.Names, oldID, newID, newPath string) *linkMove {
+	after := before.Clone()
+	after.Remove(oldID)
+	after.Add(newID, newPath)
+
+	return &linkMove{oldID: oldID, newID: newID, before: before, after: after}
+}
+
+// retargetFrom returns the linkRetarget for the links of one file: they resolve
+// from base, and the file lives at writer once the move is done.
+func (move *linkMove) retargetFrom(base, writer string) linkRetarget {
+	return func(pathPart string) (string, bool) {
+		switch {
+		case wikilink.IsRelative(pathPart):
+			return move.retargetRelative(pathPart, base, writer)
+		case wikilink.IsName(pathPart):
+			return move.retargetName(pathPart)
+		case pathPart == move.oldID:
+			return move.newID, true
+		default:
+			return "", false
+		}
+	}
+}
+
+// retargetRelative re-renders a relative link from writer.
+func (move *linkMove) retargetRelative(pathPart, base, writer string) (string, bool) {
+	id := wikilink.Normalize(pathPart, base)
+
+	// Normalize keeps a path that climbs out of the workspace as written.
+	if id == pathPart {
+		return "", false
+	}
+
+	if id == move.oldID {
+		id = move.newID
+	} else if base == writer {
+		return "", false
+	}
+
+	rendered := wikilink.RelativeTo(writer, id)
+
+	return rendered, rendered != pathPart
+}
+
+// retargetName keeps a name while it still names the same file.
+func (move *linkMove) retargetName(name string) (string, bool) {
+	named, _, _ := move.before.ResolveName(name)
+
+	if named == "" {
+		return "", false
+	}
+
+	if named == move.oldID {
+		named = move.newID
+	}
+
+	if now, _, _ := move.after.ResolveName(name); now == named {
+		return "", false
+	}
+
+	targetPath, _ := move.after.Path(named)
+	shortest := wikilink.FileName(targetPath)
+
+	if found, _, _ := move.after.ResolveName(shortest); found == named {
+		return shortest, true
+	}
+
+	return named, true
 }
 
 // htmlAnchorTagPattern matches an anchor open tag; htmlHrefAttrPattern matches
@@ -769,19 +1030,23 @@ func requoteAttrValue(value string, quote byte) string {
 	return string(quote) + value + string(quote)
 }
 
-// rewriteBodyWikilinks replaces `[[oldID]]`, sub-unit deep links
-// (`[[oldID#S1]]`), and the Obsidian aliased forms (`[[oldID|Label]]`,
-// `[[oldID#S1|Label]]`) with the same link under newID in the markdown body —
-// the region after the closing frontmatter delimiter. The `#fragment` (group 1)
-// and any `|Label` display suffix (group 2) are preserved verbatim, so a rename
-// retargets the id without disturbing the deep-link address or the display text
-// (#690). Code is left as written: a `[[oldID]]` inside an inline code span or a
-// code block is an example of the syntax, and no level of the index derives an
-// edge from it (#788). Links are found in wikilink.MaskCode's mask, the view
+// bodyLinkPattern matches a wikilink the way wikilink.Extract does: the
+// captured group is everything between `[[` and `]]`.
+var bodyLinkPattern = regexp.MustCompile(`\[\[([^\[\]]+)\]\]`)
+
+// rewriteBodyLinks rewrites every [[wikilink]] in the markdown body — the
+// region after the closing frontmatter delimiter — whose target retarget
+// changes. Only the target's path is retargeted: a sub-unit `#fragment` and an
+// Obsidian `|Label` display suffix stay verbatim, so a move never disturbs a
+// deep-link address or the display text (#690), while the spacing inside the
+// brackets normalizes (`[[ old ]]` becomes `[[new]]`). Each link is judged as a
+// whole target, so a longer id that merely starts with the moved one is never
+// touched. Code is left as written: a link inside an inline code span or a code
+// block is an example of the syntax, and no level of the index derives an edge
+// from it (#788). Links are found in wikilink.MaskCode's mask, the view
 // wikilink.Extract scans, and replaced in the original bytes.
-func rewriteBodyWikilinks(content []byte, oldID, newID string) []byte {
+func rewriteBodyLinks(content []byte, retarget linkRetarget) []byte {
 	offset := bodyOffset(content)
-	pattern := regexp.MustCompile(`\[\[\s*` + regexp.QuoteMeta(oldID) + `(#[^\[\]|]*)?\s*(\|[^\[\]]*)?\s*\]\]`)
 	body := content[offset:]
 
 	var out bytes.Buffer
@@ -791,18 +1056,23 @@ func rewriteBodyWikilinks(content []byte, oldID, newID string) []byte {
 	last := 0
 
 	// Built by hand rather than from a $1 template: ids come from user paths,
-	// so newID must be inserted verbatim, never expanded.
-	for _, match := range pattern.FindAllSubmatchIndex(wikilink.MaskCode(body), -1) {
-		out.Write(body[last:match[0]])
-		out.WriteString("[[" + newID)
+	// so the new target must be inserted verbatim, never expanded.
+	for _, match := range bodyLinkPattern.FindAllSubmatchIndex(wikilink.MaskCode(body), -1) {
+		inner := string(body[match[2]:match[3]])
+		cut := strings.IndexAny(inner, "#|")
 
-		for group := 1; group <= 2; group++ {
-			if start := match[2*group]; start >= 0 {
-				out.Write(body[start:match[2*group+1]])
-			}
+		if cut < 0 {
+			cut = len(inner)
 		}
 
-		out.WriteString("]]")
+		newPath, changed := retarget(strings.TrimSpace(inner[:cut]))
+
+		if !changed {
+			continue
+		}
+
+		out.Write(body[last:match[0]])
+		out.WriteString("[[" + newPath + inner[cut:] + "]]")
 
 		last = match[1]
 	}
@@ -842,9 +1112,10 @@ type frontmatterEdit struct {
 }
 
 // rewriteFrontmatterEdgeValues replaces every frontmatter value under a declared
-// edge-type key that names oldID — directly, as a sub-unit id beneath it
-// ("<oldID>#S1"), or through a wikilink ("[[<oldID>]]") — with the same
-// reference under newID.
+// edge-type key that names oldID, directly or as a sub-unit id beneath it
+// ("<oldID>#S1"), with the same reference under newID, and every value written
+// as a wikilink that retarget changes (a path, relative path or name the move
+// affects, as for a body link; #791).
 //
 // The frontmatter is parsed into a yaml.Node tree only to LOCATE those values:
 // every scalar carries the line/column its token starts at, so the matching
@@ -859,7 +1130,7 @@ type frontmatterEdit struct {
 // unchanged. nodeTypes classifies each edge key as a ref property (bare value is
 // a move-stable title, left alone) or an explicit edge type (bare value is a
 // node id, rewritten); see retargetEdgeValue.
-func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes manifest.EdgeTypes, nodeTypes map[string]manifest.NodeType) []byte {
+func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, retarget linkRetarget, edgeTypes manifest.EdgeTypes, nodeTypes map[string]manifest.NodeType) []byte {
 	start, end, hasFrontmatter := frontmatterSpan(content)
 
 	if !hasFrontmatter {
@@ -912,7 +1183,7 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 		if scalar, isWikilink := nestedWikilinkScalar(value); isWikilink {
 			target, alias := wikilink.SplitAlias(scalar.Value)
 
-			retargeted, matched := retargetNodeID(target, oldID, newID)
+			retargeted, matched := retargetLinkTarget(target, retarget)
 
 			if !matched {
 				continue
@@ -937,7 +1208,7 @@ func rewriteFrontmatterEdgeValues(content []byte, oldID, newID string, edgeTypes
 		bareIsID := !isRefProperty
 
 		for _, scalar := range collectEdgeScalars(value, false) {
-			retargeted, matched := retargetEdgeValue(scalar.node.Value, oldID, newID, bareIsID)
+			retargeted, matched := retargetEdgeValue(scalar.node.Value, oldID, newID, retarget, bareIsID)
 
 			if !matched {
 				continue
@@ -1047,13 +1318,14 @@ func collectEdgeScalars(value *yaml.Node, inFlow bool) []flowScalar {
 	}
 }
 
-// retargetEdgeValue returns the rewritten value when value refers to oldID, to a
-// sub-unit id beneath it ("<oldID>#..."), or to either through a wikilink —
-// including the Obsidian aliased form "[[oldID|Label]]". The wikilink is matched
-// with the pattern ResolveRefs itself accepts and split on the alias the same
-// way (#690), so exactly the values the resolver resolves are the values a move
-// rewrites; the "|Label" display suffix is preserved and only the id ahead of it
-// is retargeted.
+// retargetEdgeValue returns the rewritten value when value refers to oldID or to
+// a sub-unit id beneath it ("<oldID>#..."), or is a wikilink retarget changes —
+// including the Obsidian aliased form "[[target|Label]]". The wikilink is
+// matched with the pattern ResolveRefs itself accepts, split on the alias the
+// same way (#690), and judged by retarget, which resolves it as ResolveRefs
+// does (#791), so exactly the values the resolver resolves are the values a
+// move rewrites; the "|Label" display suffix is preserved and only the target
+// ahead of it is retargeted.
 //
 // bareIsID says whether a bare (non-wikilink) value under this key names a node
 // id. It is true for an explicit edge type (frontmatter value = raw id) and
@@ -1061,13 +1333,13 @@ func collectEdgeScalars(value *yaml.Node, inFlow bool) []flowScalar {
 // title is invariant under a move, so a bare title that merely coincides with
 // the old id ("title: foo" on foo.md) must be left alone — rewriting it to the
 // new id would break a reference that still resolves correctly (#680 review). A
-// wikilink value is always an id and is rewritten regardless. The second return
+// wikilink value is judged by retarget whatever the key. The second return
 // reports whether the value matched.
-func retargetEdgeValue(value, oldID, newID string, bareIsID bool) (string, bool) {
+func retargetEdgeValue(value, oldID, newID string, retarget linkRetarget, bareIsID bool) (string, bool) {
 	if match := refWikilinkPattern.FindStringSubmatch(value); len(match) == 2 {
 		target, alias := wikilink.SplitAlias(match[1])
 
-		retargeted, matched := retargetNodeID(target, oldID, newID)
+		retargeted, matched := retargetLinkTarget(target, retarget)
 
 		if !matched {
 			return "", false

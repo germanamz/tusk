@@ -51,7 +51,12 @@ blocks:
   materialize as edges of this type. A navigational shorthand useful
   for prose; distinct from typed frontmatter edges. A wikilink inside
   inline code or a code block is an example, not a link, and makes no
-  edge.
+  edge. A target may also be relative to the page (`[[../notes/x]]`)
+  or a bare file name, as Obsidian writes it (`[[x]]`): the note whose
+  id is the name wins, else the one file with that name. A name two
+  files share stays unresolved and `tusk_doctor` reports it as
+  `ambiguous-wikilink`. `[workspace] link-case` picks whether names
+  match in any letter case (default) or exactly.
 
 - **`paths = true`** records the workspace paths a page names as path
   refs of this type: inline code (`` `server/ledger/core/service.go` ``),

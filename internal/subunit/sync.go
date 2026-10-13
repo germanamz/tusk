@@ -9,6 +9,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // Sync applies a parser-produced []Unit to the SQLite index for a single
@@ -502,7 +503,11 @@ func wikilinkEdgeTypeNames(loaded *manifest.Manifest) []string {
 
 // sameEdgeSet reports whether stored and derived hold the same edges, in any
 // order. Both come from one source id and path, and neither repeats an edge
-// (the edges table is unique over them; DeriveEdges dedupes its targets).
+// (the edges table is unique over them; DeriveEdges dedupes its targets). A
+// name-form link is compared by its link text, not its target: derived rows
+// carry the text as their target until index.ResolveLinks points the stored
+// row at a file, so comparing targets would rewrite every resolved link on
+// every pass.
 func sameEdgeSet(stored, derived []index.EdgeRow) bool {
 	if len(stored) != len(derived) {
 		return false
@@ -511,11 +516,11 @@ func sameEdgeSet(stored, derived []index.EdgeRow) bool {
 	storedSet := make(map[index.EdgeRow]struct{}, len(stored))
 
 	for _, edge := range stored {
-		storedSet[edge] = struct{}{}
+		storedSet[edgeIdentity(edge)] = struct{}{}
 	}
 
 	for _, edge := range derived {
-		if _, found := storedSet[edge]; !found {
+		if _, found := storedSet[edgeIdentity(edge)]; !found {
 			return false
 		}
 	}
@@ -523,14 +528,23 @@ func sameEdgeSet(stored, derived []index.EdgeRow) bool {
 	return true
 }
 
+// edgeIdentity is edge as sameEdgeSet compares it: a name-form link's target
+// is whatever its name resolves to, so only its link text identifies it.
+func edgeIdentity(edge index.EdgeRow) index.EdgeRow {
+	if edge.Link != "" {
+		edge.TargetID = ""
+	}
+
+	return edge
+}
+
 // buildOutboundEdges runs DeriveEdges against the unit and shapes the
-// result into index.EdgeRow values. Targets are emitted with their raw
-// wikilink string as TargetID per spec §5.4 — the spec promises
-// wikilinks resolve to FILE nodes, and the file id is derived directly
-// from the path (no `#` suffix), so the raw target string IS the
-// expected file id when the target file exists. Dangling targets land
-// on disk as edge rows pointing at missing nodes; the existing
-// doctor/dangling-ref machinery handles them.
+// result into index.EdgeRow values, the way node.MaterializeWikilinks shapes a
+// file's: a workspace path is stored as the target id, a relative path as the
+// id it names from sourcePath, and a file name ([[auth-rfc]]) as written, with
+// the row's Link set so index.ResolveLinks points it at the file (#791). A
+// target with no node row lands as an edge pointing at a missing node; the
+// doctor/dangling-ref machinery handles it.
 func buildOutboundEdges(unit Unit, sourceID, sourcePath string, wikilinkEdgeNames []string) []index.EdgeRow {
 	specs := DeriveEdges(unit, wikilinkEdgeNames)
 
@@ -539,14 +553,31 @@ func buildOutboundEdges(unit Unit, sourceID, sourcePath string, wikilinkEdgeName
 	}
 
 	rows := make([]index.EdgeRow, 0, len(specs))
+	seen := make(map[[2]string]struct{}, len(specs))
 
 	for _, spec := range specs {
+		target := wikilink.Normalize(spec.TargetID, sourcePath)
+
+		// Two spellings of one target ([[./x]] and [[notes/x]]) are one edge.
+		if _, duplicate := seen[[2]string{spec.EdgeType, target}]; duplicate {
+			continue
+		}
+
+		seen[[2]string{spec.EdgeType, target}] = struct{}{}
+
+		link := ""
+
+		if wikilink.IsName(spec.TargetID) {
+			link = target
+		}
+
 		rows = append(rows, index.EdgeRow{
 			Type:       spec.EdgeType,
 			SourceID:   sourceID,
-			TargetID:   spec.TargetID,
+			TargetID:   target,
 			SourcePath: sourcePath,
 			Kind:       "direct",
+			Link:       link,
 		})
 	}
 

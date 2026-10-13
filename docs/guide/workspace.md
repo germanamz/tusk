@@ -40,7 +40,28 @@ See [[notes/auth-rfc]] for context.
 
 - `type` is the only universally reserved key.
 - Other frontmatter keys are either **properties** (string / int / date / enum / ref / list-of) or **edges** (declared in `tusk.toml`).
-- `[[notes/auth-rfc]]` body wikilinks materialize as edges to that node id for any edge type declared with `wikilinks = true` (e.g. the `vault` pack's `references` edge). The Obsidian aliased form `[[notes/auth-rfc|the auth RFC]]` links to the same node id — the text after `|` is display only — and a `tusk node move` retargets the id while keeping the display text. A wikilink inside inline code or a code block is an example, not a link: it makes no edge, and a move leaves it as written.
+- `[[notes/auth-rfc]]` body wikilinks materialize as edges to that node id for any edge type declared with `wikilinks = true` (e.g. the `vault` pack's `references` edge). The Obsidian aliased form `[[notes/auth-rfc|the auth RFC]]` links to the same node id — the text after `|` is display only — and a `tusk node move` retargets the id while keeping the display text. A wikilink inside inline code or a code block is an example, not a link: it makes no edge, and a move leaves it as written. [Wikilinks](#wikilinks) covers the other ways a link can name its note.
+
+### Wikilinks
+
+A wikilink names its note in one of three ways, the same three Obsidian's "New link format" setting writes:
+
+- **A path**, `[[notes/auth-rfc]]`, is the node id: the file's workspace path without `.md`.
+- **A relative path**, `[[./auth-rfc]]` or `[[../notes/auth-rfc]]`, starts from the linking note's folder.
+- **A name**, `[[auth-rfc]]` or `[[Auth RFC]]`, has no folder at all. A note whose id is exactly that name wins, so every link that resolved before names existed resolves the same way. Otherwise tusk looks the name up among every file's name (the file name without its extension), and one match resolves the link. When two or more files share the name, the link stays unresolved and `tusk doctor` reports an `ambiguous-wikilink` error with the files, so you can write the path of the one you meant.
+
+Names match in any letter case by default, as Obsidian does. To match only the case a file name is written in:
+
+```toml
+[workspace]
+link-case = "sensitive"   # default "insensitive"
+```
+
+Paths always match exactly. A `#S1` fragment still addresses a section of the note it follows (`[[auth-rfc#S1]]`). A heading-text fragment such as `[[auth-rfc#Some heading]]` does not resolve yet ([#808](https://github.com/germanamz/tusk/issues/808)), so that link dangles.
+
+The same rules apply to a frontmatter value written as a wikilink, under an edge type (`relates-to: "[[auth-rfc]]"`) or a `ref` property. Names resolve once the whole workspace is indexed, so the order files are read in never matters, and a note added, removed or renamed outside tusk changes what a name finds on the next reindex without the linking files being re-read.
+
+`tusk node move` keeps every link pointing where it did. A name stays as written while it still finds the moved note, so moving `auth-rfc.md` to another folder leaves `[[auth-rfc]]` alone; renaming the file rewrites it to the new name. When the move gives the note a name another note already has, the links to both notes become full paths, since the name alone would no longer tell them apart. Relative links are re-rendered from where each file lives after the move, the moved note's own included.
 
 ### Folders of plain markdown
 

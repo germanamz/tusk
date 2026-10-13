@@ -12,6 +12,7 @@ import (
 	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 func TestRename_ConcurrentDifferentFilesBothSucceed(test *testing.T) {
@@ -51,7 +52,7 @@ func TestRename_ConcurrentDifferentFilesBothSucceed(test *testing.T) {
 		defer wg.Done()
 		_, errs[0] = node.Rename(
 			root, nodeRepo, edgeRepo, fileState, "worker-1", time.Minute,
-			manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/a", "notes/c.md",
+			manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/a", "notes/c.md",
 		)
 	}()
 
@@ -59,7 +60,7 @@ func TestRename_ConcurrentDifferentFilesBothSucceed(test *testing.T) {
 		defer wg.Done()
 		_, errs[1] = node.Rename(
 			root, nodeRepo, edgeRepo, fileState, "worker-2", time.Minute,
-			manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/b", "notes/d.md",
+			manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/b", "notes/d.md",
 		)
 	}()
 
@@ -166,7 +167,7 @@ func TestRename_ConcurrentSwapNamesSerializeWithoutDeadlock(test *testing.T) {
 		defer wg.Done()
 		_, errs[0] = node.Rename(
 			root, nodeRepo, edgeRepo, fileState, "worker-1", time.Minute,
-			manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "swap/a", "swap/b.md",
+			manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "swap/a", "swap/b.md",
 		)
 	}()
 
@@ -174,7 +175,7 @@ func TestRename_ConcurrentSwapNamesSerializeWithoutDeadlock(test *testing.T) {
 		defer wg.Done()
 		_, errs[1] = node.Rename(
 			root, nodeRepo, edgeRepo, fileState, "worker-2", time.Minute,
-			manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "swap/b", "swap/a.md",
+			manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "swap/b", "swap/a.md",
 		)
 	}()
 
@@ -255,7 +256,7 @@ func TestRename_SourceLeaseBusyReturnsErrBusyWithoutTakingDestLease(test *testin
 
 	_, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "worker-self", time.Minute,
-		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/a", "notes/z.md",
+		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/a", "notes/z.md",
 	)
 
 	if !errors.Is(renameErr, index.ErrBusy) {

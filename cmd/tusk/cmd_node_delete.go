@@ -47,6 +47,7 @@ want to rename rather than remove.`,
 				index.NewEmbedQueueRepo(store),
 				index.WorkerID(),
 				leaseconfig.Resolve(loaded.Lease.TTLSeconds),
+				loaded.LinkCase(),
 				args[0],
 			); deleteErr != nil {
 				return deleteErr

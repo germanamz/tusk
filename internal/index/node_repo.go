@@ -78,9 +78,9 @@ const nodeUpsertFileSQL = `
 		last_mtime, last_size, last_checksum,
 		parent_id, ordinal, embed_payload, content_hash,
 		start_line, end_line,
-		kind, source
+		kind, source, name_key
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'file', NULL)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'file', NULL, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		type            = excluded.type,
 		path            = excluded.path,
@@ -96,7 +96,8 @@ const nodeUpsertFileSQL = `
 		start_line      = excluded.start_line,
 		end_line        = excluded.end_line,
 		kind            = 'file',
-		source          = NULL
+		source          = NULL,
+		name_key        = excluded.name_key
 `
 
 // nodeUpsertSubUnitSQL writes a sub-unit-class row: literal
@@ -134,7 +135,8 @@ const nodeUpsertSubUnitSQL = `
 
 // nodeUpsertArgs returns the positional bind arguments shared by
 // nodeUpsertFileSQL and nodeUpsertSubUnitSQL (both bind the same fourteen
-// columns; the two writers append `kind`/`source` as SQL literals).
+// columns first; `kind` is a SQL literal in both, and each writer appends what
+// is left: the sub-unit `source`, or the file row's `name_key`).
 func nodeUpsertArgs(row NodeRow) []any {
 	return []any{
 		row.ID, row.Type, row.Path, row.Title, row.PropertiesJSON,
@@ -145,9 +147,10 @@ func nodeUpsertArgs(row NodeRow) []any {
 }
 
 // Upsert inserts or replaces a file-class node row, writing
-// `kind='file'` and `source=NULL`.
+// `kind='file'`, `source=NULL`, and the name_key name-form wikilinks match the
+// file on, derived from row.Path.
 func (repo *NodeRepo) Upsert(row NodeRow) error {
-	if _, execErr := repo.db.Exec(nodeUpsertFileSQL, nodeUpsertArgs(row)...); execErr != nil {
+	if _, execErr := repo.db.Exec(nodeUpsertFileSQL, append(nodeUpsertArgs(row), nameKeyForPath(row.Path))...); execErr != nil {
 		return fmt.Errorf("nodeRepo: upsert %s: %w", row.ID, execErr)
 	}
 

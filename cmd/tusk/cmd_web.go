@@ -108,6 +108,7 @@ func webWebUIConfig(addr string, autoOpen bool, view string) webUIConfig {
 					Root:    rt.Root,
 					Nodes:   rt.Nodes,
 					Edges:   rt.Edges,
+					Files:   rt.Nodes.FileNames(rt.Manifest.LinkCase()),
 					Search:  bookview.NewSearcher(rt.Index.DB(), rt.Manifest, rt.Embedder, rt.Embeddings, rt.Nodes, rt.Edges, rt.Root),
 					Related: bookview.NewRelated(rt.Edges, rt.Manifest, rt.Nodes),
 					Meta:    rt.Meta,

@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // Moving an HTML node must keep the HTML id convention (the id RETAINS its
@@ -51,7 +52,7 @@ func TestRename_KeepsExtensionOnHTMLNodeID(test *testing.T) {
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "docs/a.html", "docs/b.html",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "docs/a.html", "docs/b.html",
 	)
 
 	if renameErr != nil {
@@ -138,7 +139,7 @@ func TestRename_RewritesHTMLReferrerHrefOnDisk(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "notes/target", "notes/renamed.md",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/target", "notes/renamed.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -205,7 +206,7 @@ func TestRename_HTMLReferrerPathRefsFollowTheHref(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "notes/target", "notes/renamed.md",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/target", "notes/renamed.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}

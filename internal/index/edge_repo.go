@@ -18,6 +18,12 @@ import (
 //
 // Source carries the namespace identifier when present (e.g. "markdown" for
 // structural sub-unit edges). NULL for direct and derived edges.
+//
+// Link is the text of a name-form wikilink ([[auth-rfc]], [[Auth RFC#S1]]):
+// the edge names its target by file name, so TargetID is whatever that name
+// resolves to now, and ResolveLinks re-resolves it whenever the set of files
+// may have changed. Writers store the link text as TargetID too and leave the
+// lookup to ResolveLinks. Empty (NULL) for every other edge.
 type EdgeRow struct {
 	Type       string
 	SourceID   string
@@ -25,6 +31,7 @@ type EdgeRow struct {
 	SourcePath string
 	Kind       string
 	Source     sql.NullString
+	Link       string
 }
 
 // EdgeRepo persists EdgeRow values in the SQLite index.
@@ -39,7 +46,17 @@ func NewEdgeRepo(idx *Index) *EdgeRepo {
 
 // edgeColumns is the column list shared by every edges-table read and write,
 // in the order EdgeRow's fields are scanned.
-const edgeColumns = "type, source_id, target_id, source_path, kind, source"
+const edgeColumns = "type, source_id, target_id, source_path, kind, source, link"
+
+// edgeInsertArgs returns the bind arguments for one row, in edgeColumns order.
+func edgeInsertArgs(edge EdgeRow) []any {
+	return []any{edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath, edge.Kind, edge.Source, nullIfEmpty(edge.Link)}
+}
+
+// nullIfEmpty binds "" as NULL.
+func nullIfEmpty(value string) sql.NullString {
+	return sql.NullString{String: value, Valid: value != ""}
+}
 
 // UpsertAll replaces every edge declared by sourcePath with the provided set.
 // The replacement is transactional: existing edges where source_id = sourceID
@@ -59,8 +76,8 @@ func (repo *EdgeRepo) UpsertAll(sourceID, sourcePath string, edges []EdgeRow) er
 	for _, edge := range edges {
 		if _, insertErr := tx.Exec(`
 			INSERT INTO edges (`+edgeColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`, edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath, edge.Kind, edge.Source); insertErr != nil {
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, edgeInsertArgs(edge)...); insertErr != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("edgeRepo: insert %s→%s: %w", edge.SourceID, edge.TargetID, insertErr)
 		}
@@ -100,8 +117,8 @@ func (repo *EdgeRepo) UpsertContentEdges(sourceID, sourcePath string, edges []Ed
 	for _, edge := range edges {
 		if _, insertErr := tx.Exec(`
 			INSERT INTO edges (`+edgeColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`, edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath, edge.Kind, edge.Source); insertErr != nil {
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, edgeInsertArgs(edge)...); insertErr != nil {
 			_ = tx.Rollback()
 
 			return fmt.Errorf("edgeRepo: content insert %s→%s: %w", edge.SourceID, edge.TargetID, insertErr)
@@ -151,8 +168,8 @@ func (repo *EdgeRepo) UpsertAllMany(batches []EdgeBatch) error {
 		for _, edge := range batch.Edges {
 			if _, insertErr := tx.Exec(`
 				INSERT INTO edges (`+edgeColumns+`)
-				VALUES (?, ?, ?, ?, ?, ?)
-			`, edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath, edge.Kind, edge.Source); insertErr != nil {
+				VALUES (?, ?, ?, ?, ?, ?, ?)
+			`, edgeInsertArgs(edge)...); insertErr != nil {
 				_ = tx.Rollback()
 
 				return fmt.Errorf("edgeRepo: upsert-all-many insert %s→%s: %w", edge.SourceID, edge.TargetID, insertErr)
@@ -218,7 +235,9 @@ func (repo *EdgeRepo) ListByType(edgeType string) ([]EdgeRow, error) {
 // OR REPLACE resolves collisions with an already-existing edge at the new
 // target, but SQLite's UNIQUE treats NULL `source` values as distinct, so a
 // direct/derived duplicate survives the UPDATE — the follow-up DELETE
-// removes those, keeping the oldest row per identity.
+// removes those, keeping the oldest row per identity. A name-form row and a
+// path-written row to the same target differ in link and both stay here;
+// ResolveLinks, which re-points name-form rows, drops that kind of twin.
 func (repo *EdgeRepo) RetargetEdges(oldID, newID string) error {
 	tx, beginErr := repo.db.Begin()
 
@@ -243,7 +262,7 @@ func (repo *EdgeRepo) RetargetEdges(oldID, newID string) error {
 		DELETE FROM edges WHERE (target_id = ?1 OR substr(target_id, 1, length(?2)) = ?2) AND id NOT IN (
 			SELECT MIN(id) FROM edges
 			WHERE target_id = ?1 OR substr(target_id, 1, length(?2)) = ?2
-			GROUP BY type, source_id, target_id, source_path, kind, COALESCE(source, '')
+			GROUP BY type, source_id, target_id, source_path, kind, COALESCE(source, ''), COALESCE(link, '')
 		)`,
 		newID, newID+"#",
 	); execErr != nil {
@@ -354,7 +373,7 @@ func (repo *EdgeRepo) InsertIgnore(edges []EdgeRow) error {
 		return fmt.Errorf("edgeRepo: insert-ignore begin: %w", beginErr)
 	}
 
-	stmt, prepErr := tx.Prepare(`INSERT OR IGNORE INTO edges (` + edgeColumns + `) VALUES (?, ?, ?, ?, ?, ?)`)
+	stmt, prepErr := tx.Prepare(`INSERT OR IGNORE INTO edges (` + edgeColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?)`)
 
 	if prepErr != nil {
 		_ = tx.Rollback()
@@ -362,7 +381,7 @@ func (repo *EdgeRepo) InsertIgnore(edges []EdgeRow) error {
 	}
 
 	for _, edge := range edges {
-		if _, execErr := stmt.Exec(edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath, edge.Kind, edge.Source); execErr != nil {
+		if _, execErr := stmt.Exec(edgeInsertArgs(edge)...); execErr != nil {
 			stmt.Close()
 			_ = tx.Rollback()
 			return fmt.Errorf("edgeRepo: insert-ignore %s→%s: %w", edge.SourceID, edge.TargetID, execErr)
@@ -489,9 +508,13 @@ func scanEdgeRows(rows *sql.Rows) ([]EdgeRow, error) {
 	for rows.Next() {
 		row := EdgeRow{}
 
-		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath, &row.Kind, &row.Source); scanErr != nil {
+		var link sql.NullString
+
+		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath, &row.Kind, &row.Source, &link); scanErr != nil {
 			return nil, fmt.Errorf("edgeRepo: scan: %w", scanErr)
 		}
+
+		row.Link = link.String
 
 		results = append(results, row)
 	}

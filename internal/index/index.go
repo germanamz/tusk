@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 	content_hash    TEXT NULL,                  -- sha256 of embed payload (leaves) / heading (sections); NULL for files
 	start_line      INTEGER NULL,               -- first file line a sub-unit covers (1-based); NULL for files and HTML sub-units
 	end_line        INTEGER NULL,               -- last file line a sub-unit covers (inclusive); NULL like start_line
+	name_key        TEXT NULL,                  -- wikilink.NameKey of a file row's file name, matched by name-form wikilinks; NULL for sub-units
 	kind            TEXT NOT NULL,              -- row-class: 'file' | 'subunit'
 	source          TEXT NULL,                  -- namespace identifier; NULL = user
 	CHECK (
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS edges (
 	source_path TEXT NOT NULL,
 	kind        TEXT NOT NULL,              -- 'direct' | 'derived' | 'structural'
 	source      TEXT NULL,                  -- namespace identifier; NULL = user
+	link        TEXT NULL,                  -- a name-form wikilink's text ("auth-rfc#S1") that target_id is resolved from; NULL for every other edge
 	UNIQUE(source, type, source_id, target_id, source_path),
 	FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
 	CHECK (
@@ -256,6 +258,11 @@ func Open(dbPath string) (*Index, error) {
 		return nil, migrateErr
 	}
 
+	if migrateErr := migrateLinkColumns(ctx, db); migrateErr != nil {
+		db.Close()
+		return nil, migrateErr
+	}
+
 	idx := &Index{db: db, path: dbPath}
 
 	metaRepo := NewMetaRepo(idx)
@@ -343,6 +350,99 @@ func migrateNodeLineColumns(ctx context.Context, db *sql.DB) error {
 		if _, execErr := db.ExecContext(ctx, `ALTER TABLE nodes ADD COLUMN `+column+` INTEGER NULL`); execErr != nil {
 			return fmt.Errorf("index: add nodes.%s: %w", column, execErr)
 		}
+	}
+
+	return nil
+}
+
+// migrateLinkColumns adds the two columns name-form wikilinks need (#791) to an
+// index written before them: nodes.name_key, the folded file name a link like
+// [[auth-rfc]] is matched on, and edges.link, the text such a link was written
+// as, which its target_id is resolved from. ADD COLUMN keeps every row and
+// vector. name_key is backfilled here from each file row's path; edges.link
+// fills in on the full re-derive pass the edge-derivation version bump forces.
+// Both indexes are created here rather than in the bootstrap schema because on
+// an old index they must follow the columns. Idempotent.
+func migrateLinkColumns(ctx context.Context, db *sql.DB) error {
+	added, addErr := addColumnIfMissing(ctx, db, "nodes", "name_key", "TEXT NULL")
+
+	if addErr != nil {
+		return addErr
+	}
+
+	if added {
+		if backfillErr := backfillNameKeys(ctx, db); backfillErr != nil {
+			return backfillErr
+		}
+	}
+
+	if _, addErr := addColumnIfMissing(ctx, db, "edges", "link", "TEXT NULL"); addErr != nil {
+		return addErr
+	}
+
+	if _, execErr := db.ExecContext(ctx, `
+		CREATE INDEX IF NOT EXISTS nodes_name_key_idx ON nodes(name_key) WHERE kind = 'file';
+		CREATE INDEX IF NOT EXISTS edges_link_idx ON edges(link) WHERE link IS NOT NULL;
+	`); execErr != nil {
+		return fmt.Errorf("index: create link indexes: %w", execErr)
+	}
+
+	return nil
+}
+
+// addColumnIfMissing adds column to table unless it is already there, and
+// reports whether it added it.
+func addColumnIfMissing(ctx context.Context, db *sql.DB, table, column, definition string) (bool, error) {
+	var present int
+
+	if scanErr := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column,
+	).Scan(&present); scanErr != nil {
+		return false, fmt.Errorf("index: inspect %s.%s: %w", table, column, scanErr)
+	}
+
+	if present > 0 {
+		return false, nil
+	}
+
+	if _, execErr := db.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+column+` `+definition); execErr != nil {
+		return false, fmt.Errorf("index: add %s.%s: %w", table, column, execErr)
+	}
+
+	return true, nil
+}
+
+// backfillNameKeys sets name_key on every file row from its path, in one
+// transaction.
+func backfillNameKeys(ctx context.Context, db *sql.DB) error {
+	rows, queryErr := db.QueryContext(ctx, `SELECT id, path FROM nodes WHERE kind = 'file'`)
+
+	if queryErr != nil {
+		return fmt.Errorf("index: backfill name_key: %w", queryErr)
+	}
+
+	files, scanErr := scanFiles(rows)
+
+	if scanErr != nil {
+		return fmt.Errorf("index: backfill name_key: %w", scanErr)
+	}
+
+	tx, beginErr := db.BeginTx(ctx, nil)
+
+	if beginErr != nil {
+		return fmt.Errorf("index: backfill name_key: begin: %w", beginErr)
+	}
+
+	for _, file := range files {
+		if _, execErr := tx.ExecContext(ctx, `UPDATE nodes SET name_key = ? WHERE id = ?`, nameKeyForPath(file.Path), file.ID); execErr != nil {
+			_ = tx.Rollback()
+
+			return fmt.Errorf("index: backfill name_key %s: %w", file.ID, execErr)
+		}
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		return fmt.Errorf("index: backfill name_key: commit: %w", commitErr)
 	}
 
 	return nil

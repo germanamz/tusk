@@ -19,7 +19,8 @@ import (
 // "#section" fragment. The client cuts the same target out of the body text it
 // is rewriting, so it finds each key by the cut it has already made.
 //
-// The body passed in must be the one the client renders (frontmatter stripped):
+// sourcePath is the page's own path, which relative links resolve from. The
+// body passed in must be the one the client renders (frontmatter stripped):
 // a frontmatter ref is never rewritten, so an entry for it could only be a key
 // nothing matches. Those refs already reach the reader through the links rails.
 //
@@ -31,13 +32,38 @@ import (
 // would put "wikilinks": null on the wire, forcing every consumer to null-check
 // before indexing. wikilink.Extract returns a nil slice for a link-free body, so
 // that is the common path, not an edge case.
-func (srv *Server) resolveWikilinks(body []byte) (map[string]WikilinkTarget, error) {
+func (srv *Server) resolveWikilinks(body []byte, sourcePath string) (map[string]WikilinkTarget, error) {
 	targets := wikilink.Extract(body)
 	resolved := make(map[string]WikilinkTarget, len(targets))
 
+	// A target names an id the way the index resolves it, so a link is live
+	// here exactly when it has an edge: a relative path from this page, a file
+	// name ([[auth-rfc]]) through deps.Files (#791), anything else as written.
+	linkIDs := make(map[string]string, len(targets))
+	lookups := make([]string, 0, len(targets))
+
+	for _, target := range targets {
+		id, ambiguous, resolveErr := srv.linkID(target, sourcePath)
+
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+
+		// A name several files share has no edge, and doctor reports it, so
+		// it is not the reader's to pick one: it renders dead, title or not.
+		if ambiguous {
+			resolved[target] = WikilinkTarget{Exists: false}
+
+			continue
+		}
+
+		linkIDs[target] = id
+		lookups = append(lookups, id)
+	}
+
 	// Most targets name an id, so try every one that way first — in a single
 	// batched lookup, rolled up to file level (see fileRowsFor).
-	byID, idErr := srv.fileRowsFor(targets)
+	byID, idErr := srv.fileRowsFor(lookups)
 
 	if idErr != nil {
 		return nil, idErr
@@ -51,7 +77,11 @@ func (srv *Server) resolveWikilinks(body []byte) (map[string]WikilinkTarget, err
 	titleMatches := make(map[string]string, len(targets))
 
 	for _, target := range targets {
-		if row, found := byID[target]; found {
+		if _, settled := resolved[target]; settled {
+			continue
+		}
+
+		if row, found := byID[linkIDs[target]]; found {
 			resolved[target] = WikilinkTarget{ID: row.ID, Title: row.Title, Exists: true}
 
 			continue
@@ -101,6 +131,24 @@ func (srv *Server) resolveWikilinks(body []byte) (map[string]WikilinkTarget, err
 	}
 
 	return resolved, nil
+}
+
+// linkID returns the id a wikilink target names from the page at sourcePath,
+// or the target itself when it names no file, which the title lookup then gets
+// a try at. ambiguous reports a name several files have. Without deps.Files a
+// name is taken as an id.
+func (srv *Server) linkID(target, sourcePath string) (string, bool, error) {
+	if srv.deps.Files == nil {
+		return wikilink.Normalize(target, sourcePath), false, nil
+	}
+
+	id, candidates, resolveErr := wikilink.Resolve(target, sourcePath, srv.deps.Files)
+
+	if resolveErr != nil || id == "" {
+		return target, len(candidates) > 1, resolveErr
+	}
+
+	return id, false, nil
 }
 
 // titleMatchID picks which of a title's matching ids the reader should land on.
