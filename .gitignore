@@ -60,3 +60,6 @@ web/playwright-report/
 
 # Claude Code local settings (per-machine permissions, not for sharing)
 .claude/settings.local.json
+
+# Raw agent transcripts from eval/agentbench runs (runs.jsonl keeps the metrics)
+eval/results/*/streams/
