@@ -43,7 +43,7 @@ $ tusk query 'type=package' --semantic "how are embedding prefixes applied to qu
 }]
 ```
 
-Over MCP it's the `tusk_query` tool with the same arguments. This is one example, not a benchmark. Measuring tool calls and tokens across many questions is [#792](https://github.com/germanamz/tusk/issues/792).
+Over MCP it's the `tusk_query` tool with the same arguments. That's one example. Across 40 questions about these docs, an agent using `tusk_query` cited the right section every time (91% with grep and read) and made one tool call fewer, but read 11% more input tokens. A query result is about 8 KB, so tusk pays off on questions where grep has to dig. On a larger, private vault of 79 files, tusk read 17% fewer input tokens and finished 28% faster. [Benchmarks](docs/guide/benchmarks.md) has the numbers, including the questions where tusk lost.
 
 ### Conventions that fail the build
 
@@ -210,6 +210,7 @@ A prompt you can paste into your agent:
 - [Workspaces, nodes and the manifest](docs/guide/workspace.md): node files, edges, path refs, type packs, indexing
 - [Querying](docs/guide/querying.md): the filter grammar, semantic search, embedding settings
 - [Rules and doctor](docs/guide/rules-and-doctor.md): health checks, conventions, CI
+- [Benchmarks](docs/guide/benchmarks.md): what an agent spends answering with `tusk_query` against grep and read
 - [MCP server and Claude Code plugin](docs/guide/mcp.md): the server, the plugin, the tool list
 - [CLI reference](docs/cli/README.md) and [workflows](docs/cli/workflows.md); man pages are in [`man/`](man/) (`man -M man tusk` after cloning)
 - [PRODUCT.md](PRODUCT.md): what tusk is for, and its design principles

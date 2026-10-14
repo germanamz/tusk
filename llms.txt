@@ -15,6 +15,7 @@ Tusk is a single Go binary. A markdown file is a node when its YAML frontmatter 
 - [Querying](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/querying.md): the filter grammar, semantic and hybrid search, matched units with line ranges, embedding model settings
 - [Rules and doctor](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/rules-and-doctor.md): severities, exit codes, `[rule.<name>]` conventions, running doctor in CI
 - [MCP server and Claude Code plugin](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/mcp.md): the server, `tusk claude install`, the `tusk_*` tool list
+- [Benchmarks](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md): tool calls, input tokens, time and accuracy for an agent answering with `tusk_query` against grep and read
 
 ## CLI reference
 
