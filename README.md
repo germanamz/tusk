@@ -43,7 +43,7 @@ $ tusk query 'type=package' --semantic "how are embedding prefixes applied to qu
 }]
 ```
 
-Over MCP it's the `tusk_query` tool with the same arguments. That's one example. Across 40 questions about these docs, an agent using `tusk_query` cited the right section every time (91% with grep and read) and made one tool call fewer, but read 11% more input tokens. A query result is about 8 KB, so tusk pays off on questions where grep has to dig. [Benchmarks](docs/guide/benchmarks.md) has the numbers, including the questions where tusk lost.
+Over MCP it's the `tusk_query` tool with the same arguments. That's one example. Across 40 questions about these docs, an agent using `tusk_query` cited the right section every time (91% with grep and read) and made one tool call fewer, but read 11% more input tokens. A query result is about 8 KB, so tusk pays off on questions where grep has to dig. On a larger, private vault of 79 files, tusk read 17% fewer input tokens and finished 28% faster. [Benchmarks](docs/guide/benchmarks.md) has the numbers, including the questions where tusk lost.
 
 ### Conventions that fail the build
 

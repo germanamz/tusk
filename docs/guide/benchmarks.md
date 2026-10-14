@@ -4,6 +4,8 @@ Does an agent spend less to answer a question with `tusk_query` than with grep a
 
 With tusk, the agent cited the right section on every run (91% with grep) and made one tool call fewer per question (2 against 3). It also read 11% more input tokens per question and cost 37% more, and took the same time. On this corpus tusk buys accuracy, not tokens. A query result runs about 8 KB, where a grep result runs under 1 KB, so tusk comes out ahead only on questions where grep has to dig.
 
+A second, larger corpus came out the other way on tokens. On a private vault of 79 files, tusk read 17% fewer input tokens, made two tool calls fewer and finished 28% faster, and accuracy was about the same. See [A second corpus](#a-second-corpus).
+
 ## Results
 
 | | grep and read | `tusk_query` and read | tusk against grep, per question |
@@ -55,6 +57,26 @@ Tusk won when grep had to dig. On `move-note-name-links` (0.28×), `path-missing
 
 So the follow-ups to try are smaller query results (fewer fields per matched section, fewer sections by default), returning the matched section's text when it's short so the agent doesn't need a Read, and better ranking for long sections that cover several topics. This benchmark is how to tell whether they work.
 
+## A second corpus
+
+The same harness ran with the same model and settings on a private vault of 79 markdown files and 684 sections: more than twice the files and four and a half times the sections of `docs/packages`. Its 40 questions were written the same way, half lexical and half paraphrase. The vault isn't public, so only the numbers are published.
+
+| | grep and read | `tusk_query` and read | tusk against grep, per question |
+| --- | --- | --- | --- |
+| Input tokens | 20,186 | 12,446 | 0.83× (0.63–0.93) |
+| Tool calls | 3 | 1 | −2 (−2 to −1) |
+| Tool output | 8.2 KB | 9.7 KB | 1.18× (1.06–1.65) |
+| Time | 9.2 s | 6.1 s | 0.72× (0.65–0.82) |
+| Cost | $0.027 | $0.028 | 1.10× (0.90–1.18) |
+| Cited the right section | 95% | 97% | +2 points (−4 to +8) |
+| Judged correct | 97% | 93% | −3 points (−8 to 0) |
+
+Tusk read fewer input tokens on 28 of the 40 questions and finished faster on 33. Most of the gap is on paraphrase questions: tusk read 12.5k tokens to grep's 26.5k, and made 1 call to grep's 4. On lexical questions it read 12.4k to 16.0k. A query still returns more than a grep does. On a bigger corpus, though, grep needs more searches and reads to land, and every extra turn pays for the whole context again.
+
+Cost came out about even anyway, because of the prompt cache. Tusk's larger results are new text, written to the cache, and a cache write costs about 12 times a cache read. Tusk wrote a median of 5.3k tokens to the cache against grep's 4.3k, and read 11.3k from it against grep's 15.5k.
+
+The judge marked tusk wrong a little more often, 93% against 97%, but the interval reaches zero. In both arms, most wrong verdicts were right answers with an added claim the reference contradicts.
+
 ## How it was measured
 
 The harness is [`eval/agentbench`](../../eval/README.md), and every run's raw record is in [`eval/results/2026-10-14-tusk-docs/`](../../eval/results/2026-10-14-tusk-docs/).
@@ -80,7 +102,7 @@ Claude Code runs with `--restricted` and `--strict-mcp-config`, so no user setti
 
 ## Limits
 
-- One model and one small corpus. On 34 files with distinctive names and headings, grep is hard to beat, and a large or messy vault may come out differently.
+- One model and two corpora, both small. On 34 files with distinctive names and headings, grep is hard to beat. On 79 files tusk already reads less. Larger vaults are untested.
 - The questions were written by Claude, reading the files, and labeled lexical or paraphrase by the same hand.
 - Cost depends on prompt-cache hits, which depend on how runs overlap. Input tokens don't, which is why they're the headline.
 
