@@ -132,7 +132,7 @@ the document is restructured.`,
     | xargs tusk node get`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, loaded, resolveErr := resolveWorkspace()
+			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
 				return resolveErr

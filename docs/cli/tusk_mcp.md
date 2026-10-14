@@ -22,6 +22,11 @@ The server holds the workspace open for the lifetime of the session, drains
 the embed queue in the background, and watches the workspace for external
 edits.
 
+It finds the workspace by walking up from the directory it starts in to the
+nearest tusk.toml. Clients that start servers somewhere else (Claude Desktop
+starts them in /) point it at the vault with --workspace <dir>, or with
+TUSK_WORKSPACE when the client config sets env but not args.
+
 Worker pool: TUSK_EMBED_WORKERS overrides [embeddings] workers in tusk.toml;
 both default to max(1, NumCPU/2). Setting the pool size to 0 turns this
 instance into a read-only server — the embed drainer, reindex drainer, and
@@ -37,6 +42,9 @@ tusk mcp [flags]
 ```
   # Default: stdio transport (Claude Code, Cursor, Zed)
   tusk mcp
+
+  # Serve a vault regardless of the directory the client starts tusk in
+  tusk mcp --workspace ~/notes
 
   # SSE transport bound to loopback for browser-based clients
   tusk mcp --transport sse --addr 127.0.0.1:8765
@@ -56,7 +64,8 @@ tusk mcp [flags]
 ### Options inherited from parent commands
 
 ```
-  -v, --verbose   emit debug-level logs to stderr
+  -v, --verbose         emit debug-level logs to stderr
+  -C, --workspace dir   run as if started in dir: find tusk.toml from there instead of the working directory (default $TUSK_WORKSPACE)
 ```
 
 ### SEE ALSO

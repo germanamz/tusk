@@ -53,7 +53,7 @@ JSON when piped).`,
   tusk run open-tickets --json`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, loaded, resolveErr := resolveWorkspace()
+			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
 				return resolveErr

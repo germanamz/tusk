@@ -1,6 +1,7 @@
 package workspace_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,11 +66,19 @@ func TestFind_ReturnsErrNotFoundWhenNoManifest(test *testing.T) {
 		test.Fatalf("expected error, got nil")
 	}
 
-	if !errorIsNotFound(findErr) {
+	if !errors.Is(findErr, workspace.ErrNotFound) {
 		test.Errorf("error = %v, want ErrNotFound", findErr)
 	}
-}
 
-func errorIsNotFound(err error) bool {
-	return err != nil && err.Error() == workspace.ErrNotFound.Error()
+	var notFound *workspace.NotFoundError
+
+	if !errors.As(findErr, &notFound) || notFound.Dir != tmpDir {
+		test.Errorf("error = %#v, want *NotFoundError naming %q", findErr, tmpDir)
+	}
+
+	want := "no tusk.toml in " + tmpDir + " or any parent directory"
+
+	if findErr.Error() != want {
+		test.Errorf("message = %q, want %q", findErr.Error(), want)
+	}
 }

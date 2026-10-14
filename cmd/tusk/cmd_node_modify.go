@@ -34,7 +34,7 @@ without holding a workspace-wide lock.`,
   tusk node modify tickets/T-001 --unset blocked-by`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, loaded, resolveErr := resolveWorkspace()
+			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
 				return resolveErr

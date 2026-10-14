@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -31,8 +30,8 @@ come first, then those naming a nearer directory. At most --max pages are
 listed; a last line says how to see the rest.
 
 Pages name paths through edge types that set paths = true in tusk.toml. The
-path may be absolute or relative to the current directory; one outside the
-workspace prints nothing.
+path may be absolute or relative to the current directory (the --workspace
+directory, when one is given); one outside the workspace prints nothing.
 
 The plugin calls this once per file a session edits. It never fails an edit:
 when nothing names the path, the workspace declares no paths edge type, or the
@@ -51,13 +50,13 @@ index is missing, it prints nothing. It always exits 0.`,
 }
 
 func runClaudeRefs(cmd *cobra.Command, rawPath string, limit int) error {
-	cwd, cwdErr := os.Getwd()
+	dir, dirErr := startDir(cmd)
 
-	if cwdErr != nil {
+	if dirErr != nil {
 		return nil
 	}
 
-	ws, findErr := workspace.Find(cwd)
+	ws, findErr := workspace.Find(dir)
 
 	if findErr != nil {
 		return nil
@@ -69,7 +68,7 @@ func runClaudeRefs(cmd *cobra.Command, rawPath string, limit int) error {
 		return nil
 	}
 
-	relative, inside := workspaceRelative(ws.Root, cwd, rawPath)
+	relative, inside := workspaceRelative(ws.Root, dir, rawPath)
 
 	if !inside {
 		return nil
@@ -102,14 +101,14 @@ func runClaudeRefs(cmd *cobra.Command, rawPath string, limit int) error {
 	return nil
 }
 
-// workspaceRelative makes rawPath (absolute, or relative to cwd) relative to
+// workspaceRelative makes rawPath (absolute, or relative to dir) relative to
 // root with forward slashes. It reports false for a path outside root. A
 // symlinked root (macOS /tmp → /private/tmp) is resolved before giving up.
-func workspaceRelative(root, cwd, rawPath string) (string, bool) {
+func workspaceRelative(root, dir, rawPath string) (string, bool) {
 	absolute := rawPath
 
 	if !filepath.IsAbs(absolute) {
-		absolute = filepath.Join(cwd, absolute)
+		absolute = filepath.Join(dir, absolute)
 	}
 
 	if relative, inside := relativeInside(root, absolute); inside {

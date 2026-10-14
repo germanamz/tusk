@@ -30,7 +30,7 @@ The node id is the workspace-relative path: markdown nodes drop the extension
   tusk node render page.html`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, loaded, resolveErr := resolveWorkspace()
+			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
 				return resolveErr

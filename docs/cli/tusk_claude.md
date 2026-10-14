@@ -34,7 +34,8 @@ again after upgrading tusk to refresh the plugin.
 ### Options inherited from parent commands
 
 ```
-  -v, --verbose   emit debug-level logs to stderr
+  -v, --verbose         emit debug-level logs to stderr
+  -C, --workspace dir   run as if started in dir: find tusk.toml from there instead of the working directory (default $TUSK_WORKSPACE)
 ```
 
 ### SEE ALSO

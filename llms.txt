@@ -2,7 +2,7 @@
 
 > Agent memory you can code-review. Tusk indexes a folder of markdown into a typed, searchable graph that agents query over MCP (`tusk mcp`, stdio) or the `tusk` CLI. The memory stays plain files in git; `tusk doctor` exits 1 when a link dangles, a property breaks the schema, or a declared rule matches.
 
-Tusk is a single Go binary. A markdown file is a node when its YAML frontmatter has `type:`; its path without the extension is its id. `tusk.toml` declares node types, properties, edge types and rules. The index is a SQLite file in `.tusk/` (gitignored, rebuilt by `tusk reindex`). Semantic and hybrid search need Ollama running locally; structural queries, doctor and the web app don't. The MCP server finds its workspace by walking up from its working directory to the nearest `tusk.toml`.
+Tusk is a single Go binary. A markdown file is a node when its YAML frontmatter has `type:`; its path without the extension is its id. `tusk.toml` declares node types, properties, edge types and rules. The index is a SQLite file in `.tusk/` (gitignored, rebuilt by `tusk reindex`). Semantic and hybrid search need Ollama running locally; structural queries, doctor and the web app don't. The MCP server finds its workspace by walking up from its working directory to the nearest `tusk.toml`, or from the directory `--workspace` (or `TUSK_WORKSPACE`) names.
 
 ## Start here
 

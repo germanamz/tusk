@@ -38,7 +38,7 @@ and their files count as referring files.`,
   tusk edge list --to notes/intros/hello`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, loaded, resolveErr := resolveWorkspace()
+			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
 				return resolveErr

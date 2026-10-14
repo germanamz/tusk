@@ -85,7 +85,7 @@ relative path resolves against the workspace root, where sessions start.`,
   tusk claude install --bin ./bin/tusk`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root, rootErr := claudeWorkspaceRoot()
+			root, rootErr := claudeWorkspaceRoot(cmd)
 
 			if rootErr != nil {
 				return rootErr
@@ -140,7 +140,7 @@ restored; re-add it with:
   claude mcp add --scope project tusk -- tusk mcp`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root, rootErr := claudeWorkspaceRoot()
+			root, rootErr := claudeWorkspaceRoot(cmd)
 
 			if rootErr != nil {
 				return rootErr
@@ -174,7 +174,7 @@ whether its MCP server is approved, and whether .mcp.json still runs a
 duplicate tusk server.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root, rootErr := claudeWorkspaceRoot()
+			root, rootErr := claudeWorkspaceRoot(cmd)
 
 			if rootErr != nil {
 				return rootErr
@@ -243,17 +243,11 @@ func writeClaudeReport(out io.Writer, report *claudeplugin.Report) {
 }
 
 // claudeWorkspaceRoot finds the workspace the claude verbs act on.
-func claudeWorkspaceRoot() (string, error) {
-	cwd, cwdErr := os.Getwd()
-
-	if cwdErr != nil {
-		return "", cwdErr
-	}
-
-	ws, findErr := workspace.Find(cwd)
+func claudeWorkspaceRoot(cmd *cobra.Command) (string, error) {
+	ws, findErr := findWorkspace(cmd)
 
 	if findErr != nil {
-		return "", fmt.Errorf("claude: no tusk.toml in this folder or above; run tusk init first")
+		return "", fmt.Errorf("claude: %w", findErr)
 	}
 
 	return ws.Root, nil
@@ -337,13 +331,7 @@ func runClaudeContext(cmd *cobra.Command, pluginVersion string, maxBytes int) er
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "tusk plugin is %s, binary is %s; run tusk claude install\n", pluginVersion, version.Current)
 	}
 
-	cwd, cwdErr := os.Getwd()
-
-	if cwdErr != nil {
-		return nil
-	}
-
-	ws, findErr := workspace.Find(cwd)
+	ws, findErr := findWorkspace(cmd)
 
 	if findErr != nil {
 		return nil

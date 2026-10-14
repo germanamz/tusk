@@ -29,7 +29,7 @@ func TestGoldenCLI_Workspace(test *testing.T) {
 			name:       "init refuses an already-initialized workspace",
 			args:       []string{"init", "--name", "test"},
 			wantErr:    true,
-			wantStderr: "init: tusk.toml already exists\n",
+			wantStderr: "init: <WS>/tusk.toml already exists\n",
 		},
 		{
 			name: "reindex indexes new files",

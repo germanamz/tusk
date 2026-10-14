@@ -15,8 +15,8 @@ come first, then those naming a nearer directory. At most --max pages are
 listed; a last line says how to see the rest.
 
 Pages name paths through edge types that set paths = true in tusk.toml. The
-path may be absolute or relative to the current directory; one outside the
-workspace prints nothing.
+path may be absolute or relative to the current directory (the --workspace
+directory, when one is given); one outside the workspace prints nothing.
 
 The plugin calls this once per file a session edits. It never fails an edit:
 when nothing names the path, the workspace declares no paths edge type, or the
@@ -43,7 +43,8 @@ tusk claude refs <path> [flags]
 ### Options inherited from parent commands
 
 ```
-  -v, --verbose   emit debug-level logs to stderr
+  -v, --verbose         emit debug-level logs to stderr
+  -C, --workspace dir   run as if started in dir: find tusk.toml from there instead of the working directory (default $TUSK_WORKSPACE)
 ```
 
 ### SEE ALSO

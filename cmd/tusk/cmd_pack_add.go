@@ -34,13 +34,13 @@ are removed before the pack is appended.`,
   tusk pack add kanban --force`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, getCwdErr := os.Getwd()
+			ws, findErr := findWorkspace(cmd)
 
-			if getCwdErr != nil {
-				return getCwdErr
+			if findErr != nil {
+				return findErr
 			}
 
-			addErr := typepacks.AddPack(cmd.Context(), args[0], force, cwd)
+			addErr := typepacks.AddPack(cmd.Context(), args[0], force, ws.Root)
 
 			if addErr == nil {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "pack add: applied %q to tusk.toml\n", args[0])

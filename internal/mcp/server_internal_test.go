@@ -62,3 +62,32 @@ func TestErrRecorder_NilLoggerSafe(test *testing.T) {
 		test.Errorf("firstErr = %v, want %v", firstErr, bootErr)
 	}
 }
+
+// TestServerInstructions_NameTheVault pins #794: a server started under
+// --workspace runs outside the vault, so the instructions name its absolute
+// paths instead of "./", which would point the agent at the wrong folder.
+func TestServerInstructions_NameTheVault(test *testing.T) {
+	runtime := &Runtime{
+		Root:         "/vaults/notes",
+		ManifestPath: "/vaults/notes/tusk.toml",
+		IndexPath:    "/vaults/notes/.tusk/index.db",
+	}
+
+	instructions := serverInstructions(runtime)
+
+	for _, want := range []string{
+		"running over the vault at /vaults/notes.",
+		"markdown and HTML files under /vaults/notes\n",
+		"the schema declared in /vaults/notes/tusk.toml\n",
+		"the SQLite index at /vaults/notes/.tusk/index.db\n",
+		"edit /vaults/notes/tusk.toml in your editor",
+	} {
+		if !strings.Contains(instructions, want) {
+			test.Errorf("instructions missing %q:\n%s", want, instructions)
+		}
+	}
+
+	if strings.Contains(instructions, "./") || strings.Contains(instructions, "%!") {
+		test.Errorf("instructions still name ./ or carry a format error:\n%s", instructions)
+	}
+}

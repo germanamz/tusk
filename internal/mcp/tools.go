@@ -1786,7 +1786,7 @@ func registerReloadTool(srv *Server) {
 
 // registerPackAddTool exposes `tusk pack add` over MCP so an agent can seed or
 // extend a workspace's schema without shelling out. It merges the pack's
-// node/edge-type declarations into ./tusk.toml (via typepacks.AddPack, which
+// node/edge-type declarations into the workspace's tusk.toml (via typepacks.AddPack, which
 // takes the workspace flock for the write) and then hot-reloads the schema by
 // delegating to reloadToolHandler — so the daemon picks up the new types in
 // place and the response is the same {manifest_epoch, diff, reindex} envelope as
@@ -1796,7 +1796,7 @@ func registerReloadTool(srv *Server) {
 // returning, so the subsequent reload re-acquires it without contention.
 func registerPackAddTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_pack_add",
-		mcpgo.WithDescription("Merge a built-in type pack's node-type and edge-type declarations into ./tusk.toml and hot-reload the schema — the MCP equivalent of `tusk pack add`, so you can set up or extend a workspace's types without shelling out. Fails on a section collision unless force=true. Returns the same result as tusk_reload (manifest-epoch, schema diff, reindex report)."),
+		mcpgo.WithDescription("Merge a built-in type pack's node-type and edge-type declarations into the workspace's tusk.toml and hot-reload the schema — the MCP equivalent of `tusk pack add`, so you can set up or extend a workspace's types without shelling out. Fails on a section collision unless force=true. Returns the same result as tusk_reload (manifest-epoch, schema diff, reindex report)."),
 		mcpgo.WithString("pack", mcpgo.Required(), mcpgo.Description("Built-in pack name (vault, tags, kanban — see tusk_help(topic: \"packs\")) or a full http(s)://tusk.toml URL.")),
 		mcpgo.WithBoolean("force", mcpgo.Description("Replace colliding [node-types]/[edge-types] sections instead of failing on a collision (default false).")),
 	)

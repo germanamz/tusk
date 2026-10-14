@@ -37,7 +37,7 @@ default mirrors prior CLI behavior (tab-aligned table for TTY).`,
   # JSON for piping into jq
   tusk edge list --from tickets/T-001 --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, loaded, resolveErr := resolveWorkspace()
+			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
 				return resolveErr

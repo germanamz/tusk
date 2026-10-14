@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
 	"github.com/germanamz/tusk/internal/reset"
-	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -37,16 +35,10 @@ model. It requires confirmation; pass --yes to skip the prompt.`,
   # Non-interactive (e.g. scripts/agents)
   tusk reset --yes`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, cwdErr := os.Getwd()
-
-			if cwdErr != nil {
-				return cwdErr
-			}
-
-			ws, findErr := workspace.Find(cwd)
+			ws, findErr := findWorkspace(cmd)
 
 			if findErr != nil {
-				return fmt.Errorf("workspace: %w", findErr)
+				return findErr
 			}
 
 			yes, _ := cmd.Flags().GetBool("yes")

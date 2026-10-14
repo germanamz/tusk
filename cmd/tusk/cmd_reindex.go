@@ -3,14 +3,12 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/reindex"
-	"github.com/germanamz/tusk/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -65,16 +63,10 @@ shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
   tusk watch &
   tusk reindex`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, cwdErr := os.Getwd()
-
-			if cwdErr != nil {
-				return cwdErr
-			}
-
-			ws, findErr := workspace.Find(cwd)
+			ws, findErr := findWorkspace(cmd)
 
 			if findErr != nil {
-				return fmt.Errorf("workspace: %w", findErr)
+				return findErr
 			}
 
 			verbose, _ := cmd.Flags().GetBool("verbose")

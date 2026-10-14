@@ -58,7 +58,7 @@ reindex pass will materialize the edge from the markdown frontmatter.`,
 				return fmt.Errorf("--type is required")
 			}
 
-			ws, loaded, resolveErr := resolveWorkspace()
+			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
 				return resolveErr

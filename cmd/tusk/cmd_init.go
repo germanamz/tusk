@@ -50,7 +50,8 @@ func newInitCmd() *cobra.Command {
 	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize a Tusk workspace in the current directory",
-		Long: `Initialize a Tusk workspace in the current directory.
+		Long: `Initialize a Tusk workspace in the current directory, or in the directory
+--workspace names.
 
 Creates tusk.toml (the manifest declaring node types and edge types) with a
 minimal default schema, bootstraps the SQLite index under .tusk/, and appends
@@ -72,6 +73,9 @@ and running "tusk reindex".`,
 		Example: `  # Create a workspace named "my-brain" in the current directory
   tusk init --name my-brain
 
+  # Create it in another folder without changing into it
+  tusk init --name notes --workspace ~/notes
+
   # Index a folder of notes you already have
   cd ~/notes && tusk init --name notes && tusk reindex
 
@@ -84,22 +88,22 @@ and running "tusk reindex".`,
   # Verify the workspace is healthy
   tusk doctor`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, getCwdErr := os.Getwd()
+			root, dirErr := startDir(cmd)
 
-			if getCwdErr != nil {
-				return getCwdErr
+			if dirErr != nil {
+				return dirErr
 			}
 
-			manifestPath := filepath.Join(cwd, workspace.ManifestFilename)
+			manifestPath := filepath.Join(root, workspace.ManifestFilename)
 
 			if _, statErr := os.Stat(manifestPath); statErr == nil {
-				return fmt.Errorf("init: %s already exists", workspace.ManifestFilename)
+				return fmt.Errorf("init: %s already exists", manifestPath)
 			}
 
 			untyped := 0
 
 			if !noAdopt {
-				count, countErr := countUntypedMarkdown(cwd)
+				count, countErr := countUntypedMarkdown(root)
 
 				if countErr != nil {
 					return fmt.Errorf("init: scan for markdown: %w", countErr)
@@ -119,12 +123,12 @@ and running "tusk reindex".`,
 			}
 
 			if untyped > 0 {
-				if addErr := typepacks.AddPack(cmd.Context(), adoptPack, false, cwd); addErr != nil {
+				if addErr := typepacks.AddPack(cmd.Context(), adoptPack, false, root); addErr != nil {
 					return fmt.Errorf("init: add the %s pack: %w", adoptPack, addErr)
 				}
 			}
 
-			indexPath := filepath.Join(cwd, workspace.IndexDirname, workspace.IndexFilename)
+			indexPath := filepath.Join(root, workspace.IndexDirname, workspace.IndexFilename)
 
 			loaded, loadErr := manifest.Load(manifestPath)
 
@@ -134,7 +138,7 @@ and running "tusk reindex".`,
 
 			manifest.MergeBuiltinPacks(loaded)
 
-			store, openErr := openStore(cmd, cwd, indexPath, loaded)
+			store, openErr := openStore(cmd, root, indexPath, loaded)
 
 			if openErr != nil {
 				return fmt.Errorf("init: bootstrap index: %w", openErr)
@@ -142,11 +146,11 @@ and running "tusk reindex".`,
 
 			store.Close()
 
-			if appendErr := appendGitignore(filepath.Join(cwd, ".gitignore")); appendErr != nil {
+			if appendErr := appendGitignore(filepath.Join(root, ".gitignore")); appendErr != nil {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "init: warning: could not update .gitignore: %v\n", appendErr)
 			}
 
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Initialized Tusk workspace at %s\n", cwd)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Initialized Tusk workspace at %s\n", root)
 
 			if untyped > 0 {
 				printAdoption(cmd, untyped)
@@ -157,7 +161,7 @@ and running "tusk reindex".`,
 			}
 
 			return runClaudeInstall(cmd.OutOrStdout(), claudeplugin.InstallOptions{
-				Root:    cwd,
+				Root:    root,
 				Bin:     claudeplugin.DefaultBin,
 				Version: version.Current,
 			})

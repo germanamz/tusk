@@ -78,6 +78,10 @@ CONFIGURATION
 
 .PP
 Environment overrides (read once at startup, highest precedence):
+    TUSK_WORKSPACE           the vault to run in when --workspace is absent,
+                             for MCP clients that set env but no working
+                             directory. --workspace wins over it, and it wins
+                             over the working directory.
     TUSK_EMBED_WORKERS       embed/reindex pool size; 0 = read-only instance.
                              Falls back to [embeddings] workers, then
                              max(1, NumCPU/2).
@@ -95,6 +99,10 @@ See "tusk  --help" for per-command flags and detail.
 .PP
 \fB-v\fP, \fB--verbose\fP[=false]
 	emit debug-level logs to stderr
+
+.PP
+\fB-C\fP, \fB--workspace\fP=""
+	run as if started in \fBdir\fR: find tusk.toml from there instead of the working directory (default $TUSK_WORKSPACE)
 
 
 .SH EXAMPLE
@@ -121,6 +129,9 @@ See "tusk  --help" for per-command flags and detail.
 
   # Serve the graph to an MCP agent (Claude Code, Cursor, Zed)
   tusk mcp
+
+  # Serve a vault from anywhere, e.g. for Claude Desktop
+  tusk mcp --workspace ~/notes
 
   # Give Claude Code sessions in this vault its digest and tools
   tusk claude install

@@ -120,7 +120,7 @@ Pass `tusk init --no-adopt`, or delete `default-type` from `tusk.toml`, to index
 
 ## Connect your agent
 
-The server is `tusk mcp` over stdio. It finds the vault by walking up from its working directory to the nearest `tusk.toml`, so the client has to start it inside the vault. Clients differ on that.
+The server is `tusk mcp` over stdio. It finds the vault by walking up from the directory it starts in to the nearest `tusk.toml`. Clients that start it inside the vault need nothing else. For the rest, `--workspace` (or `-C`) names the vault and works from any directory. Without it, the server exits with `no tusk.toml in <dir> or any parent directory`.
 
 **Claude Code.** Run this in the vault:
 
@@ -130,16 +130,15 @@ tusk claude install
 
 It installs a project plugin that runs the MCP server and gives each session a short orientation to the vault ([details](docs/guide/mcp.md#the-claude-code-plugin)). For the server alone: `claude mcp add tusk -- tusk mcp`.
 
-**Codex CLI.** `codex mcp add tusk -- tusk mcp`. Codex starts the server in the directory you launched it from. To pin one vault, set `cwd` in `~/.codex/config.toml`:
+**Codex CLI.** `codex mcp add tusk -- tusk mcp`. Codex starts the server in the directory you launched it from, so to use one vault from anywhere, give it the path in `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.tusk]
 command = "tusk"
-args    = ["mcp"]
-cwd     = "/path/to/vault"
+args    = ["mcp", "--workspace", "/path/to/vault"]
 ```
 
-**Gemini CLI.** `gemini mcp add tusk tusk mcp` writes `.gemini/settings.json` in the current project. Gemini also starts the server in the launch directory, and accepts `cwd` the same way.
+**Gemini CLI.** `gemini mcp add tusk tusk mcp` writes `.gemini/settings.json` in the current project. Gemini also starts the server in the launch directory; add `"--workspace", "/path/to/vault"` to `args` to pin one vault.
 
 **VS Code.** `.vscode/mcp.json` in the vault. VS Code starts the server in the workspace folder.
 
@@ -153,7 +152,7 @@ cwd     = "/path/to/vault"
 { "mcpServers": { "tusk": { "command": "tusk", "args": ["mcp"] } } }
 ```
 
-Cursor doesn't document which directory it starts servers in. If the server fails with `no tusk.toml found`, use the wrapper below.
+Cursor doesn't document which directory it starts servers in. If the server fails with `no tusk.toml in …`, add `"--workspace", "/path/to/vault"` to `args`.
 
 **Zed.** In your settings. Zed starts the server in the project root.
 
@@ -161,13 +160,13 @@ Cursor doesn't document which directory it starts servers in. If the server fail
 { "context_servers": { "tusk": { "command": "tusk", "args": ["mcp"] } } }
 ```
 
-**Claude Desktop, Windsurf, and clients with no project folder.** Wrap the command so it changes into the vault first (macOS and Linux):
+**Claude Desktop, Windsurf, and clients with no project folder.** Name the vault:
 
 ```json
-{ "mcpServers": { "tusk": { "command": "sh", "args": ["-c", "cd /path/to/vault && exec /absolute/path/to/tusk mcp"] } } }
+{ "mcpServers": { "tusk": { "command": "/absolute/path/to/tusk", "args": ["mcp", "--workspace", "/path/to/vault"] } } }
 ```
 
-Claude Desktop starts servers with a minimal `PATH`, so give tusk's absolute path (`which tusk` prints it). A `--workspace` flag that makes the wrapper unnecessary is [#794](https://github.com/germanamz/tusk/issues/794).
+Claude Desktop starts servers with a minimal `PATH`, so give tusk's absolute path (`which tusk` prints it). A leading `~` in the vault path is expanded, so `"~/notes"` works even though the client doesn't run a shell. If a client's config takes `env` but not `args`, set `TUSK_WORKSPACE` to the vault path instead. The flag wins over the variable, and the variable over the directory the server starts in.
 
 The server's tools, and why agents should prefer them over the CLI, are in [docs/guide/mcp.md](docs/guide/mcp.md).
 

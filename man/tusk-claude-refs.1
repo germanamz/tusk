@@ -18,8 +18,8 @@ listed; a last line says how to see the rest.
 
 .PP
 Pages name paths through edge types that set paths = true in tusk.toml. The
-path may be absolute or relative to the current directory; one outside the
-workspace prints nothing.
+path may be absolute or relative to the current directory (the --workspace
+directory, when one is given); one outside the workspace prints nothing.
 
 .PP
 The plugin calls this once per file a session edits. It never fails an edit:
@@ -39,6 +39,10 @@ index is missing, it prints nothing. It always exits 0.
 .SH OPTIONS INHERITED FROM PARENT COMMANDS
 \fB-v\fP, \fB--verbose\fP[=false]
 	emit debug-level logs to stderr
+
+.PP
+\fB-C\fP, \fB--workspace\fP=""
+	run as if started in \fBdir\fR: find tusk.toml from there instead of the working directory (default $TUSK_WORKSPACE)
 
 
 .SH EXAMPLE
