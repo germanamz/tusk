@@ -23,10 +23,10 @@ make test-race      # tests with race detector
 make vet            # go vet
 make lint           # golangci-lint run ./...
 make fmt            # gofmt across the tree
-make docs           # regenerate docs/cli/ and man/ from the cobra help text
+make docs           # regenerate docs/cli/ and man/ from the cobra help text, and llms-full.txt
 ```
 
-After editing a command's help text in `cmd/tusk/`, run `make docs` and commit both `docs/cli/` and `man/`; a pre-push docs-drift check rejects the push otherwise.
+After editing a command's help text in `cmd/tusk/`, the README or a page in `docs/guide/`, run `make docs` and commit what it regenerates (`docs/cli/`, `man/` and `llms-full.txt`); a pre-push docs-drift check rejects the push otherwise. A new guide also needs a place in `llmsGuideOrder` (`cmd/tusk/docgen_llms.go`), in `llms.txt` and in the README's Documentation list.
 
 ## Style
 

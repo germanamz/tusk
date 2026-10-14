@@ -214,7 +214,7 @@ A prompt you can paste into your agent:
 - [MCP server and Claude Code plugin](docs/guide/mcp.md): the server, the plugin, the tool list
 - [CLI reference](docs/cli/README.md) and [workflows](docs/cli/workflows.md); man pages are in [`man/`](man/) (`man -M man tusk` after cloning)
 - [PRODUCT.md](PRODUCT.md): what tusk is for, and its design principles
-- [llms.txt](llms.txt): these docs, indexed for agents
+- [llms.txt](llms.txt): these docs, indexed for agents, and [llms-full.txt](llms-full.txt), all of them in one file
 - [Roadmap](docs/roadmap.md)
 
 Questions go in [Discussions](https://github.com/germanamz/tusk/discussions), bugs and ideas in [issues](https://github.com/germanamz/tusk/issues).

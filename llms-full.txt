@@ -1,0 +1,3370 @@
+# Tusk documentation
+
+Every page of tusk's user docs in one file: the README, the guides in docs/guide/ and the CLI reference in docs/cli/. Each page starts with a heading that names its path, and its relative links point at GitHub. `make docs` writes this file from those pages, so edit them rather than this. llms.txt indexes the same pages.
+
+# README.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/README.md
+
+# Tusk
+
+**Agent memory you can code-review.**
+
+Tusk indexes a folder of markdown into a typed, searchable graph that your agents query over MCP. The memory stays plain files in git, so every change an agent makes shows up in a diff, and `tusk doctor` fails the build when a link dangles or one of your conventions breaks.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/germanamz/tusk/main/docs/assets/tusk-web-dark.png">
+  <img alt="tusk web's reading view: a plain-English search ranks this repo's package docs by similarity, and the best match is open beside the results" src="https://raw.githubusercontent.com/germanamz/tusk/main/docs/assets/tusk-web-light.png">
+</picture>
+
+[Why tusk](https://raw.githubusercontent.com/germanamz/tusk/main/README.md#why-tusk) · [Install](https://raw.githubusercontent.com/germanamz/tusk/main/README.md#install) · [Try it](https://raw.githubusercontent.com/germanamz/tusk/main/README.md#try-it-on-tusks-own-docs) · [Your own notes](https://raw.githubusercontent.com/germanamz/tusk/main/README.md#use-it-on-your-own-notes) · [Connect your agent](https://raw.githubusercontent.com/germanamz/tusk/main/README.md#connect-your-agent) · [For agents](https://raw.githubusercontent.com/germanamz/tusk/main/README.md#if-youre-an-agent-setting-this-up) · [How it compares](https://raw.githubusercontent.com/germanamz/tusk/main/README.md#how-it-compares) · [Docs](https://raw.githubusercontent.com/germanamz/tusk/main/README.md#documentation)
+
+## Why tusk
+
+Agents write a lot: specs, plans, notes, decisions. Most agent-memory servers keep it in a database or a hosted store, where you can't diff or review it. Tusk keeps it where your team already reviews things.
+
+- Every memory is a markdown file in git. You can review, revert or blame what an agent wrote, and Obsidian, vim and grep read the same files.
+- `tusk.toml` declares node types, properties and edge types. A file that breaks the schema is still indexed, and `tusk doctor` reports it.
+- Your conventions become checks. A rule is a filter that should match nothing, such as "a product note outside `docs/product/`". Doctor runs every rule and exits 1 when one matches, so a broken convention can fail CI.
+- Hybrid search filters by structure, ranks by meaning with local Ollama embeddings, and returns the matching section with its heading and line range, so the agent reads a few lines instead of whole files.
+- It runs locally: one Go binary and one SQLite file in `.tusk/`, with no account or hosted service.
+
+### One query instead of grep and read
+
+Say an agent needs to know how embedding prefixes work in this repo. `grep -ril prefix docs/packages` matches 7 files, about 60 KB to read. One hybrid query returns the section that answers it (output trimmed):
+
+```console
+$ tusk query 'type=package' --semantic "how are embedding prefixes applied to queries and documents" --take 1 --json
+```
+
+```json
+[{
+  "id": "docs/packages/embed",
+  "title": "internal/embed — semantic indexing",
+  "score": 0.83,
+  "matched_units": [{
+    "heading": "Public surface",
+    "lines": [12, 21],
+    "snippet": "…payload), and Header(node) apply the [embeddings] prefixes and header mode. EmbedQuery is the query-side entry point that applies the query prefix."
+  }],
+  "units_total": 3
+}]
+```
+
+Over MCP it's the `tusk_query` tool with the same arguments. That's one example. Across 40 questions about these docs, an agent using `tusk_query` cited the right section every time (91% with grep and read) and made one tool call fewer, but read 11% more input tokens. A query result is about 8 KB, so tusk pays off on questions where grep has to dig. On a larger, private vault of 79 files, tusk read 17% fewer input tokens and finished 28% faster. [Benchmarks](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md) has the numbers, including the questions where tusk lost.
+
+### Conventions that fail the build
+
+```toml
+[rule.domain-matches-directory]
+description = "a product note lives under docs/product/"
+filter      = "type=note AND domain=product AND NOT path=docs/product/**"
+```
+
+```console
+$ tusk doctor
+doctor: 2 errors, 0 warnings, 0 advice
+  error    [dangling-edge] docs/product/refunds: edge "references" -> "docs/product/refund-policy" (target missing); also in #S1, #S1P1
+  error    [rule:domain-matches-directory] docs/technical/billing: a product note lives under docs/product/
+…
+$ echo $?
+1
+```
+
+[Rules and doctor](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/rules-and-doctor.md) covers the rule grammar, severities and a CI recipe.
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
+```
+
+This downloads the latest release for macOS, Linux or Windows (amd64 or arm64) into `~/.local/bin`. With Go 1.26+ you can run `go install github.com/germanamz/tusk/cmd/tusk@latest` instead. Semantic and hybrid search need [Ollama](https://ollama.com) running locally with an embedding model (`ollama pull nomic-embed-text`). Everything else works without it.
+
+Updating (`tusk update`), pinning a version and building from source are in [docs/guide/install.md](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/install.md).
+
+## Try it on tusk's own docs
+
+This repo is a tusk vault: `docs/packages/` holds one typed page per Go package.
+
+```bash
+git clone https://github.com/germanamz/tusk && cd tusk
+tusk reindex      # builds .tusk/ in about 10 seconds, embedding with Ollama if it's running
+tusk web --open   # graph and reading views at http://127.0.0.1:7373
+tusk query 'type=package' --semantic "what happens when the index gets corrupted"
+```
+
+Without Ollama, reindex still builds the graph, and its summary says how many nodes are left to embed.
+
+## Use it on your own notes
+
+Point it at the folder you already have:
+
+```bash
+cd ~/notes
+tusk init --name notes   # finds your markdown and indexes it as notes
+tusk reindex
+tusk web --open
+```
+
+When the folder already holds markdown, `init` says how many files have no `type:`, adds the `vault` pack (note, meeting and decision types, plus wikilink edges) and sets `default-type = "note"` in `tusk.toml`. Every file then indexes as a note without being edited: its path, minus the extension, is its id, its first `# ` heading is its title, and its wikilinks become edges in any of the forms Obsidian writes: by name (`[[other-note]]`), as a path (`[[folder/other-note]]`), or relative to the note (`[[../folder/other-note]]`).
+
+Frontmatter can still give a file another type and properties:
+
+```markdown
+---
+type: decision
+title: Use SSO
+---
+
+# Use SSO
+
+Builds on [[notes/auth-rfc]].
+```
+
+Pass `tusk init --no-adopt`, or delete `default-type` from `tusk.toml`, to index only files with a `type:`.
+
+[Workspaces, nodes and the manifest](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/workspace.md) covers types, edges, type packs and what gets indexed.
+
+## Connect your agent
+
+The server is `tusk mcp` over stdio. It finds the vault by walking up from its working directory to the nearest `tusk.toml`, so the client has to start it inside the vault. Clients differ on that.
+
+**Claude Code.** Run this in the vault:
+
+```bash
+tusk claude install
+```
+
+It installs a project plugin that runs the MCP server and gives each session a short orientation to the vault ([details](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/mcp.md#the-claude-code-plugin)). For the server alone: `claude mcp add tusk -- tusk mcp`.
+
+**Codex CLI.** `codex mcp add tusk -- tusk mcp`. Codex starts the server in the directory you launched it from. To pin one vault, set `cwd` in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.tusk]
+command = "tusk"
+args    = ["mcp"]
+cwd     = "/path/to/vault"
+```
+
+**Gemini CLI.** `gemini mcp add tusk tusk mcp` writes `.gemini/settings.json` in the current project. Gemini also starts the server in the launch directory, and accepts `cwd` the same way.
+
+**VS Code.** `.vscode/mcp.json` in the vault. VS Code starts the server in the workspace folder.
+
+```json
+{ "servers": { "tusk": { "type": "stdio", "command": "tusk", "args": ["mcp"] } } }
+```
+
+**Cursor.** `.cursor/mcp.json` in the vault:
+
+```json
+{ "mcpServers": { "tusk": { "command": "tusk", "args": ["mcp"] } } }
+```
+
+Cursor doesn't document which directory it starts servers in. If the server fails with `no tusk.toml found`, use the wrapper below.
+
+**Zed.** In your settings. Zed starts the server in the project root.
+
+```json
+{ "context_servers": { "tusk": { "command": "tusk", "args": ["mcp"] } } }
+```
+
+**Claude Desktop, Windsurf, and clients with no project folder.** Wrap the command so it changes into the vault first (macOS and Linux):
+
+```json
+{ "mcpServers": { "tusk": { "command": "sh", "args": ["-c", "cd /path/to/vault && exec /absolute/path/to/tusk mcp"] } } }
+```
+
+Claude Desktop starts servers with a minimal `PATH`, so give tusk's absolute path (`which tusk` prints it). A `--workspace` flag that makes the wrapper unnecessary is [#794](https://github.com/germanamz/tusk/issues/794).
+
+The server's tools, and why agents should prefer them over the CLI, are in [docs/guide/mcp.md](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/mcp.md).
+
+## If you're an agent setting this up
+
+None of these commands prompt.
+
+1. Install: `curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh` puts `tusk` in `~/.local/bin`. If `tusk --version` fails afterwards, that directory isn't on `PATH`.
+2. Create the workspace in the vault root: `tusk init --name <name>`. It exits 1 if `tusk.toml` already exists, which you can treat as already done. If the folder holds markdown without a `type:`, init adds the vault pack and sets `default-type = "note"` so those files index as notes, and says so in its output; `--no-adopt` skips this.
+3. Declare types, unless init already added the vault pack: `tusk pack add vault` adds note, meeting and decision types. Built-in packs ship inside tusk, so it works offline. It exits 1 if run twice (`--force` overwrites). Or write `[node-types.*]` in `tusk.toml` yourself.
+4. Index: `tusk reindex`. If its summary ends with `queued for embedding (embedder unreachable)`, Ollama isn't reachable: the graph was built, and only semantic search is missing. It still exits 0.
+5. Connect the client as described in [Connect your agent](https://raw.githubusercontent.com/germanamz/tusk/main/README.md#connect-your-agent). For Claude Code, run `tusk claude install`.
+6. Verify: `tusk status` prints node counts by type, so non-zero counts mean files were indexed. `tusk doctor` exits 0 when the vault is healthy and 1 when an error is present, listing errors first.
+
+Commands exit 0 on success and non-zero on failure. `tusk query`, `node list`, `node get`, `edge list`, `context` and `run` take `--json`. `tusk reset` asks for confirmation unless you pass `--yes`. Once the MCP server is connected, use the `tusk_*` tools instead of the shell, and call `tusk_help` for the filter grammar and workflows.
+
+A prompt you can paste into your agent:
+
+> Install tusk (https://github.com/germanamz/tusk) and set it up for this folder. Follow the "If you're an agent setting this up" section of its README, connect it as an MCP server for this client, then run `tusk status` and `tusk doctor` and show me the output.
+
+## How it compares
+
+**grep and ripgrep** need no setup and are exact when you know the words. Tusk adds search by meaning, a schema, and links you can query. It costs an index, and Ollama for semantic search.
+
+**Obsidian** is a good editor for the same kind of vault, and the two can share a folder: Obsidian for writing, tusk for agents and checks. Tusk resolves the links Obsidian writes, short names included, and `tusk node move` keeps them pointing where they did.
+
+**A vector database or RAG pipeline** scales further, with more embedding models and hosted options. Tusk's index is derived from files you can read and review, and structure (types, edges, rules) is queryable in the same call as similarity. Tusk only talks to Ollama today.
+
+**Agent-memory MCP servers** are easier to start with, because the agent just writes memories. Most keep them in a database, a JSON file or a hosted service, which you can't diff, review or fix in an editor. Tusk asks for more upfront (a schema), and in return you can review the memory.
+
+### Where tusk falls short
+
+- Semantic search needs Ollama running locally. There's no hosted embedding provider yet.
+- One writer at a time per workspace: an advisory lock serializes writes from the CLI and the MCP server.
+- Similarity ranking is brute-force cosine in memory. That suits a personal or team vault, not millions of documents.
+
+## Documentation
+
+- [Install and update](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/install.md)
+- [Workspaces, nodes and the manifest](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/workspace.md): node files, edges, path refs, type packs, indexing
+- [Querying](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/querying.md): the filter grammar, semantic search, embedding settings
+- [Rules and doctor](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/rules-and-doctor.md): health checks, conventions, CI
+- [Benchmarks](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md): what an agent spends answering with `tusk_query` against grep and read
+- [MCP server and Claude Code plugin](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/mcp.md): the server, the plugin, the tool list
+- [CLI reference](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/README.md) and [workflows](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/workflows.md); man pages are in [`man/`](https://github.com/germanamz/tusk/tree/main/man) (`man -M man tusk` after cloning)
+- [PRODUCT.md](https://raw.githubusercontent.com/germanamz/tusk/main/PRODUCT.md): what tusk is for, and its design principles
+- [llms.txt](https://raw.githubusercontent.com/germanamz/tusk/main/llms.txt): these docs, indexed for agents, and [llms-full.txt](https://raw.githubusercontent.com/germanamz/tusk/main/llms-full.txt), all of them in one file
+- [Roadmap](https://raw.githubusercontent.com/germanamz/tusk/main/docs/roadmap.md)
+
+Questions go in [Discussions](https://github.com/germanamz/tusk/discussions), bugs and ideas in [issues](https://github.com/germanamz/tusk/issues).
+
+## Development
+
+```bash
+make build        # ./bin/tusk
+make test         # unit tests
+make test-race    # with race detector
+make vet
+make lint         # golangci-lint
+make fmt
+```
+
+See [`STYLE.md`](https://raw.githubusercontent.com/germanamz/tusk/main/STYLE.md) for the codebase conventions and [`CONTRIBUTING.md`](https://raw.githubusercontent.com/germanamz/tusk/main/CONTRIBUTING.md) for how to propose changes.
+
+## License
+
+[Apache 2.0](https://raw.githubusercontent.com/germanamz/tusk/main/LICENSE)
+
+# docs/guide/install.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/install.md
+
+# Installing and updating tusk
+
+## Prerequisites
+
+- (Optional, for semantic search) [Ollama](https://ollama.com) running locally with an embedding model, e.g. `ollama pull nomic-embed-text`. Everything except semantic and hybrid queries works without it.
+
+## One-liner (prebuilt binary)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
+```
+
+Detects your OS/arch, downloads the latest GitHub release, drops the `tusk` binary into `~/.local/bin` (override with `INSTALL_DIR=/usr/local/bin`), and installs its man pages into `~/.local/share/man` (override with `MAN_DIR`; `man tusk` works once that dir is on your `MANPATH`). Pin a specific release with `TUSK_VERSION=v1.1.0`. Prebuilt archives ship for darwin/linux/windows on amd64 + arm64.
+
+## From source
+
+Requires Go 1.26+.
+
+```bash
+git clone https://github.com/germanamz/tusk
+cd tusk
+make build
+# binary at ./bin/tusk — move it onto your PATH
+install bin/tusk /usr/local/bin/tusk
+```
+
+Or, without cloning:
+
+```bash
+go install github.com/germanamz/tusk/cmd/tusk@latest
+```
+
+Verify:
+
+```bash
+tusk --version
+```
+
+## Updating
+
+If you installed a prebuilt binary, `tusk update` replaces it in place. Your workspace and `.tusk/` index are untouched.
+
+```bash
+tusk update              # latest release
+tusk update v1.2.0       # pin a version (or roll back to one)
+tusk update --check      # report what's available, change nothing
+```
+
+The archive is verified against the release checksums before anything is extracted, and the previous binary is kept aside until the replacement is in place, so a failed swap rolls back rather than leaving you with no binary. Man pages are refreshed alongside it.
+
+A binary managed by Homebrew, installed with `go install`, or built from source is owned by that tool, so `tusk update` refuses it and prints the right command instead (`--force` overrides):
+
+```bash
+# From source
+cd tusk && git pull && make build && install bin/tusk /usr/local/bin/tusk
+
+# go install
+go install github.com/germanamz/tusk/cmd/tusk@latest
+```
+
+Re-running the install one-liner also still works, and remains the way to bootstrap a machine that has no `tusk` yet:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | TUSK_VERSION=v1.2.0 sh
+```
+
+After a major upgrade, run `tusk reindex` to pick up any indexer changes, then `tusk doctor` to confirm the workspace is healthy.
+
+# docs/guide/workspace.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/workspace.md
+
+# Workspaces, nodes and the manifest
+
+A Tusk workspace is just a directory:
+
+```
+my-brain/
+├── tusk.toml                # workspace manifest (committed)
+├── .tusk/                   # gitignored — local SQLite index
+│   └── tusk.db
+├── .gitignore
+├── notes/
+│   └── auth-rfc.md
+├── tickets/
+│   └── fix-login-bug.md
+└── tags/
+    └── auth.md
+```
+
+## Nodes are markdown files
+
+Every `.md` file with a `type:` field in YAML frontmatter is a **node**. The file path (minus the extension) is the canonical **node id** — no separate id field.
+
+```markdown
+---
+type: ticket
+title: Fix login bug
+status: active
+priority: high
+due: 2026-05-15
+parent: tickets/auth-epic
+blocks: [tickets/refactor-storage]
+tags: [auth, security]
+---
+
+# Fix login bug
+
+The bug occurs when users with SSO accounts hit the password reset flow.
+See [[notes/auth-rfc]] for context.
+```
+
+- `type` is the only universally reserved key.
+- Other frontmatter keys are either **properties** (string / int / date / enum / ref / list-of) or **edges** (declared in `tusk.toml`).
+- `[[notes/auth-rfc]]` body wikilinks materialize as edges to that node id for any edge type declared with `wikilinks = true` (e.g. the `vault` pack's `references` edge). The Obsidian aliased form `[[notes/auth-rfc|the auth RFC]]` links to the same node id — the text after `|` is display only — and a `tusk node move` retargets the id while keeping the display text. A wikilink inside inline code or a code block is an example, not a link: it makes no edge, and a move leaves it as written. [Wikilinks](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/workspace.md#wikilinks) covers the other ways a link can name its note.
+
+### Wikilinks
+
+A wikilink names its note in one of three ways, the same three Obsidian's "New link format" setting writes:
+
+- **A path**, `[[notes/auth-rfc]]`, is the node id: the file's workspace path without `.md`.
+- **A relative path**, `[[./auth-rfc]]` or `[[../notes/auth-rfc]]`, starts from the linking note's folder.
+- **A name**, `[[auth-rfc]]` or `[[Auth RFC]]`, has no folder at all. A note whose id is exactly that name wins, so every link that resolved before names existed resolves the same way. Otherwise tusk looks the name up among every file's name (the file name without its extension), and one match resolves the link. When two or more files share the name, the link stays unresolved and `tusk doctor` reports an `ambiguous-wikilink` error with the files, so you can write the path of the one you meant.
+
+Names match in any letter case by default, as Obsidian does. To match only the case a file name is written in:
+
+```toml
+[workspace]
+link-case = "sensitive"   # default "insensitive"
+```
+
+Paths always match exactly. A `#S1` fragment still addresses a section of the note it follows (`[[auth-rfc#S1]]`). A heading-text fragment such as `[[auth-rfc#Some heading]]` does not resolve yet ([#808](https://github.com/germanamz/tusk/issues/808)), so that link dangles.
+
+The same rules apply to a frontmatter value written as a wikilink, under an edge type (`relates-to: "[[auth-rfc]]"`) or a `ref` property. Names resolve once the whole workspace is indexed, so the order files are read in never matters, and a note added, removed or renamed outside tusk changes what a name finds on the next reindex without the linking files being re-read.
+
+`tusk node move` keeps every link pointing where it did. A name stays as written while it still finds the moved note, so moving `auth-rfc.md` to another folder leaves `[[auth-rfc]]` alone; renaming the file rewrites it to the new name. When the move gives the note a name another note already has, the links to both notes become full paths, since the name alone would no longer tell them apart. Relative links are re-rendered from where each file lives after the move, the moved note's own included.
+
+### Folders of plain markdown
+
+Markdown without a `type:` is not a node, so an existing Obsidian vault or `docs/` folder indexes as an empty graph. Set a default type to index it as it is:
+
+```toml
+[workspace]
+name = "notes"
+default-type = "note"
+```
+
+Every `.md` or `.mdx` file with no type of its own (no frontmatter, or frontmatter without `type:`) is then indexed as a `note`. The type must be declared under `[node-types]`; the `vault` pack declares `note`. An adopted file takes its title from `title:`, then from its first `# ` heading, then from its file name, and any frontmatter it has still applies. HTML pages still need their `tusk:type` meta, since untyped HTML is usually build output.
+
+Tusk never adds a type to these files. Reindex leaves them as they are, and `tusk node modify` writes frontmatter only when the change sets a property, so editing the body of a plain file keeps it plain. Changing or removing `default-type` re-processes every file on the next reindex, and files it no longer covers leave the index.
+
+`tusk init` sets this up when the folder already holds untyped markdown: it reports how many files it found, adds the `vault` pack, and writes `default-type = "note"`. Pass `--no-adopt` to keep those files out.
+
+## Edges connect nodes
+
+Edges are typed, declared in the manifest, and can be created two ways:
+
+- **Frontmatter** — the natural place. `parent: tickets/auth-epic` declares a `parent` edge.
+- **CLI / MCP** — `tusk edge add --type blocks --source tickets/a --target tickets/b`.
+
+Edge declarations enforce legality (`from`/`to` types), cardinality, ordering, and optional `acyclic = true` (cycles are rejected at write time). A hand-edited file that breaks `from`/`to` or cardinality is still indexed, and `tusk doctor` reports the edge as an error.
+
+## Pages name the files they describe
+
+Technical pages name source files, in inline code or as links. Set `paths = true` on an edge type and tusk records, with its line, each inline-code span that is a workspace-relative path (`` `server/ledger/core/service.go` ``, or a bare `Makefile`) and each link or image destination (`[the service](../server/ledger/core/service.go)`, resolved against the page's folder), so a file can find the pages that describe it:
+
+```toml
+[edge-types.describes]
+from  = ["technical"]   # which pages are scanned
+paths = true
+```
+
+With no `to`, the edge type holds no node edges, so its frontmatter values are paths too. `describes: [server/ledger/core/service.go]` declares the path outright, with no heuristic involved.
+
+```bash
+# Which pages name this file (or a directory above it), and where?
+tusk query 'names-path=server/ledger/core/service.go' --include paths
+
+# Only through one edge type, when several set paths = true
+tusk query 'names-path:describes=server/ledger/core/service.go'
+
+# Every path one page names
+tusk node get technical/ledger --include paths
+```
+
+The source tree can stay in `[workspace] ignore`: a path ref targets a path, not a node. `tusk doctor` warns with `path-missing` when a page names a path that has been renamed or deleted, and the Claude Code plugin (`tusk claude install`) reminds the agent of those pages right after it edits the file.
+
+## The manifest defines the schema
+
+`tusk.toml` is the contract between you and the engine. A minimal manifest:
+
+```toml
+[workspace]
+name = "my-brain"
+ignore = ["bin/", "node_modules/", "*.test"]
+
+[embeddings]
+provider = "ollama"
+endpoint = "http://localhost:11434"
+model    = "nomic-embed-text"
+dim      = 768
+
+[node-types.note]
+description = "A free-form markdown note"
+properties = []
+
+[node-types.decision]
+description = "A captured decision"
+properties = [
+    { name = "decided-at",  type = "date", required = true },
+    { name = "status",      type = "enum", values = ["proposed", "accepted", "rejected", "superseded"] },
+    { name = "supersedes",  type = "ref",  to = "decision" },
+]
+
+[edge-types.references]
+description = "Implicit edge materialized from body wikilinks"
+from        = ["*"]
+to          = ["*"]
+cardinality = "many-to-many"
+inverse     = "referenced-by"
+```
+
+`ref` properties auto-materialize edge types of the same name — declaring `supersedes` as a `ref` to `decision` gives you a `supersedes` edge for free.
+
+Conventions the schema can't express, like "product notes live under `docs/product/`", are declared as rules that `tusk doctor` checks. See [Rules and doctor](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/rules-and-doctor.md).
+
+Edited `tusk.toml` while a daemon is running? `tusk reload` (or the `tusk_reload` MCP tool) re-reads and validates the manifest, hot-swaps the schema in place — no restart — and converges any sibling daemons via the `.tusk/manifest-epoch` sentinel. It then reindexes to re-validate your content against the new schema. Validation matches startup, so a reload lands the same state a restart would.
+
+## Type packs (built-in templates)
+
+Instead of declaring everything by hand, `tusk pack add <name>` splices a curated TOML block into your manifest:
+
+| Pack | Adds |
+|------|------|
+| `vault` | `note`, `meeting`, `decision`; `references` (wikilinks) + `relates-to` |
+| `tags` | `tag` node + `tagged` edge (with `tags: [a, b]` frontmatter shorthand) |
+| `kanban` | `ticket` node with workflow-validated `status`; `parent` (WBS) + `blocks` edges |
+| `dev` | `spec`, `plan`, `handoff`, `package` — dogfooding pack for tracking software projects |
+
+Packs compose: add `vault` + `tags` + `kanban` and you have notes, decisions, tags, and a kanban workflow on top. `vault`, `tags` and `kanban` are compiled into tusk, so adding them by name works offline; `dev` installs by URL.
+
+```bash
+tusk pack add vault
+tusk pack add tags
+tusk pack add kanban
+```
+
+You can also load a pack from a URL or local file:
+
+```bash
+tusk pack add https://example.com/packs/research.toml
+tusk pack add file://$PWD/my-pack.toml
+```
+
+## Indexing
+
+The index lives in `.tusk/tusk.db` (SQLite + WAL). It is **derived state** — delete `.tusk/` and `tusk reindex` rebuilds it identically.
+
+### One-shot reindex
+
+```bash
+tusk reindex
+# Reindex done: 142 indexed, 0 removed, 3 skipped (2 not nodes)
+```
+
+`reindex` walks the workspace, parses every `.md`, validates frontmatter against the manifest, resolves refs + wikilinks into edges, and enqueues embeddings.
+
+A skipped file is one reindex left out of the index. The `not nodes` count is plain markdown with no frontmatter or no `type:` (in a workspace without `default-type`), plus HTML with no `tusk:type`; these are fine and get no warning. Any other skip is a file reindex could not parse: it is logged as a warning and `tusk doctor` reports it.
+
+### Live watcher
+
+```bash
+tusk watch
+```
+
+Runs fsnotify against the workspace and applies edits incrementally. Drains the embed queue in the background.
+
+### What gets indexed
+
+- Every `.md` file with a `type:` field, anywhere in the workspace, and every
+  other `.md` file too when `[workspace] default-type` is set.
+- Every `.html` / `.htm` file with a `<meta name="tusk:type">` tag — indexed
+  over its **prose** (tags stripped, entities decoded), with `<meta name="tusk:*">`
+  becoming typed node properties and `data-*` attributes captured as lenient
+  signals under the reserved `data` key.
+- Filtered through `.gitignore` + `[workspace] ignore` patterns.
+- `.tusk/` and `.git/` are always ignored.
+
+Off-schema content is **warned, not rejected** — a file with an unknown `type:`, a property violation, or an edge its edge type forbids still gets indexed (so it stays queryable) and surfaces in `tusk doctor`. The exception is a file reindex cannot parse at all (frontmatter that does not decode, say): it stays out of the index, and `tusk doctor` reports it as a `skipped-file` error with the parse error. Plain markdown with no frontmatter or no `type:` is not a node and is never reported.
+
+## Architecture
+
+Single Go binary, single SQLite index, single embedding provider (Ollama for now).
+
+```mermaid
+flowchart TD
+    workspace["Workspace<br/>(markdown + tusk.toml)"]
+    engine["Engine (cmd/tusk + internal/*)<br/>manifest · node · edge · reindex · filter · embed<br/>watcher · behaviors · mcp"]
+    db[".tusk/tusk.db<br/>(SQLite WAL, embeddings table)"]
+
+    workspace -->|"fs walk / fsnotify"| engine
+    engine -->|"reads / writes"| db
+```
+
+- **Filesystem > index, always.** The index is a cache; if it is stale, wedged, or corrupt, run `tusk reset` (or the `tusk_reset` MCP tool with `confirm: true`) to drop and rebuild it from your files. The markdown files are the source of truth, so nothing is lost.
+- **Stateless across machines.** Clone the vault, reindex, get an identical brain.
+- **Single-writer, many-readers.** SQLite WAL + a workspace-wide advisory lock so `tusk mcp` and one-shot CLI calls coexist.
+
+Product vision and design principles live in [`PRODUCT.md`](https://raw.githubusercontent.com/germanamz/tusk/main/PRODUCT.md). Per-package notes live in [`docs/packages/`](https://github.com/germanamz/tusk/tree/main/docs/packages).
+
+# docs/guide/querying.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/querying.md
+
+# Querying
+
+Three query shapes run over the same index: a structural filter, semantic similarity, and hybrid, which filters and then ranks. The full filter grammar is in [`docs/cli/tusk_query.md`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_query.md), and agents can call `tusk_help(topic: "filter")`.
+
+## Structural filter
+
+A compact filter grammar that compiles to parameterized SQL. Property
+comparisons accept `=` or `:` interchangeably; the rest of the grammar uses
+the operators below.
+
+```bash
+# Property predicates (`=` and `:` are equivalent)
+tusk query 'type=ticket status=active priority=high'
+tusk query 'type:plan shipped-at>=2026-04-01'   # date ordering, chronological
+
+# Path patterns on path and id: * stays in one folder, ** crosses folders
+tusk query 'type=note path=docs/product/*'      # notes directly in docs/product/
+tusk query 'path=docs/** path!=docs/archive/**' # all of docs/ except the archive
+
+# Edge traversal: -> outgoing, <- incoming
+tusk query 'type=ticket blocks->type=ticket'        # tickets that block other tickets
+tusk query 'type=note references<- type=spec'      # notes referenced by specs
+
+# The one term after the arrow constrains the linked node; group for more
+tusk query 'type=note references->(domain=technical OR domain=wip)'
+tusk query 'domain=product references-> NOT domain=product'   # product notes linking outside product
+
+# Multi-hop
+tusk query 'type=ticket parent->parent->title="auth-epic"'
+
+# Sort + pagination
+tusk query 'type=ticket status=active' --sort '+priority,-due' --take 10
+```
+
+## Semantic search
+
+Requires `[embeddings]` configured (Ollama by default). Embedding runs asynchronously after writes; until a node is embedded, it's invisible to semantic queries (and surfaces in `tusk doctor`).
+
+```bash
+tusk query '' --semantic "auth bug in password reset flow" --take 5
+tusk query 'path=docs/**' --semantic "billing totals"   # scoped to docs/ and below
+```
+
+Each result carries `matched_units`, the passages that matched, best first. A passage folds into its innermost section, so one finding is one row: the section's id, `heading`, and `lines: [start, end]`, plus the passage's score and snippet. Lines are 1-based and counted from the top of the file, frontmatter included, so an agent can open the file at the passage instead of reading all of it (HTML units carry no lines). `--max-units N` keeps the best N per file, MCP keeps 3 unless told otherwise, and `units_total` says how many there were. `[workspace] line-numbering` decides what ends a line: `lf` (the default, matching sed and grep -n), `universal` (adds a lone CR, like most editors), or `unicode` (adds the Unicode line separators).
+
+### Matching the embedding model
+
+Many embedding models are trained with an instruction prefix on each side, one for queries and another for documents. Ollama adds neither, so tusk lets you set them under `[embeddings]`, along with the chunk sizes and context window that suit the model:
+
+```toml
+[embeddings]
+provider        = "ollama"
+endpoint        = "http://localhost:11434"
+model           = "nomic-embed-text"
+dim             = 768
+query-prefix    = "search_query: "
+document-prefix = "search_document: "
+```
+
+| Model | `query-prefix` | `document-prefix` | Context window |
+| --- | --- | --- | --- |
+| `nomic-embed-text` | `search_query: ` | `search_document: ` | 2K in Ollama |
+| `embeddinggemma` | `task: search result \| query: ` | `title: {title} \| text: ` | 2K |
+| `mxbai-embed-large` | `Represent this sentence for searching relevant passages: ` | none | 512 |
+| `snowflake-arctic-embed` (v1) | `Represent this sentence for searching relevant passages: ` | none | 512 |
+| `snowflake-arctic-embed2` | `query: ` | none | 8K |
+
+Each prefix ends with a space. `{title}` in `document-prefix` becomes the note's title (`none` for sub-units). The other keys are `document-header` (`full`, `title`, or `none`: how much frontmatter leads each file chunk), `chunk-target-bytes` / `chunk-max-bytes` / `chunk-overlap-bytes` (defaults 1600 / 4000 / 200, sized for a 2K window; for a 512-token model set `chunk-max-bytes = 1000` and a smaller target such as `chunk-target-bytes = 800`, and consider `document-header = "title"` since the header doesn't count toward the cap), and `num-ctx` (passed to Ollama as `num_ctx`).
+
+How much the prefixes matter was measured before they shipped ([#758](https://github.com/germanamz/tusk/issues/758)): a real vault of 79 markdown files, 44 hand-written queries with known target notes, note-level ranks scored from `tusk query --semantic --json`.
+
+| Config | MRR@10 | hit@1 | hit@5 |
+| --- | --- | --- | --- |
+| `nomic-embed-text`, no prefixes | 0.533 | 0.34 | 0.77 |
+| `nomic-embed-text`, prefixes | **0.650** | **0.50** | **0.84** |
+| `embeddinggemma-2`, no prefixes | 0.576 | 0.39 | 0.84 |
+| `embeddinggemma-2`, prefixes | 0.532 | 0.34 | 0.80 |
+
+The prefixes raised `nomic-embed-text` by +0.117 MRR@10 (paired bootstrap 95% CI +0.019 to +0.216), the only difference in the table that clears the noise. For `embeddinggemma-2` the recommended document prefix didn't help on that corpus. One vault isn't a general result, which is why the prefixes are settings and not a hard-coded table.
+
+Which settings work best depends on the model and on your notes, so try a few semantic queries before and after a change. Changing `query-prefix` takes effect on the next query. Changing any other key re-embeds every note. Apply the change with `tusk reload` (or `tusk_reload` from an agent) so a running MCP server picks up the new settings too; `tusk reindex` also applies it, but a server that hasn't reloaded stops embedding until it does, rather than embed with the old settings. `tusk doctor` suggests the prefixes when it recognizes one of the models above with them unset, and names the missing one when only one of a two-sided pair is set. If you've tried a prefix and decided against it, set it explicitly to `""` (for example `document-prefix = ""`) and doctor stops suggesting it.
+
+## Hybrid (recommended for agents)
+
+Structural filter narrows the candidate set; semantic similarity ranks within it.
+
+```bash
+tusk query 'type=ticket status=active' --semantic "login flow" --take 10
+```
+
+## JSON output
+
+Add `--json` to any query for structured output that's easy to pipe into an LLM or a script.
+
+```bash
+tusk query 'type=decision' --semantic "storage backend" --take 3 --json
+```
+
+# docs/guide/rules-and-doctor.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/rules-and-doctor.md
+
+# Rules and doctor
+
+Types and edges say what a node may contain. `tusk doctor` checks the vault against them, plus any conventions you declare as rules, and exits 1 when it finds an error. That makes it something you can run after every agent edit, or in CI.
+
+## Health checks
+
+```bash
+tusk status     # node counts, edge count, embed-queue depth, last reindex timestamp
+tusk doctor     # health check; exits 1 when an error is present
+```
+
+Every doctor finding has a severity, and the report lists errors first. An `error` means the vault or the index is wrong: a dangling link, a property that breaks its declaration, a file reindex could not parse, a pinned id left behind by a rename. A `warning` means things are correct but degraded, such as a node missing from semantic results or a type you never declared. `advice` is a hint. `tusk doctor` exits 1 when an error is present, so you (or an agent) can run it after every edit and treat a non-zero exit as "I broke something". `--fail-on=warning` fails on warnings too; `--fail-on=never` always exits 0.
+
+`doctor` is also the place to look when:
+
+- semantic queries seem to be missing nodes → check the embed-queue depth and last error
+- a wikilink points to nothing → a `dangling-edge` error names it
+- a `[[name]]` wikilink matches more than one file → an `ambiguous-wikilink` error lists the files
+- a manifest change just landed → re-validate every affected node
+- a convention you declared as a `[rule.<name>]` is broken → each offending node is a `rule:<name>` issue
+
+## Rules: conventions doctor checks
+
+A vault usually has conventions on top of its types, like "product notes live under `docs/product/`". Write one as a filter that should match nothing:
+
+```toml
+[rule.domain-matches-directory]
+description = "a product note lives under docs/product/"
+filter      = "type=note AND domain=product AND NOT path=docs/product/**"
+
+[rule.product-links-stay-in-product]
+description = "a product page links only to product pages and the glossary"
+filter      = "domain=product AND references-> (type=note AND NOT domain=product AND NOT id=docs/glossary)"
+severity    = "warning"   # error (the default) | warning | advice
+```
+
+`tusk doctor` runs every rule and reports each matching node as a `rule:<name>` issue at the rule's severity, so a broken convention fails it like a dangling link would:
+
+```console
+$ tusk doctor
+doctor: 2 errors, 0 warnings, 0 advice
+  error    [dangling-edge] docs/product/refunds: edge "references" -> "docs/product/refund-policy" (target missing); also in #S1, #S1P1
+  error    [rule:domain-matches-directory] docs/technical/billing: a product note lives under docs/product/
+…
+$ echo $?
+1
+```
+
+The filter is the same grammar `tusk query` takes, so you can try it there first. Two differences: a rule matches file nodes only (sub-units share their file's `path`) unless the filter selects a sub-unit type such as `type=section`, and a rule's filter must name declared types, properties and enum values, because a typo there would match nothing and pass forever. A rule that fails those checks doesn't stop anything from loading; `tusk reload` lists it under warnings and `tusk doctor` reports it as a `rule-invalid` error.
+
+## Running doctor in CI
+
+`.tusk/` is gitignored, so a CI runner starts without an index, and doctor checks the index, not the files. `tusk doctor --reindex` builds the index from the checkout and then checks it. That pass skips embedding, so the runner doesn't need Ollama. On GitHub Actions:
+
+```yaml
+- name: Install tusk
+  run: |
+    curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
+    echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+- name: Check the vault
+  run: tusk doctor --reindex
+```
+
+Without `--reindex`, doctor on a fresh checkout reports an `index-not-built` warning rather than a clean vault. A warning exits 0, so add `--fail-on=warning` if you want a forgotten flag, or any other warning, to fail the job.
+
+`tusk reindex` also works on a runner. When it can't reach Ollama it still builds the index, says how many nodes are left to embed, and exits 0. Pass `--no-embed` to skip embedding, or `--strict-embed` to make an unreachable embedder fail the run.
+
+# docs/guide/mcp.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/mcp.md
+
+# The MCP server and the Claude Code plugin
+
+`tusk mcp` runs an MCP server backed by the same indexing engine as the CLI, exposing the graph verbs as tools. Agents should prefer these tools over shelling out to `tusk`: they run in the warm daemon with the index already open. Stdio is the default transport; SSE is available on a loopback port.
+
+```bash
+tusk mcp                                          # stdio (Claude Code, Cursor, Codex, …)
+tusk mcp --transport sse --addr 127.0.0.1:8765    # SSE
+```
+
+It holds the workspace open for the lifetime of the session: a single SQLite handle, an embed-queue drainer, and an fsnotify watcher all live in the same process so the index stays warm across tool calls.
+
+The server finds its workspace by walking up from its working directory to the nearest `tusk.toml`, and exits with `no tusk.toml found` when there isn't one. Per-client configuration, including which clients start the server in your project folder, is in the README under [Connect your agent](https://raw.githubusercontent.com/germanamz/tusk/main/README.md#connect-your-agent). A `--workspace` flag for clients that can't set a working directory is tracked in [#794](https://github.com/germanamz/tusk/issues/794).
+
+## The Claude Code plugin
+
+Run this once in the workspace root (or pass `--claude` to `tusk init`):
+
+```bash
+tusk claude install
+```
+
+It writes a Claude Code plugin to `.claude/skills/tusk/`, which Claude Code loads for any session started in that folder. The plugin does two things:
+
+- It runs the tusk MCP server, so the agent has the `tusk_*` tools. Claude Code holds a project plugin's server until each user approves it, so install approves it for you in `.claude/settings.local.json`, your uncommitted per-user settings. If `.mcp.json` already runs a tusk server, install removes that entry so the tools aren't registered twice.
+- When a conversation starts, it adds a `tusk` block to the first message, next to CLAUDE.md. The block opens with a short orientation (the declared node types with counts, edge types, aliases, whether the index is current), followed by the `[context]` digest when `tusk.toml` declares one. `/clear` and compaction read it again. It's capped at `[context] max-bytes` (16384 by default); over that, alias sections go first, then recent nodes, then pinned ones. Run `tusk claude context` to see exactly what a session gets.
+
+When an edge type sets `paths = true`, the plugin also reminds the agent of the pages that name a file right after it edits that file (see [path refs](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/workspace.md#pages-name-the-files-they-describe)).
+
+The plugin folder can be committed, so teammates get it on clone if they have `tusk` on their PATH. Each of them approves the MCP server once, by running `tusk claude install` or in `/mcp`. Run `tusk claude install` again after upgrading tusk, because sessions warn when the plugin is older than the binary. `tusk claude status` reports what's installed, and `tusk claude uninstall` removes it.
+
+To wire up only the MCP server by hand:
+
+```bash
+claude mcp add tusk -- tusk mcp
+```
+
+## Available MCP tools
+
+| Tool | What it does |
+|------|--------------|
+| `tusk_status` | node counts by type, edge count, queue depth, last reindex |
+| `tusk_doctor` | health check: every issue has a severity (`error` / `warning` / `advice`); `error_count > 0` means something is broken |
+| `tusk_node_get` / `tusk_node_list` | read by id or filter |
+| `tusk_node_render` | render a node's content as plain text (HTML tags / markdown markup stripped) |
+| `tusk_node_create` / `tusk_node_modify` / `tusk_node_move` / `tusk_node_delete` | write |
+| `tusk_edge_add` / `tusk_edge_remove` / `tusk_edge_list` | edge CRUD |
+| `tusk_query` | structural + optional `semantic` ranking |
+| `tusk_context` | composed warm-context digest (pinned nodes, recent activity, aliases) |
+| `tusk_run` | invoke a manifest-declared alias by name |
+| `tusk_reindex` | force a full walk |
+| `tusk_reload` | hot-reload `tusk.toml`: validate + swap the schema, no restart |
+| `tusk_reset` | drop and rebuild the index from files (`confirm: true`) |
+| `tusk_pack_add` | merge a built-in type pack's node/edge types into `tusk.toml` and hot-reload the schema |
+| `tusk_help` | overview and topic deep dives (workflow, node-types, edge-types, manifest, filter, query, packs) |
+
+Workspace bootstrap (`tusk init`), the Claude Code plugin (`tusk claude …`) and the web app (`tusk web`, graph + reading views) stay CLI-only.
+
+# docs/guide/benchmarks.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md
+
+# Benchmarks
+
+Does an agent spend less to answer a question with `tusk_query` than with grep and read? To find out, Claude Code answered 40 questions about tusk's own package docs, three times with grep and read and three times with `tusk_query` and read, and the harness counted what each run spent.
+
+With tusk, the agent cited the right section on every run (91% with grep) and made one tool call fewer per question (2 against 3). It also read 11% more input tokens per question and cost 37% more, and took the same time. On this corpus tusk buys accuracy, not tokens. A query result runs about 8 KB, where a grep result runs under 1 KB, so tusk comes out ahead only on questions where grep has to dig.
+
+A second, larger corpus came out the other way on tokens. On a private vault of 79 files, tusk read 17% fewer input tokens, made two tool calls fewer and finished 28% faster, and accuracy was about the same. See [A second corpus](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#a-second-corpus).
+
+## Results
+
+| | grep and read | `tusk_query` and read | tusk against grep, per question |
+| --- | --- | --- | --- |
+| Input tokens | 17,108 | 20,809 | 1.11× (0.91–1.41) |
+| Tool calls | 3 | 2 | −1 (−1 to 0) |
+| Tool output | 7.6 KB | 10.4 KB | 1.41× (1.18–2.11) |
+| Time | 7.7 s | 7.7 s | 0.99× (0.84–1.10) |
+| Cost | $0.024 | $0.033 | 1.37× (1.26–1.64) |
+| Cited the right section | 91% | 100% | +9 points (+2 to +17) |
+| Judged correct | 98% | 100% | +2 points (0 to +7) |
+
+The first two columns are medians over questions, taking each question's median run. The last column compares the arms question by question: the median of tusk's ratio (or difference) to grep, with a 95% confidence interval in brackets. A 1.11× ratio whose interval runs from 0.91 to 1.41 means tusk probably reads somewhat more, and the benchmark can't rule out no difference.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/germanamz/tusk/main/eval/results/2026-10-14-tusk-docs/charts/tokens-tusk-vs-grep-dark.svg">
+  <img alt="Input tokens per question, tusk against grep, on a log scale: tusk reads less on 16 questions, by up to 72%, and more on 24, by up to 2.75 times" src="https://raw.githubusercontent.com/germanamz/tusk/main/eval/results/2026-10-14-tusk-docs/charts/tokens-tusk-vs-grep-light.svg">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/germanamz/tusk/main/eval/results/2026-10-14-tusk-docs/charts/per-arm-dark.svg">
+  <img alt="Spread of input tokens, tool calls, tool output and time per question, by arm" src="https://raw.githubusercontent.com/germanamz/tusk/main/eval/results/2026-10-14-tusk-docs/charts/per-arm-light.svg">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/germanamz/tusk/main/eval/results/2026-10-14-tusk-docs/charts/accuracy-dark.svg">
+  <img alt="Share of runs that cited the right section and that the judge marked correct, by arm and question kind" src="https://raw.githubusercontent.com/germanamz/tusk/main/eval/results/2026-10-14-tusk-docs/charts/accuracy-light.svg">
+</picture>
+
+Splitting by question kind doesn't change the picture. On lexical questions, which share a distinctive word with their section, tusk read 16.2k tokens to grep's 15.1k. On paraphrase questions it read 21.7k to 17.8k. Grep cited the right section on 93% of lexical runs and 88% of paraphrase runs; tusk did on all of them.
+
+Some of grep's citation misses are near misses: a bullet name or a bold label cited as if it were a heading, or the file's title instead of the section under it. Tusk's results name the heading of each matched section, so its citations come out exact. The judge's verdict is the better measure of the answers themselves. It marked three grep runs wrong. Two of those said no flag makes a `path-missing` finding fail CI, missing `--fail-on warning`. It marked no tusk run wrong.
+
+## Where tusk lost
+
+Tusk read more input tokens than grep on 24 of the 40 questions. Three things account for it.
+
+**Every query costs about 8 KB.** A `tusk_query` result has a median size of 8.4 KB. It holds five results, each with up to three matched sections, and every section carries its id, parent id, type, heading level, line range, ordinal and score around a snippet of about 150 characters. A Grep result has a median of 0.7 KB and a Read 2.9 KB. Input tokens count the whole context once per turn, so a big result early in a run is paid for again on every turn after it. On `lone-carriage-return-lines` (2.10×), both arms took one search and one read. Tusk's query found `linenum.md` right away, but returned 8 to 15 KB, where grep's search and read came to 2 KB together. `reload-parse-error`, `update-install-method` and `plugin-check-ci` go the same way, and most of the 1.2× to 1.6× losses are this.
+
+**The agent reads the file anyway.** The snippets point at the answer but rarely contain it, so the agent follows up with Read: 73 of the 120 tusk runs read a file, against 92 of the 120 grep runs.
+
+**A miss costs several queries.** The largest losses come from first queries that ranked other pages above the answer:
+
+- `link-case-reprocess`, 2.75×: "link-case change forces full re-process of vault" ranked `doctor.md` and `pathref.md` above the `reindex.md` "Notes" section that holds the answer. The agent ran up to three more queries and read all of `wikilink.md` before it got there.
+- `slow-browser-tab`, 2.57×: the first query's top five didn't include `webui.md` at all, and in two of the three runs the agent read `webapp.md` or `bookview.md` before finding it.
+- `incoming-links-once` (2.45×) and `second-condition-after-traversal` (1.81×): the agent re-queried with different wording before reading.
+
+Tusk won when grep had to dig. On `move-note-name-links` (0.28×), `path-missing-severity` (0.34×) and `session-summary-concurrency` (0.35×), the question's words (move, rename, exit, doctor, queries) match lines all over the corpus. Grep ran three to seven searches and read several sections, while one query landed on the section.
+
+So the follow-ups to try are smaller query results (fewer fields per matched section, fewer sections by default), returning the matched section's text when it's short so the agent doesn't need a Read, and better ranking for long sections that cover several topics. This benchmark is how to tell whether they work.
+
+## A second corpus
+
+The same harness ran with the same model and settings on a private vault of 79 markdown files and 684 sections: more than twice the files and four and a half times the sections of `docs/packages`. Its 40 questions were written the same way, half lexical and half paraphrase. The vault isn't public, so only the numbers are published.
+
+| | grep and read | `tusk_query` and read | tusk against grep, per question |
+| --- | --- | --- | --- |
+| Input tokens | 20,186 | 12,446 | 0.83× (0.63–0.93) |
+| Tool calls | 3 | 1 | −2 (−2 to −1) |
+| Tool output | 8.2 KB | 9.7 KB | 1.18× (1.06–1.65) |
+| Time | 9.2 s | 6.1 s | 0.72× (0.65–0.82) |
+| Cost | $0.027 | $0.028 | 1.10× (0.90–1.18) |
+| Cited the right section | 95% | 97% | +2 points (−4 to +8) |
+| Judged correct | 97% | 93% | −3 points (−8 to 0) |
+
+Tusk read fewer input tokens on 28 of the 40 questions and finished faster on 33. Most of the gap is on paraphrase questions: tusk read 12.5k tokens to grep's 26.5k, and made 1 call to grep's 4. On lexical questions it read 12.4k to 16.0k. A query still returns more than a grep does. On a bigger corpus, though, grep needs more searches and reads to land, and every extra turn pays for the whole context again.
+
+Cost came out about even anyway, because of the prompt cache. Tusk's larger results are new text, written to the cache, and a cache write costs about 12 times a cache read. Tusk wrote a median of 5.3k tokens to the cache against grep's 4.3k, and read 11.3k from it against grep's 15.5k.
+
+The judge marked tusk wrong a little more often, 93% against 97%, but the interval reaches zero. In both arms, most wrong verdicts were right answers with an added claim the reference contradicts.
+
+## How it was measured
+
+The harness is [`eval/agentbench`](https://raw.githubusercontent.com/germanamz/tusk/main/eval/README.md), and every run's raw record is in [`eval/results/2026-10-14-tusk-docs/`](https://github.com/germanamz/tusk/tree/main/eval/results/2026-10-14-tusk-docs).
+
+**Corpus.** [`docs/packages/`](https://github.com/germanamz/tusk/tree/main/docs/packages): 34 markdown files, one per internal Go package, 164 KB and 149 headed sections. Each run gets a fresh copy. The grep arm's copy is plain markdown; the tusk arm's copy also has the index, built once by `tusk reindex` before any agent ran, with `nomic-embed-text` embeddings from a local Ollama.
+
+**Questions.** [40 questions](https://raw.githubusercontent.com/germanamz/tusk/main/eval/tasks/tusk-docs.jsonl), each with the section or sections that answer it, spread over 28 of the 34 files. Half are *lexical*: they share a distinctive word with their section, so a grep for it lands. The other half are *paraphrase*: they describe the situation in other words ("What happens when you rebuild the index while Ollama isn't running?"). The questions were written by reading the files, not by searching with either arm's tools, so neither arm picked its own questions.
+
+**Arms.** Both run Claude Code 2.1.299 headless (`claude -p`) with Claude Sonnet 5.5, the same short system prompt (answer from the docs in this directory, cite file and heading) and the same JSON schema for the answer. They differ only in their tools:
+
+| Arm | Tools |
+| --- | --- |
+| grep | Grep, Glob, Read |
+| tusk | `tusk_query` (the MCP server from this repo at commit 1ab211a) and Read |
+
+Claude Code runs with `--restricted` and `--strict-mcp-config`, so no user settings, other MCP servers or code-running tools reach either arm, and the harness checks every run's tool list against its arm. Each question ran 3 times per arm, 240 runs in all, in shuffled order, 4 at a time.
+
+**What's recorded.** For every run: tool calls (not counting the final structured answer), input tokens, tool output in bytes, wall time and cost as Claude Code reports it. Input tokens are everything the model read across all turns, cached or not, so they measure context size independent of caching. They include Claude Code's own system prompt and tool definitions, about 3.6k tokens per turn for the grep arm and 4.1k for the tusk arm, whose MCP tool schema and server instructions add about 500.
+
+**Scoring.** An answer cites the right section when one of its citations names a target heading in the target file, or a heading nested inside it. A judge model (Claude Haiku 5.5) then compares the answer with the text of the target section and marks it correct or not. A failed run counts as a miss on both.
+
+**Statistics.** Each question's figure is the median of its 3 runs. Arms are compared question by question: the tusk ÷ grep ratio for each question, then the median ratio, with a 95% confidence interval from 10,000 bootstrap resamples over questions.
+
+## Limits
+
+- One model and two corpora, both small. On 34 files with distinctive names and headings, grep is hard to beat. On 79 files tusk already reads less. Larger vaults are untested.
+- The questions were written by Claude, reading the files, and labeled lexical or paraphrase by the same hand.
+- Cost depends on prompt-cache hits, which depend on how runs overlap. Input tokens don't, which is why they're the headline.
+
+## Run it yourself
+
+```bash
+make build
+go run ./eval/agentbench run --tasks eval/tasks/tusk-docs.jsonl --paths docs/packages \
+  --out eval/results/$(date +%F)-tusk-docs
+```
+
+You need the `claude` CLI logged in and Ollama running with `nomic-embed-text`. [`eval/README.md`](https://raw.githubusercontent.com/germanamz/tusk/main/eval/README.md) covers the flags, running it on your own vault, and how to write questions.
+
+# docs/cli/README.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/README.md
+
+# Tusk CLI reference
+
+This reference is generated from the Cobra help text in `cmd/tusk/`.
+Edit the help strings, then run `make docs`.
+
+- **[Workflows](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/workflows.md)** — multi-command recipes (bootstrap, ingest,
+  query, MCP wiring, health checks).
+
+## Commands
+
+- [`tusk`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md) — Local-first memory for agents: index a markdown + HTML vault into a graph
+  - [`tusk claude`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude.md) — Install and inspect the Claude Code plugin for this workspace
+    - [`tusk claude context`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_context.md) — Print the context block the Claude Code plugin adds to a session
+    - [`tusk claude install`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_install.md) — Install the Claude Code plugin into this workspace
+    - [`tusk claude refs`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_refs.md) — Print the reminder the Claude Code plugin adds after an edit
+    - [`tusk claude status`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_status.md) — Report the Claude Code plugin installed in this workspace
+    - [`tusk claude uninstall`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_uninstall.md) — Remove the Claude Code plugin from this workspace
+  - [`tusk context`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_context.md) — Compose a warm-context digest from the manifest [context] block
+  - [`tusk doctor`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_doctor.md) — Check workspace and index health; exits 1 when an error is present
+  - [`tusk edge`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge.md) — Manage edges between nodes (add, remove, list)
+    - [`tusk edge add`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge_add.md) — Add a typed edge from one node to another
+    - [`tusk edge list`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge_list.md) — List edges, optionally filtered by source, target, or kind
+    - [`tusk edge remove`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge_remove.md) — Remove a specific edge by source, kind, and target
+  - [`tusk init`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_init.md) — Initialize a Tusk workspace in the current directory
+  - [`tusk mcp`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_mcp.md) — Run the long-running MCP server (stdio or SSE)
+  - [`tusk node`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node.md) — Manage individual nodes (create, get, render, list, modify, move, delete)
+    - [`tusk node create`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_create.md) — Create a new node file and index it
+    - [`tusk node delete`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_delete.md) — Delete a node file and remove it from the index
+    - [`tusk node get`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_get.md) — Print the source file (markdown or HTML) for a node by id
+    - [`tusk node list`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_list.md) — List nodes from the index, optionally filtering by expression
+    - [`tusk node modify`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_modify.md) — Modify a node's frontmatter properties
+    - [`tusk node move`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_move.md) — Atomically rename a node and rewrite all referring edges
+    - [`tusk node render`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_render.md) — Render a node's content as plain text (tags / markup stripped)
+  - [`tusk pack`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_pack.md) — Install and manage type packs
+    - [`tusk pack add`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_pack_add.md) — Copy a type pack's declarations into tusk.toml
+  - [`tusk query`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_query.md) — Run a structural, semantic, or hybrid query against the index
+  - [`tusk reindex`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_reindex.md) — Walk the workspace and bring the index up to date with disk
+  - [`tusk reload`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_reload.md) — Hot-reload the manifest (tusk.toml) without restarting the daemon
+  - [`tusk reset`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_reset.md) — Drop the local index and rebuild it from source files
+  - [`tusk run`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_run.md) — Run a manifest-declared alias by name
+  - [`tusk status`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_status.md) — Print a one-screen workspace summary
+  - [`tusk update`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_update.md) — Replace the running tusk binary with a published release
+  - [`tusk watch`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_watch.md) — Watch the workspace for external edits and keep the index in sync
+  - [`tusk web`](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_web.md) — Serve the unified web app: 3D graph + reading views
+
+# docs/cli/workflows.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/workflows.md
+
+# Tusk workflows
+
+Multi-command recipes. Each recipe states an intent, then lists the commands
+in order with one comment line above each.
+
+For per-command reference, see [the CLI index](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/README.md).
+
+---
+
+## 1. Bootstrap a new vault
+
+You have an empty directory and want a working Tusk workspace with a
+sensible schema.
+
+```bash
+# Create tusk.toml and .tusk/
+tusk init --name my-brain
+
+# Seed it with a type pack (here: kanban; built in, so no network needed)
+tusk pack add kanban
+
+# Confirm the manifest is valid and the index is healthy
+tusk doctor
+```
+
+After this, write markdown into the directory by any means — Tusk's
+`tusk node create` is one option, but vim/Obsidian/an LLM writing files
+work just as well.
+
+---
+
+## 2. Author with an external editor
+
+You prefer your editor; you just want Tusk to keep up.
+
+In shell 1, leave the watcher running:
+
+```bash
+# Foreground watcher — debounces edits and refreshes embeddings
+tusk watch
+```
+
+In shell 2, edit files freely:
+
+```bash
+# Create or edit any .md file under the workspace
+$EDITOR notes/2026-05-16.md
+
+# After saving, the watcher has already picked it up.
+# Confirm it landed in the index:
+tusk status
+```
+
+---
+
+## 3. Structural → semantic → hybrid query
+
+The same intent expressed three ways teaches the grammar by contrast.
+Suppose you want: "design notes about SQLite write contention."
+
+```bash
+# Structural: only matches if frontmatter literally tags it
+tusk query 'type:note AND +design AND title.contains:sqlite'
+
+# Pure semantic: a permissive filter, ranked by similarity in embedding space.
+# (The positional filter is required; use 'type:note' to scope or '' for everything.)
+tusk query 'type:note' --semantic 'sqlite write contention'
+
+# Hybrid (recommended for agents): tighter filter, then rank
+tusk query 'type:note AND +design' --semantic 'sqlite write contention'
+```
+
+---
+
+## 4. MCP wiring for Claude Code
+
+You want Tusk's CLI surface available to an agent over MCP.
+
+```bash
+# Verify the workspace is healthy first
+tusk doctor
+
+# Start the MCP server (stdio is the default; Claude Code launches this for you)
+tusk mcp
+```
+
+Then add this to your Claude Code MCP config (full instructions in the
+project README):
+
+```json
+{
+  "mcpServers": {
+    "tusk": {
+      "command": "tusk",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Most read/write CLI verbs have a 1:1 MCP tool of the same shape
+(`tusk_node_create`, `tusk_query`, …). Workspace-bootstrap commands
+(`tusk init`, `tusk watch`) are CLI-only.
+
+### The agent retrieval loop (use the tools, not the shell)
+
+Once wired, an agent should work through the MCP tools rather than `tusk …`
+in a shell — the tools run in the warm daemon with the index already open,
+where each `tusk …` shell call cold-starts a process and reopens the database:
+
+1. `tusk_context` — pull the workspace's warm digest (pinned nodes, recent
+   activity, named aliases) to orient.
+2. `tusk_query` — structural + semantic retrieval; expand rows with
+   `include: ["body", "edges"]` to avoid follow-up round-trips.
+3. `tusk_node_get` — fetch a specific node by id when you need its full body.
+4. `tusk_node_create` / `tusk_node_modify` / `tusk_edge_add` — write findings
+   back as nodes and typed edges.
+
+Reach for the shell only to bootstrap a workspace (`tusk init`) or open the
+web app (`tusk web`, the local graph + reading views).
+
+---
+
+## 5. Health check and recovery
+
+Something feels off — drift, dangling edges, or stale embeddings.
+
+```bash
+# See what's wrong
+tusk doctor
+
+# Catch the index up with disk
+tusk reindex
+
+# Re-run doctor to confirm
+tusk doctor
+```
+
+---
+
+## 6. Install a type pack
+
+You want to add a built-in schema bundle.
+
+```bash
+# Copy the pack's node/edge type declarations into tusk.toml
+tusk pack add kanban
+
+# Inspect the manifest diff in your editor
+git diff tusk.toml
+
+# Verify the schema is still consistent
+tusk doctor
+```
+
+If the pack collides with existing declarations:
+
+```bash
+# Force-overwrite the colliding sections
+tusk pack add kanban --force
+```
+
+# docs/cli/tusk.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md
+
+## tusk
+
+Local-first memory for agents: index a markdown + HTML vault into a graph
+
+### Synopsis
+
+Tusk is a local-first memory system for coding agents. It turns a directory
+of markdown and HTML files into a schema-validated, semantically-indexed graph and
+serves that graph over MCP, so an agent recalls context with a single query
+instead of many filesystem round trips.
+
+Files are the source of truth (markdown and HTML + a tusk.toml manifest), git is
+the history, and tusk is the indexer and retrieval engine. Every node is a plain
+markdown or HTML file you can read, edit, and commit by hand — nothing is locked
+away in a proprietary store.
+
+WHY GRAPHRAG
+  An agent that greps and reads files pays one round trip per file and still
+  misses how they relate. Tusk indexes nodes, their typed edges, and vector
+  embeddings up front, so a single "tusk query" (or the tusk_query MCP tool)
+  returns the matching nodes plus their graph-expanded neighbours ranked by
+  semantic similarity — the context an agent needs, gathered in one call.
+
+HOW TO USE
+  1. tusk init --name my-brain   Create tusk.toml and the .tusk/ index.
+  2. edit tusk.toml              Declare node/edge types; "tusk reload" hot-swaps
+                                 changes into a running daemon (no restart).
+  3. tusk node create …          Add content (or write .md files directly).
+  4. tusk reindex / tusk watch   Bring the index up to date / keep it live.
+  5. tusk query / tusk context   Retrieve structurally, semantically, or both.
+  6. tusk mcp                    Expose the same surface to an MCP agent.
+
+  Most read/write verbs are also MCP tools (tusk_query, tusk_node_create, …),
+  so an agent uses the same surface without a shell. Run "tusk doctor" any
+  time to surface schema warnings, dangling edges, and index-health issues.
+
+CONFIGURATION
+  All configuration lives in tusk.toml at the workspace root:
+
+    [workspace]              name, ignore globs, sub-units (default true)
+    [node-types.<name>]      typed properties a node may/must set
+    [edge-types.<name>]      from / to / cardinality / ordered / inverse /
+                             acyclic / hierarchy / hierarchy-default /
+                             wikilinks for typed relationships
+    [embeddings]             provider = "ollama", model, endpoint, dim,
+                             api-key, workers, timeout-seconds — enables
+                             semantic search; query-prefix, document-prefix,
+                             document-header, chunk-target-bytes,
+                             chunk-max-bytes, chunk-overlap-bytes, num-ctx
+                             match tusk to the embedding model (e.g.
+                             nomic-embed-text: query-prefix "search_query: ",
+                             document-prefix "search_document: ")
+    [query.graph-expansion]  enabled, hops (1|2), edge-types, weight,
+                             candidate-multiplier — tunes graphrag retrieval
+    [graph.cluster]          by (type|property|ancestor|community), huddle,
+                             hull, community-edges, resolution — cluster lens
+                             for the "tusk web" graph view
+    [context]                pinned, recent, include — shape the warm-context
+                             digest produced by "tusk context"; max-bytes caps
+                             the block "tusk claude" hands Claude Code
+    [lease]                  ttl_seconds (default 60) for multi-instance
+                             indexing
+    [behaviors.<kind>]       manifest-declared behaviors
+    [alias.<name>]           saved queries runnable via "tusk run <name>"
+
+  Environment overrides (read once at startup, highest precedence):
+    TUSK_EMBED_WORKERS       embed/reindex pool size; 0 = read-only instance.
+                             Falls back to [embeddings] workers, then
+                             max(1, NumCPU/2).
+    TUSK_LEASE_TTL_SECONDS   lease window in seconds. Falls back to
+                             [lease] ttl_seconds, then 60.
+
+  See "tusk <command> --help" for per-command flags and detail.
+
+### Examples
+
+```
+  # Bootstrap a fresh memory vault and verify it
+  tusk init --name my-brain
+  tusk doctor
+
+  # Index markdown already on disk, then keep it live in the background
+  tusk reindex
+  tusk watch
+
+  # Add a node (or just write the .md file yourself and reindex)
+  tusk node create --type note --path notes/auth-design.md \
+      --title "Auth design" --prop tag=architecture
+
+  # Retrieve: structural, then semantic, then graph-expanded hybrid
+  tusk query 'type=note AND tag=architecture'
+  tusk query 'type=note' --semantic 'how does login work' --min-score 0.5
+  tusk query 'type=note' --semantic login --graph-expand --hops 2 --include edges
+
+  # Compose a warm-context digest for an agent session
+  tusk context
+
+  # Serve the graph to an MCP agent (Claude Code, Cursor, Zed)
+  tusk mcp
+
+  # Give Claude Code sessions in this vault its digest and tools
+  tusk claude install
+
+  # Run a read-only MCP instance that never drains the index
+  TUSK_EMBED_WORKERS=0 tusk mcp
+```
+
+### Options
+
+```
+  -h, --help      help for tusk
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk claude](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude.md)	 - Install and inspect the Claude Code plugin for this workspace
+* [tusk context](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_context.md)	 - Compose a warm-context digest from the manifest [context] block
+* [tusk doctor](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_doctor.md)	 - Check workspace and index health; exits 1 when an error is present
+* [tusk edge](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge.md)	 - Manage edges between nodes (add, remove, list)
+* [tusk init](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_init.md)	 - Initialize a Tusk workspace in the current directory
+* [tusk mcp](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_mcp.md)	 - Run the long-running MCP server (stdio or SSE)
+* [tusk node](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node.md)	 - Manage individual nodes (create, get, render, list, modify, move, delete)
+* [tusk pack](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_pack.md)	 - Install and manage type packs
+* [tusk query](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_query.md)	 - Run a structural, semantic, or hybrid query against the index
+* [tusk reindex](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_reindex.md)	 - Walk the workspace and bring the index up to date with disk
+* [tusk reload](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_reload.md)	 - Hot-reload the manifest (tusk.toml) without restarting the daemon
+* [tusk reset](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_reset.md)	 - Drop the local index and rebuild it from source files
+* [tusk run](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_run.md)	 - Run a manifest-declared alias by name
+* [tusk status](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_status.md)	 - Print a one-screen workspace summary
+* [tusk update](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_update.md)	 - Replace the running tusk binary with a published release
+* [tusk watch](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_watch.md)	 - Watch the workspace for external edits and keep the index in sync
+* [tusk web](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_web.md)	 - Serve the unified web app: 3D graph + reading views
+
+# docs/cli/tusk_claude.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude.md
+
+## tusk claude
+
+Install and inspect the Claude Code plugin for this workspace
+
+### Synopsis
+
+Manage the Claude Code plugin tusk ships for this workspace.
+
+The plugin lives at <workspace>/.claude/skills/tusk/ and Claude Code loads it
+for any session started in the workspace root. It carries two things:
+
+  * The tusk MCP server ("tusk mcp"), so the agent has the tusk_* tools.
+  * A hook that runs "tusk claude context" when a conversation starts and adds
+    its output (a short orientation plus the [context] digest) to the first
+    message, the way CLAUDE.md is added. /clear and compaction re-read it.
+  * A hook that runs "tusk claude refs" after the agent edits a file and,
+    when vault pages name that file in inline code or a link (edge types
+    with paths = true), adds a short reminder listing them after the edit's
+    result. Each file is mentioned once per session.
+
+Run "tusk claude install" once per workspace (or "tusk init --claude"), and
+again after upgrading tusk to refresh the plugin.
+
+### Options
+
+```
+  -h, --help   help for claude
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+* [tusk claude context](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_context.md)	 - Print the context block the Claude Code plugin adds to a session
+* [tusk claude install](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_install.md)	 - Install the Claude Code plugin into this workspace
+* [tusk claude refs](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_refs.md)	 - Print the reminder the Claude Code plugin adds after an edit
+* [tusk claude status](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_status.md)	 - Report the Claude Code plugin installed in this workspace
+* [tusk claude uninstall](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_uninstall.md)	 - Remove the Claude Code plugin from this workspace
+
+# docs/cli/tusk_claude_context.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_context.md
+
+## tusk claude context
+
+Print the context block the Claude Code plugin adds to a session
+
+### Synopsis
+
+Print the block the plugin adds to the first message of a Claude Code
+conversation: a short orientation (the vault's declared node types with
+counts, edge types, aliases, index state), then the [context] digest
+("tusk context") when tusk.toml declares one.
+
+The block stays within [context] max-bytes (default 16384). Over budget, it
+drops alias sections first, then recent nodes, then pinned nodes, a whole node
+at a time, and says so in its last line. The orientation is never cut.
+
+It never fails a session: outside a workspace it prints nothing, a broken
+tusk.toml prints a one-line notice, and a missing index prints the
+orientation alone. It always exits 0.
+
+```
+tusk claude context [flags]
+```
+
+### Examples
+
+```
+  # Preview what a Claude Code session sees
+  tusk claude context
+
+  # Preview with a tighter budget
+  tusk claude context --max-bytes 4096
+```
+
+### Options
+
+```
+  -h, --help            help for context
+      --max-bytes int   override the block's byte budget ([context] max-bytes, default 16384)
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk claude](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude.md)	 - Install and inspect the Claude Code plugin for this workspace
+
+# docs/cli/tusk_claude_install.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_install.md
+
+## tusk claude install
+
+Install the Claude Code plugin into this workspace
+
+### Synopsis
+
+Write the tusk plugin to <workspace>/.claude/skills/tusk/.
+
+Install also approves the plugin's MCP server for you: Claude Code holds a
+project plugin's MCP server until each user approves it, so install adds
+"plugin:tusk:tusk" to enabledMcpjsonServers in .claude/settings.local.json
+(your per-user, uncommitted settings).
+
+If .mcp.json runs its own "tusk mcp" server, install removes that entry
+(and the file, when it held nothing else) so the tools are not registered
+twice. Pass --keep-mcp-json to leave it.
+
+Re-running install is safe: it rewrites the files it owns. It refuses a
+.claude/skills/tusk folder it did not write unless you pass --force.
+
+The plugin runs the binary named by --bin, "tusk" on PATH by default. A
+relative path resolves against the workspace root, where sessions start.
+
+```
+tusk claude install [flags]
+```
+
+### Examples
+
+```
+  # Install for this workspace
+  tusk claude install
+
+  # Point the plugin at a locally built binary
+  tusk claude install --bin ./bin/tusk
+```
+
+### Options
+
+```
+      --bin string      tusk binary the plugin runs (default "tusk")
+      --force           replace a .claude/skills/tusk folder tusk did not write
+  -h, --help            help for install
+      --keep-mcp-json   leave a .mcp.json tusk server in place
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk claude](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude.md)	 - Install and inspect the Claude Code plugin for this workspace
+
+# docs/cli/tusk_claude_refs.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_refs.md
+
+## tusk claude refs
+
+Print the reminder the Claude Code plugin adds after an edit
+
+### Synopsis
+
+Print the reminder the plugin adds after Claude Code edits a file: the
+vault pages that name the file, or a directory above it, in inline code, a
+link, or a frontmatter value, with the lines and sections they name it in. The pages that name the file itself
+come first, then those naming a nearer directory. At most --max pages are
+listed; a last line says how to see the rest.
+
+Pages name paths through edge types that set paths = true in tusk.toml. The
+path may be absolute or relative to the current directory; one outside the
+workspace prints nothing.
+
+The plugin calls this once per file a session edits. It never fails an edit:
+when nothing names the path, the workspace declares no paths edge type, or the
+index is missing, it prints nothing. It always exits 0.
+
+```
+tusk claude refs <path> [flags]
+```
+
+### Examples
+
+```
+  # Preview the reminder an edit to this file would trigger
+  tusk claude refs server/ledger/core/service.go
+```
+
+### Options
+
+```
+  -h, --help      help for refs
+      --max int   list at most N pages (default 5)
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk claude](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude.md)	 - Install and inspect the Claude Code plugin for this workspace
+
+# docs/cli/tusk_claude_status.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_status.md
+
+## tusk claude status
+
+Report the Claude Code plugin installed in this workspace
+
+### Synopsis
+
+Report whether the plugin is installed, the tusk version it was installed
+by against this binary's, the binary it runs and whether that resolves,
+whether its MCP server is approved, and whether .mcp.json still runs a
+duplicate tusk server.
+
+```
+tusk claude status [flags]
+```
+
+### Options
+
+```
+  -h, --help   help for status
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk claude](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude.md)	 - Install and inspect the Claude Code plugin for this workspace
+
+# docs/cli/tusk_claude_uninstall.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude_uninstall.md
+
+## tusk claude uninstall
+
+Remove the Claude Code plugin from this workspace
+
+### Synopsis
+
+Remove <workspace>/.claude/skills/tusk/ and the plugin's MCP approval from
+.claude/settings.local.json. A .mcp.json entry install migrated is not
+restored; re-add it with:
+
+  claude mcp add --scope project tusk -- tusk mcp
+
+```
+tusk claude uninstall [flags]
+```
+
+### Options
+
+```
+  -h, --help   help for uninstall
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk claude](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_claude.md)	 - Install and inspect the Claude Code plugin for this workspace
+
+# docs/cli/tusk_context.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_context.md
+
+## tusk context
+
+Compose a warm-context digest from the manifest [context] block
+
+### Synopsis
+
+Print the composed warm-context digest for this workspace.
+
+The digest is the single entry point an agent calls at session start instead
+of issuing three to five exploratory list/get/query calls. It returns:
+
+  * Pinned nodes ([context.pinned]) with body + edges expanded by default.
+  * Recent activity ([context.recent] or `recent = "<alias>"`): one
+    alias result, typically a node list filtered with `modified-since:<N>d`.
+  * Aliases ([context.include]): a fan-out over named, manifest-declared
+    aliases; each result is folded under its alias name.
+
+Use --include to override the per-node expansion set for the pinned and
+recent sections (default: body,edges). By default the digest prints in
+its compact form; pass --json (or --format json) to emit JSON for piping
+into another tool.
+
+```
+tusk context [flags]
+```
+
+### Examples
+
+```
+  # Pull the digest at session start
+  tusk context
+
+  # Trim per-node payload to edges only
+  tusk context --include edges
+
+  # Pipe the digest into another tool
+  tusk context --json
+```
+
+### Options
+
+```
+      --format string     output format: compact|json (default: compact digest; use --json to emit JSON)
+  -h, --help              help for context
+      --include strings   per-node include set for pinned + recent (default body,edges)
+      --json              emit structured JSON (sugar for --format json)
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_doctor.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_doctor.md
+
+## tusk doctor
+
+Check workspace and index health; exits 1 when an error is present
+
+### Synopsis
+
+Run health checks against the workspace and index.
+
+Every finding has a severity, and the report lists errors first:
+  * error: the vault or the index is wrong (a dangling link, a property
+    that breaks its declaration, a file reindex could not parse).
+  * warning: correct but degraded (a node missing from semantic results,
+    an undeclared type, a no-op setting).
+  * advice: a hint that changes nothing about correctness.
+
+Doctor exits 1 when an error is present, so "tusk doctor" works as a check
+after every edit. --fail-on=warning also fails on warnings; --fail-on=never
+always exits 0. Advice never fails the run.
+
+Doctor checks the index, not the files. Pass --reindex to bring the index up
+to date with disk first: the same pass as "tusk reindex", minus embedding, so
+it needs no Ollama. A CI runner starts without an index (.tusk/ is
+gitignored), so "tusk doctor --reindex" is the whole CI check.
+
+Doctor reports:
+  * Index not built: no reindex pass has ever written this index, so files on
+    disk may be unchecked. A warning; --reindex builds the index.
+  * Skipped files: files reindex could not index because their frontmatter
+    does not decode, an edge value has the wrong shape, or the path is a
+    reserved id. Plain markdown with no frontmatter or no type is not a node
+    and is never reported.
+  * Undeclared types: node types used by indexed files but not declared in
+    tusk.toml, whose properties go unvalidated. Skipped when tusk.toml
+    declares no node types at all.
+  * Property drift (frontmatter values whose type does not match the
+    manifest declaration). Drift for a deleted or renamed node is not
+    reported — it is an orphan with no repair path.
+  * Dangling edges (edges whose target node no longer exists), once per
+    file, with the sub-units that carry the same link.
+  * Edges their edge type forbids: a source or target type outside the
+    type's from/to, or more than one target on a one-to-one or many-to-one
+    type. "tusk edge add" refuses these, but reindex indexes a hand-edited
+    file as written, so the edge stays queryable until it is fixed.
+  * Invalid [alias] and [context] declarations, and [context.pinned] ids
+    that no longer resolve.
+  * Rules: every node a [rule.<name>] filter matches, reported as
+    rule:<name> at the rule's severity (error unless it sets one). A rule
+    matches file nodes only unless its filter selects a sub-unit type. A rule
+    that does not parse, or names a type, property or enum value tusk.toml
+    does not declare, is a rule-invalid error.
+  * Embedding queue depth, and embed-retry rows (a failing embedder that
+    keeps re-enqueueing) with their attempt count and last error.
+  * Sub-unit pane: per-kind counts, deduped sub-units, oversize payloads.
+  * Graph-expansion pane: the resolved [query.graph-expansion] settings,
+    unknown edge types (valid but undeclared — the walker skips them),
+    invalid edge types (malformed refs that break every --semantic query),
+    and no-op warnings when the feature is enabled with weight=0 or an
+    empty edge-types list.
+
+Doctor also auto-migrates any legacy "__cli__" / "__mcp__" edge rows in the
+index back into the source node's markdown frontmatter — pass --no-migrate
+for a diagnostic-only run. A legacy row whose edge type is no longer declared
+in tusk.toml cannot be migrated; it is reported as skipped and left in place.
+
+Sub-unit addresses: sub-units are indexed under structural addresses appended
+to the file id, e.g. notes/doc#S1.2P3. The "deduped sub-units" count is the
+number of content groups shared by two or more sub-units (embedded once, then
+shared). Sections are aggregated from their descendants, never embedded, so
+they are not flagged as missing embeddings.
+
+```
+tusk doctor [flags]
+```
+
+### Examples
+
+```
+  # Health snapshot after a manifest change
+  tusk pack add kanban
+  tusk doctor
+
+  # Quick check before starting an MCP session
+  tusk doctor && tusk mcp
+
+  # CI check on a fresh checkout: build the index, then check it
+  tusk doctor --reindex
+
+  # Strict check: fail on warnings too
+  tusk doctor --reindex --fail-on=warning
+
+  # Report only; always exit 0
+  tusk doctor --fail-on=never
+
+  # Diagnostic-only run; do not migrate legacy edge rows
+  tusk doctor --no-migrate
+```
+
+### Options
+
+```
+      --fail-on string   exit 1 when an issue at this severity or worse is present: error, warning, or never (default "error")
+  -h, --help             help for doctor
+      --no-migrate       skip auto-migration of legacy __cli__/__mcp__ edge rows (diagnostic-only run)
+      --reindex          bring the index up to date with disk before checking (structural pass, no embedding)
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_edge.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge.md
+
+## tusk edge
+
+Manage edges between nodes (add, remove, list)
+
+### Synopsis
+
+Manage edges between nodes.
+
+An edge has a typed kind (declared in tusk.toml under `[edge-types.<name>]`),
+a source node, and a target node.
+
+Edges live in the source node's frontmatter. Any top-level frontmatter key
+whose name matches a declared edge type becomes an edge after reindex.
+Example: an edge type [edge-types.blocks] makes "blocks: tickets/T-002"
+(or a list of target ids) on any allowed source type valid frontmatter.
+
+  # tusk.toml
+  [edge-types.blocks]
+  from        = ["ticket"]
+  to          = ["ticket"]
+  cardinality = "many-to-many"
+
+  # tickets/T-001.md
+  ---
+  type: ticket
+  blocks:
+    - tickets/T-002
+    - tickets/T-003
+  ---
+
+"tusk edge add" is a CLI convenience: it mutates the source file's
+frontmatter exactly as if you opened the file and added the key by hand,
+then refreshes the index for that file. "tusk edge remove" is the
+symmetric operation. The file remains the source of truth — a clean
+"git pull && tusk reindex" reproduces the full edge graph from disk.
+
+Edges of an edge type whose declaration includes `ordered = "<prop>"` sort
+by the named property on each source node. Example:
+
+  [edge-types.wbs-parent]
+  from        = ["wbs-node"]
+  to          = ["wbs-node"]
+  cardinality = "many-to-one"
+  ordered     = "order"
+  hierarchy   = "wbs"
+
+  # children sorted by their own "order: int" property under their parent.
+
+Body wikilinks ([[path/to/target]]) materialize as edges of any edge type
+the manifest declares with "wikilinks = true" — a navigational shorthand
+useful for prose, distinct from typed frontmatter edges. A wikilink can also
+be relative to its page ([[../path/to/target]]) or a bare file name as
+Obsidian writes it ([[target]]), which finds the one file with that name.
+
+Use "tusk edge list" with --from/--to/--type to filter.
+
+### Options
+
+```
+  -h, --help   help for edge
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+* [tusk edge add](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge_add.md)	 - Add a typed edge from one node to another
+* [tusk edge list](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge_list.md)	 - List edges, optionally filtered by source, target, or kind
+* [tusk edge remove](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge_remove.md)	 - Remove a specific edge by source, kind, and target
+
+# docs/cli/tusk_edge_add.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge_add.md
+
+## tusk edge add
+
+Add a typed edge from one node to another
+
+### Synopsis
+
+Add a typed edge from one node to another by writing the edge into the
+source node's frontmatter.
+
+The edge kind must be declared in tusk.toml's `[edge-types.<name>]`. The
+source's node type must be in the edge's "from" list, and the target's
+node type must be in the edge's "to" list.
+
+What this command actually does:
+
+  1. Reads the source file's current frontmatter.
+  2. Adds the target under the edge-name key, respecting cardinality:
+       * one-to-one / many-to-one: scalar string; rejects on conflict.
+       * one-to-many / many-to-many: list; appends if absent (dedup).
+  3. Atomically rewrites the file with the new frontmatter.
+  4. Reindexes the source file so the new edge is queryable immediately.
+
+Idempotent: adding an edge that already exists is a no-op. To replace a
+single-target edge, run "tusk edge remove" first.
+
+The change is durable: the edge lives in git-tracked markdown, not in the
+index database. Running "rm .tusk/index.db && tusk reindex" recovers the
+same graph state.
+
+```
+tusk edge add [flags]
+```
+
+### Examples
+
+```
+  # Mark T-001 as blocking T-002
+  tusk edge add --type blocks --source tickets/T-001 --target tickets/T-002
+
+  # Add multiple edges as part of a script
+  tusk edge add --type mentions --source tickets/T-003 --target notes/2026-05-16
+  tusk edge add --type owned-by --source tickets/T-003 --target people/alice
+```
+
+### Options
+
+```
+  -h, --help            help for add
+      --source string   source node id (workspace-relative path without extension)
+      --target string   target node id
+      --type string     edge type (must be declared in tusk.toml)
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk edge](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge.md)	 - Manage edges between nodes (add, remove, list)
+
+# docs/cli/tusk_edge_list.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge_list.md
+
+## tusk edge list
+
+List edges, optionally filtered by source, target, or kind
+
+### Synopsis
+
+List edges in the index.
+
+Filter with any combination of --from, --to, and --type. Output is a
+tab-aligned table of source, type, target, attributed source-path. Use
+--format compact|json (or --json) to opt into structured output; the
+default mirrors prior CLI behavior (tab-aligned table for TTY).
+
+```
+tusk edge list [flags]
+```
+
+### Examples
+
+```
+  # All edges that touch a node (either direction)
+  tusk edge list --from tickets/T-001
+  tusk edge list --to   tickets/T-001
+
+  # Every "blocks" edge in the workspace
+  tusk edge list --type blocks
+
+  # JSON for piping into jq
+  tusk edge list --from tickets/T-001 --json
+```
+
+### Options
+
+```
+      --format string   output format: compact|json (default: legacy table)
+      --from string     filter to edges originating from this source id
+  -h, --help            help for list
+      --json            emit structured JSON (sugar for --format json)
+      --to string       filter to edges targeting this id
+      --type string     filter by edge type
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk edge](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge.md)	 - Manage edges between nodes (add, remove, list)
+
+# docs/cli/tusk_edge_remove.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge_remove.md
+
+## tusk edge remove
+
+Remove a specific edge by source, kind, and target
+
+### Synopsis
+
+Remove a specific edge identified by its source, kind, and target.
+
+The edge is removed from the source node's markdown frontmatter and the
+index is updated to match. Removal is idempotent — removing an edge that
+isn't there succeeds with no-op.
+
+For multi-target edges (many-to-many, one-to-many) only the named target
+is removed; sibling targets in the same list are preserved. When the
+last target is removed, the edge-name key is dropped from frontmatter
+entirely.
+
+Legacy "__cli__" and "__mcp__" sentinel rows from pre-frontmatter
+versions of "tusk edge add" / "tusk_edge_add" MCP calls are also swept
+for the same (type, source, target) triple. "tusk doctor" auto-migrates
+any remaining sentinel rows on its next run.
+
+```
+tusk edge remove [flags]
+```
+
+### Examples
+
+```
+  # Remove a blocks edge added via "edge add"
+  tusk edge remove --type blocks --source tickets/T-001 --target tickets/T-002
+```
+
+### Options
+
+```
+  -h, --help            help for remove
+      --source string   source node id
+      --target string   target node id
+      --type string     edge type
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk edge](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_edge.md)	 - Manage edges between nodes (add, remove, list)
+
+# docs/cli/tusk_init.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_init.md
+
+## tusk init
+
+Initialize a Tusk workspace in the current directory
+
+### Synopsis
+
+Initialize a Tusk workspace in the current directory.
+
+Creates tusk.toml (the manifest declaring node types and edge types) with a
+minimal default schema, bootstraps the SQLite index under .tusk/, and appends
+a .tusk/ ignore stanza to .gitignore if one is present.
+
+If the directory already holds markdown without a type: in its frontmatter,
+init says how many such files it found, adds the vault pack and sets
+[workspace] default-type = "note", so "tusk reindex" indexes them as notes
+without editing them. --no-adopt skips this and leaves untyped files out of
+the index.
+
+With --claude it also installs the Claude Code plugin, as "tusk claude
+install" does.
+
+Safe to run only once per directory: it refuses to overwrite an existing
+tusk.toml. After init, edit tusk.toml to declare your node/edge types, then
+add content with "tusk node create" or by writing markdown files directly
+and running "tusk reindex".
+
+```
+tusk init [flags]
+```
+
+### Examples
+
+```
+  # Create a workspace named "my-brain" in the current directory
+  tusk init --name my-brain
+
+  # Index a folder of notes you already have
+  cd ~/notes && tusk init --name notes && tusk reindex
+
+  # Leave markdown without a type out of the index
+  tusk init --name my-brain --no-adopt
+
+  # Create it and set up Claude Code sessions for it
+  tusk init --name my-brain --claude
+
+  # Verify the workspace is healthy
+  tusk doctor
+```
+
+### Options
+
+```
+      --claude        also install the Claude Code plugin (see tusk claude install)
+  -h, --help          help for init
+      --name string   workspace name written into tusk.toml (default "my-brain")
+      --no-adopt      leave markdown without a type: out of the index instead of indexing it as notes
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_mcp.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_mcp.md
+
+## tusk mcp
+
+Run the long-running MCP server (stdio or SSE)
+
+### Synopsis
+
+Run the Tusk MCP server.
+
+Transports:
+  stdio   reads JSON-RPC over stdin, writes over stdout (default)
+  sse     listens for SSE clients on --addr (default 127.0.0.1:8765, loopback)
+
+The SSE transport exposes the full write surface (node/edge create, modify,
+delete, and reset) with no authentication, so it binds loopback by default.
+Binding a non-loopback address requires interactive confirmation.
+
+The server holds the workspace open for the lifetime of the session, drains
+the embed queue in the background, and watches the workspace for external
+edits.
+
+Worker pool: TUSK_EMBED_WORKERS overrides [embeddings] workers in tusk.toml;
+both default to max(1, NumCPU/2). Setting the pool size to 0 turns this
+instance into a read-only server — the embed drainer, reindex drainer, and
+file watcher are all skipped, so another instance (or a scheduled tusk
+reindex) must keep the index fresh.
+
+```
+tusk mcp [flags]
+```
+
+### Examples
+
+```
+  # Default: stdio transport (Claude Code, Cursor, Zed)
+  tusk mcp
+
+  # SSE transport bound to loopback for browser-based clients
+  tusk mcp --transport sse --addr 127.0.0.1:8765
+
+  # Verify the workspace is healthy first
+  tusk doctor && tusk mcp
+```
+
+### Options
+
+```
+      --addr string        SSE listen address (loopback by default; only used when --transport sse) (default "127.0.0.1:8765")
+  -h, --help               help for mcp
+      --transport string   transport: stdio | sse (default "stdio")
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_node.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node.md
+
+## tusk node
+
+Manage individual nodes (create, get, render, list, modify, move, delete)
+
+### Synopsis
+
+Manage individual nodes in the workspace.
+
+A node is one markdown file with YAML frontmatter declaring its type and
+properties (or an .html/.htm file declaring its type via a tusk:type meta
+tag). Example:
+
+  ---
+  type: ticket
+  title: Fix login bug
+  priority: high
+  blocks:
+    - tickets/T-002
+  ---
+
+  # Fix login bug
+
+  ...body...
+
+Top-level frontmatter keys split into two namespaces, enforced by the
+manifest at load time:
+
+  * Property keys (e.g. priority, title) — declared in
+    `[node-types.<type>].properties` in tusk.toml.
+  * Edge keys (e.g. blocks) — names that match an `[edge-types.<name>]`
+    declaration in tusk.toml. The value is a target node id (scalar) or
+    list of target ids; reindex turns each into an indexed edge.
+
+A few keys are reserved: "type" (required, picks the node-type schema),
+"title", and any "status-property" declared by an active behavior pack.
+
+Body wikilinks ([[path/to/target]]) materialize as edges of any edge type
+the manifest declares with "wikilinks = true". A wikilink can also be
+relative to its page ([[../path/to/target]]) or a bare file name
+([[target]]), which finds the one file with that name.
+
+The node subcommands are thin wrappers over the same internal service the
+watcher and reindex use, so creating a node by CLI and saving a file in
+your editor produce identical index state.
+
+Use "tusk node create" to author a new file, "tusk node modify" to change
+frontmatter properties, "tusk node move" to atomically rename a node and
+rewrite all referring edges, and "tusk node list" to query the index with
+the filter grammar.
+
+### Options
+
+```
+  -h, --help   help for node
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+* [tusk node create](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_create.md)	 - Create a new node file and index it
+* [tusk node delete](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_delete.md)	 - Delete a node file and remove it from the index
+* [tusk node get](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_get.md)	 - Print the source file (markdown or HTML) for a node by id
+* [tusk node list](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_list.md)	 - List nodes from the index, optionally filtering by expression
+* [tusk node modify](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_modify.md)	 - Modify a node's frontmatter properties
+* [tusk node move](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_move.md)	 - Atomically rename a node and rewrite all referring edges
+* [tusk node render](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_render.md)	 - Render a node's content as plain text (tags / markup stripped)
+
+# docs/cli/tusk_node_create.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_create.md
+
+## tusk node create
+
+Create a new node file and index it
+
+### Synopsis
+
+Create a new node file and index it.
+
+Writes a markdown file with YAML frontmatter at the given workspace-relative
+path, validates the declared type against tusk.toml, and inserts the node
+into the index in a single locked transaction. Body content can be piped on
+stdin; if stdin is a terminal, the body is empty.
+
+Property values from --prop are parsed as int, then bool, then float, then
+string. Use --prop key=value to set multiple values (repeatable).
+
+Edges are set the same way as properties: pass --prop <edge-name>=<target-id>
+or write the key directly in the frontmatter of the file you supply. The
+reindex pass will materialize the edge from the markdown frontmatter.
+
+```
+tusk node create [flags]
+```
+
+### Examples
+
+```
+  # Create a ticket node with two properties
+  tusk node create --type ticket --path tickets/T-001.md \
+      --prop priority=1 --prop status=open
+
+  # Pipe body content from another tool
+  echo "Investigation notes" | tusk node create \
+      --type note --path notes/2026-05-16.md
+
+  # Create, then attach an edge to another node
+  tusk node create --type ticket --path tickets/T-002.md
+  tusk edge add --type blocks --source tickets/T-002 --target tickets/T-001
+```
+
+### Options
+
+```
+  -h, --help               help for create
+      --path string        workspace-relative path with extension (e.g. notes/hello.md)
+      --prop stringArray   set property: --prop key=value (repeatable)
+      --title string       optional node title
+      --type string        node type (e.g. ticket, note)
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk node](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node.md)	 - Manage individual nodes (create, get, render, list, modify, move, delete)
+
+# docs/cli/tusk_node_delete.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_delete.md
+
+## tusk node delete
+
+Delete a node file and remove it from the index
+
+### Synopsis
+
+Delete a node file from disk and remove it from the index.
+
+Edges pointing at the deleted node remain in the index as dangling
+references; "tusk doctor" will surface them. Use "tusk node move" if you
+want to rename rather than remove.
+
+```
+tusk node delete <node-id> [flags]
+```
+
+### Examples
+
+```
+  # Delete a stale note
+  tusk node delete notes/2024-old
+
+  # See which edges are now dangling
+  tusk doctor
+```
+
+### Options
+
+```
+  -h, --help   help for delete
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk node](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node.md)	 - Manage individual nodes (create, get, render, list, modify, move, delete)
+
+# docs/cli/tusk_node_get.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_get.md
+
+## tusk node get
+
+Print the source file (markdown or HTML) for a node by id
+
+### Synopsis
+
+Print the source file (frontmatter/markup + body) for a node by id.
+
+The node id is the workspace-relative path: markdown nodes drop the
+extension (notes/hello.md has id "notes/hello"), while HTML nodes retain
+it (page.html has id "page.html").
+
+By default (no flags) the command prints the raw file to stdout
+verbatim — useful for piping into editors, less, or another tusk command.
+When --include, --fields, --format, or --json is passed the command emits
+structured output instead (compact for TTY, JSON otherwise).
+
+--include paths lists the workspace paths the page names (in inline code,
+links, or a paths-only frontmatter value) under edge types with
+paths = true, each with its lines and a live exists flag, the way
+tusk query --include paths does. It is never part of the default shape.
+
+```
+tusk node get <node-id> [flags]
+```
+
+### Examples
+
+```
+  # Print the raw file
+  tusk node get notes/hello
+
+  # Structured JSON envelope with only the body
+  tusk node get notes/hello --include body --format json
+
+  # The workspace paths a page names
+  tusk node get technical/ledger --include paths
+
+  # Open in $EDITOR (round-trip through a temp file)
+  tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md
+```
+
+### Options
+
+```
+      --fields strings    project returned shape to these fields (comma-separated)
+      --format string     output format: compact|json (default: compact for TTY, json otherwise)
+  -h, --help              help for get
+      --include strings   expand returned shape: body|edges|properties|paths (comma-separated; paths lists the workspace paths the page names)
+      --json              emit structured JSON (sugar for --format json)
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk node](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node.md)	 - Manage individual nodes (create, get, render, list, modify, move, delete)
+
+# docs/cli/tusk_node_list.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_list.md
+
+## tusk node list
+
+List nodes from the index, optionally filtering by expression
+
+### Synopsis
+
+List nodes from the index, optionally filtering by expression.
+
+The filter is a property and edge-traversal expression. Property
+predicates use comparison operators — = and : (equal), != (not equal),
+< <= > >= (ordering) — written directly after the key (e.g. status=open,
+priority>=2); ranges use key=lo..hi. Ordering and range operators compare
+by the property's declared type: int numerically, date/datetime
+chronologically, enum by declared order (a value name or a 0-based index).
+path and id also take glob patterns with = and !=: * stays inside one
+folder, ? is one character, and a ** segment crosses folders (e.g.
+path=docs/product/*, path=docs/**, id=**/index); quote the value to match a
+literal *. Edge traversal uses edge-type-> (outgoing) or edge-type<- (incoming) and
+may chain multi-hop. The one term after the arrow (a predicate, NOT term,
+or parenthesized group) constrains the linked node, e.g.
+blocks-> (status=open OR status=wip). Traversal shortcuts: tree=id,
+parent=id, root=id, each optionally qualified by a hierarchy alias (e.g.
+tree:wbs=id) set via hierarchy on an edge type in tusk.toml. Recency
+shortcut: modified-since: a duration or ISO date (e.g. modified-since:7d,
+modified-since:2026-05-23). Combine with AND, OR, NOT, and parens. (Both
+: and = bind property comparisons; pick whichever reads better.) Output
+is a tab-aligned table of id, type, title, path.
+
+Use --sort to order by one or more keys (prefix +/-), --take N to limit,
+and --skip M to paginate. Use --include to expand each row with body, edges,
+or properties (comma-separated). Use --fields to project the rendered shape.
+Use --format to pick compact or JSON output: the bare default is the
+tab-aligned table above, and once --include/--fields is set it is compact
+at a TTY and JSON when piped. --json (or --format json) forces JSON. For
+structural-and-semantic ranking, use "tusk query" with --semantic.
+
+```
+tusk node list [filter] [flags]
+```
+
+### Examples
+
+```
+  # All open tickets, highest priority first
+  tusk node list 'type=ticket AND status=open' --sort '-priority'
+
+  # Expand rows with body and edges
+  tusk node list type=ticket --include body,edges
+
+  # Page 2 of 20 most-recently-modified notes
+  tusk node list type=note --sort '-modified' --take 20 --skip 20
+
+  # Notes touched in the last 48 hours
+  tusk node list 'type=note AND modified-since:48h'
+
+  # Pipe a single id into "node get"
+  tusk node list 'type=ticket AND priority=1' --take 1 | awk 'NR==2 {print $1}' | xargs tusk node get
+```
+
+### Options
+
+```
+      --fields strings    project rendered rows to these fields (comma-separated)
+      --format string     output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)
+  -h, --help              help for list
+      --include strings   expand rows: body|edges|properties|paths (comma-separated)
+      --json              emit structured JSON (sugar for --format json)
+      --skip int          skip the first M rows (requires --take)
+      --sort string       sort spec, e.g., +priority,-due,+modified
+      --take int          limit results to N rows
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk node](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node.md)	 - Manage individual nodes (create, get, render, list, modify, move, delete)
+
+# docs/cli/tusk_node_modify.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_modify.md
+
+## tusk node modify
+
+Modify a node's frontmatter properties
+
+### Synopsis
+
+Modify a node's frontmatter properties without touching its body.
+
+Use --prop key=value (repeatable) to set values and --unset key
+(repeatable) to remove them. Values are typed the same way as in
+"node create": int, then bool, then float, then string.
+
+The operation coordinates with concurrent watchers and other tusk
+processes via a per-file lease, so safe interleaving is preserved
+without holding a workspace-wide lock.
+
+```
+tusk node modify <id> [flags]
+```
+
+### Examples
+
+```
+  # Change a ticket's status and priority
+  tusk node modify tickets/T-001 --prop status=in-progress --prop priority=2
+
+  # Remove a property entirely
+  tusk node modify tickets/T-001 --unset blocked-by
+```
+
+### Options
+
+```
+  -h, --help                help for modify
+      --prop stringArray    set property: --prop key=value (repeatable)
+      --unset stringArray   unset property: --unset key (repeatable)
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk node](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node.md)	 - Manage individual nodes (create, get, render, list, modify, move, delete)
+
+# docs/cli/tusk_node_move.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_move.md
+
+## tusk node move
+
+Atomically rename a node and rewrite all referring edges
+
+### Synopsis
+
+Atomically rename a node file and rewrite every edge that points at it.
+
+The new path is workspace-relative. If you omit the file extension on the
+target, the source file's extension (e.g. ".md") is inherited so the renamed
+file keeps its on-disk extension. All other node files that reference the old
+id are rewritten in the same transaction, so the index never observes a broken
+state.
+
+Every wikilink keeps naming the note it named. A relative link
+([[../old-id]]) is re-rendered from where its file lives after the move, the
+moved note's own links included. A file-name link ([[old-name]]) stays as
+written while the name still finds the note, becomes [[new-name]] when the
+move renames the file, and becomes the full id when another note already has
+that name. Links to that other note by name are rewritten to its full id too,
+and their files count as referring files.
+
+```
+tusk node move <old-id> <new-rel-path> [flags]
+```
+
+### Examples
+
+```
+  # Move a note into a subdirectory
+  tusk node move notes/hello notes/intros/hello.md
+
+  # Same move using the id-style target (extension inherited from source)
+  tusk node move notes/hello notes/intros/hello
+
+  # After move, confirm references were rewritten
+  tusk edge list --to notes/intros/hello
+```
+
+### Options
+
+```
+  -h, --help   help for move
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk node](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node.md)	 - Manage individual nodes (create, get, render, list, modify, move, delete)
+
+# docs/cli/tusk_node_render.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node_render.md
+
+## tusk node render
+
+Render a node's content as plain text (tags / markup stripped)
+
+### Synopsis
+
+Render a node's content as plain text.
+
+HTML nodes have their tags stripped and entities decoded; markdown nodes have
+their markup removed. The output is "just the words" — useful for piping a node
+into a tool that wants prose, not markup.
+
+The node id is the workspace-relative path: markdown nodes drop the extension
+(notes/hello.md has id "notes/hello"), HTML nodes retain it (page.html has id
+"page.html"). Render is read-only — it never touches files or index state.
+
+```
+tusk node render <node-id> [flags]
+```
+
+### Examples
+
+```
+  # Strip markdown markup
+  tusk node render notes/hello
+
+  # Strip HTML tags
+  tusk node render page.html
+```
+
+### Options
+
+```
+  -h, --help   help for render
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk node](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_node.md)	 - Manage individual nodes (create, get, render, list, modify, move, delete)
+
+# docs/cli/tusk_pack.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_pack.md
+
+## tusk pack
+
+Install and manage type packs
+
+### Synopsis
+
+Manage type packs.
+
+A type pack is a bundle of node-type and edge-type declarations that
+"tusk pack add" copies into the workspace manifest. Use packs to seed a
+new workspace with sensible defaults (e.g. the "kanban" pack with a
+ticket workflow) instead of writing the schema by hand.
+
+A pack is named or a URL. Built-in packs (kanban, tags, vault) are
+compiled into tusk, so adding one by name works offline; pass a full URL
+(or a file:// URL for a local copy) to install one from elsewhere.
+
+### Options
+
+```
+  -h, --help   help for pack
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+* [tusk pack add](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_pack_add.md)	 - Copy a type pack's declarations into tusk.toml
+
+# docs/cli/tusk_pack_add.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_pack_add.md
+
+## tusk pack add
+
+Copy a type pack's declarations into tusk.toml
+
+### Synopsis
+
+Copy a type pack's node and edge type declarations into tusk.toml.
+
+The pack is a built-in name (kanban, tags, vault) or a URL. Built-in
+packs are compiled into tusk, so adding one by name works offline and
+matches this binary's version; pass a full URL (or a file:// URL) to
+install a pack from elsewhere.
+
+Idempotent for a given pack: re-running with the same pack is a no-op
+unless --force is set, in which case any colliding sections in tusk.toml
+are removed before the pack is appended.
+
+```
+tusk pack add <name-or-url> [flags]
+```
+
+### Examples
+
+```
+  # Add the kanban pack and verify the manifest is still valid
+  tusk pack add kanban
+  tusk doctor
+
+  # Re-add a pack that already exists, replacing collisions
+  tusk pack add kanban --force
+```
+
+### Options
+
+```
+      --force   remove colliding sections from tusk.toml before appending the pack
+  -h, --help    help for add
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk pack](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_pack.md)	 - Install and manage type packs
+
+# docs/cli/tusk_query.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_query.md
+
+## tusk query
+
+Run a structural, semantic, or hybrid query against the index
+
+### Synopsis
+
+Run a query against the index.
+
+Three modes, all driven by the same command:
+
+  * Structural (default): the filter argument is a property and
+    edge-traversal expression. Property predicates use comparison
+    operators — = and : (equal), != (not equal), < <= > >= (ordering) —
+    written directly after the key (e.g. status=open, priority>=2);
+    ranges use key=lo..hi. Ordering and range operators compare by the
+    property's declared type: int numerically, date/datetime
+    chronologically, enum by declared order (a value name or a 0-based
+    index). path and id also take glob patterns with = and !=: * stays
+    inside one folder, ? is one character, and a ** segment crosses
+    folders (e.g. path=docs/product/*, path=docs/**, id=**/index); quote
+    the value to match a literal *. Edge traversal uses edge-type-> (outgoing) or edge-type<-
+    (incoming) and may chain multi-hop. The one term after the arrow (a
+    predicate, NOT term, or parenthesized group) constrains the linked
+    node, e.g. blocks-> (status=open OR status=wip). Traversal shortcuts:
+    tree=id, parent=id, root=id, each optionally qualified by a hierarchy
+    alias (e.g. tree:wbs=id) set via hierarchy on an edge type in
+    tusk.toml. Recency shortcut: modified-since: a duration or ISO date
+    (e.g. modified-since:7d, modified-since:2026-05-23). Path refs:
+    names-path=<path> finds the pages that name a workspace path (in
+    inline code, a link, or a paths-only frontmatter value), or a
+    directory above it; names-path=<glob> matches the named paths
+    themselves (e.g. names-path=server/**). It needs an edge type with
+    paths = true in tusk.toml; names-path:<edge-type>=<path> matches
+    that edge type's refs only. Combine with AND, OR, NOT, and
+    parens. (Both : and = bind property comparisons; pick whichever
+    reads better.)
+  * Semantic (--semantic STRING): nearest-neighbor search over
+    Ollama embeddings. The positional filter still applies as a
+    pre-filter; pass a permissive filter like 'type=note' to search
+    a whole type, or '' to search everything.
+  * Hybrid: structural filter narrows the candidate set, then
+    --semantic ranks it by cosine similarity.
+
+Use --sort to order by one or more keys (prefix +/-), --take N to limit
+results, --skip M to paginate. Use --include to expand each row with
+body, edges, properties, units or paths (comma-separated; for semantic
+results body is the best-matching chunk). Use --fields to project the rendered shape.
+Use --format to pick compact or JSON output: with no --include/--fields
+the default is the tab-aligned table, and once a shape flag is set it is
+compact at a TTY and JSON when piped. --json (or --format json) forces
+JSON regardless.
+
+Matched units: semantic rows always carry matched_units, the passages that
+matched. Each scored passage folds into its innermost section, so one finding
+is one row: the section's id, heading, and line range, with the passage's
+score and snippet. A passage before the first heading is its own row.
+--include units lists every file's sub-unit outline on structural queries.
+Every unit carries lines [start, end] (1-based, inclusive, counted from the
+top of the file; absent for HTML), numbered under [workspace] line-numbering.
+--max-units N keeps the first N units per file (best first on semantic rows,
+document order on the outline); units_total reports how many there were.
+
+Path refs: --include paths lists the workspace paths each page names in
+inline code, links and images, or a paths-only frontmatter value, one entry
+per path and edge type, with every line it is named on, the innermost
+section holding that line, and exists, a live check of the disk. Only paths
+whose first segment exists at the workspace root count. Under a names-path
+filter the list keeps the refs the filter matched.
+
+Sub-unit addresses: a sub-unit's id appends a structural address to the file
+id, e.g. notes/doc#S1.2P3 (paragraph 3 of section 1.2) or notes/doc#S1.1T1R0C0
+(a table cell). Addresses stay stable under in-place edits and shift only when
+the document is restructured.
+
+```
+tusk query <filter> [flags]
+```
+
+### Examples
+
+```
+  # Structural: all priority-1 tickets touched in the last week
+  tusk query 'type=ticket AND priority=1 AND modified-since:7d'
+
+  # Expand bodies and edges in one round-trip
+  tusk query 'type=ticket' --include body,edges
+
+  # Which pages describe this file (or a directory above it), and where
+  tusk query 'names-path=server/ledger/core/service.go' --include paths
+
+  # The same, through one paths edge type only
+  tusk query 'names-path:describes=server/ledger/core/service.go'
+
+  # Pure semantic over all notes
+  tusk query 'type=note' --semantic 'cache invalidation strategies'
+
+  # Hybrid: filter to design notes, then rank by similarity
+  tusk query 'type=note AND kind=design' --semantic 'sqlite write contention'
+
+  # Pipe top match into "node get"
+  tusk query 'type=note' --semantic 'auth flow' --json --take 1 \
+    | jq -r '.[0].id' \
+    | xargs tusk node get
+```
+
+### Options
+
+```
+      --explain               include a per-row score-contribution trace (cosine/graph/final/distance) in the response when graph expansion is active
+      --fields strings        project rendered rows to these fields (comma-separated)
+      --format string         output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)
+      --graph-edges strings   comma-separated edge-type names used by the graph expander; omit to inherit manifest
+      --graph-expand          enable graph-expanded retrieval for this call (overrides [query.graph-expansion] enabled=false)
+      --graph-weight float    per-hop weight applied to expanded candidates in [0,1]; omit to inherit manifest (default inherit)
+  -h, --help                  help for query
+      --hops int              graph-expansion BFS depth (1 or 2; omit to inherit manifest)
+      --include strings       expand rows: body|edges|properties|units|paths (comma-separated; units lists each file's sub-units, paths the workspace paths each page names)
+      --json                  emit structured JSON (sugar for --format json)
+      --max-units int         keep at most N matched units per file (0 = all); units_total reports the count before the cut
+      --min-score float       drop semantic results below this similarity score (default 0 = no filter; MCP tusk_query defaults to 0.5). When graph expansion is active, this filters the blended final score, not the bare cosine.
+      --no-graph-expand       disable graph-expanded retrieval for this call (beats [query.graph-expansion] enabled=true)
+      --semantic string       rank results by cosine similarity to this query string (requires [embeddings] in tusk.toml)
+      --skip int              skip the first M rows (requires --take)
+      --sort string           sort spec, e.g., +priority,-due,+modified
+      --take int              limit results to N rows
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_reindex.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_reindex.md
+
+## tusk reindex
+
+Walk the workspace and bring the index up to date with disk
+
+### Synopsis
+
+Walk the workspace and bring the SQLite index up to date with disk.
+
+Reindex skips any file whose mtime and size are unchanged since the last
+pass and re-parses only the rest. Pass --force to re-read, re-hash, and
+re-process every file regardless.
+
+When [embeddings] is configured, reindex then embeds the nodes it queued. If
+the embedding backend can't be reached (Ollama stopped, or a CI runner without
+it), the index is still built: the summary says how many nodes stay queued,
+reindex exits 0, and a later reindex, "tusk watch" or "tusk mcp" embeds them.
+Pass --strict-embed to exit 1 in that case, or --no-embed to skip embedding.
+
+Run reindex after editing files outside Tusk (vim, Obsidian, scripts) or
+after changing node/edge declarations in tusk.toml. For a schema change on a
+running daemon, prefer "tusk reload" (or the tusk_reload MCP tool): it swaps
+the in-memory schema and kicks a reindex that re-validates the index against
+the new node-types, edge-types, and behaviors, surfacing violation counts in
+the reindex output and "tusk doctor".
+
+Worker pool: the embed/reindex pool size resolves from TUSK_EMBED_WORKERS,
+then [embeddings] workers in tusk.toml, then max(1, NumCPU/2). Setting
+the pool size to 0 opts out: this invocation walks and enqueues but does
+not drain — another instance (or a later tusk reindex run) must drain
+the queue.
+
+Sub-unit addresses: each markdown sub-unit is indexed under a structural
+address appended to the file id, e.g. notes/doc#S1.2P3. Editing prose in place
+keeps a unit's address and re-embeds only the changed content; restructuring
+shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.
+
+```
+tusk reindex [flags]
+```
+
+### Examples
+
+```
+  # Catch the index up with disk
+  tusk reindex
+
+  # Build the index without embedding (no Ollama needed)
+  tusk reindex --no-embed
+
+  # Fail when embeddings can't be refreshed
+  tusk reindex --strict-embed
+
+  # Pair with watch for continuous indexing while you author
+  tusk watch &
+  tusk reindex
+```
+
+### Options
+
+```
+      --force          re-process every file even if its mtime and size are unchanged
+  -h, --help           help for reindex
+      --no-embed       build the structural index only; leave the embedding queue for a later run
+      --strict-embed   exit 1 when the embedding backend is unreachable
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_reload.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_reload.md
+
+## tusk reload
+
+Hot-reload the manifest (tusk.toml) without restarting the daemon
+
+### Synopsis
+
+Validate and reload the manifest (tusk.toml) while any running daemon
+processes converge to the new schema. Unlike "tusk reset" (which drops the
+index), reload re-reads and validates tusk.toml in place, atomically swaps
+the in-memory schema, and optionally triggers a reindex to re-validate
+already-indexed content against the new schema.
+
+A reload is non-interactive and non-destructive: the file watcher continues
+to ignore tusk.toml (reload is explicit-only), and all running daemons
+converge via the manifest-epoch sentinel (no need to restart).
+
+By default no local reindex runs — a running daemon converges via the
+manifest-epoch sentinel and owns the reindex. Pass --reindex to run a
+synchronous reindex pass in this process (for the no-daemon scenario).
+
+Changed [embeddings] document settings (model, num-ctx, document-prefix,
+document-header, chunk sizes) are applied either way: reload records them
+and queues every note for re-embedding, which a running daemon's drainer
+then does under the new settings ("embed_settings_requeued" in the output).
+
+Validation matches boot semantics: a TOML parse/structural error or
+behavior-engine build failure aborts the reload (exit non-zero, no epoch
+bump); dangling aliases, invalid [context] entries and invalid [rule]
+declarations are dropped and reported as warnings while the swap still
+proceeds.
+
+```
+tusk reload [flags]
+```
+
+### Examples
+
+```
+  # Reload the manifest; daemon handles reindex if running
+  tusk reload
+
+  # Reload and synchronously reindex (for no-daemon scenarios)
+  tusk reload --reindex
+```
+
+### Options
+
+```
+  -h, --help      help for reload
+      --reindex   synchronously reindex after reloading the manifest
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_reset.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_reset.md
+
+## tusk reset
+
+Drop the local index and rebuild it from source files
+
+### Synopsis
+
+Delete the local SQLite index (.tusk/index.db and its WAL/SHM
+sidecars) and rebuild it from scratch by walking the workspace.
+
+Unlike "tusk reindex" — which never deletes and only re-parses changed files —
+reset destroys the index entirely, so it recovers from a corrupt or wedged
+index. The markdown files are the source of truth, so nothing is lost; the
+rebuild re-derives every node, edge, and embedding from disk.
+
+Reset re-embeds every node, which can be expensive with a local embedding
+model. It requires confirmation; pass --yes to skip the prompt.
+
+```
+tusk reset [flags]
+```
+
+### Examples
+
+```
+  # Drop and rebuild the index, with confirmation
+  tusk reset
+
+  # Non-interactive (e.g. scripts/agents)
+  tusk reset --yes
+```
+
+### Options
+
+```
+  -h, --help   help for reset
+      --yes    skip the confirmation prompt
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_run.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_run.md
+
+## tusk run
+
+Run a manifest-declared alias by name
+
+### Synopsis
+
+Invoke an alias declared under `[alias.<name>]` in tusk.toml.
+
+Aliases are reusable, read-only verb invocations. They bind a command (one
+of node list, node get, query, edge list, doctor, status) to a fixed set of
+arguments so an agent or operator can dispatch a frequent query by name
+rather than retyping the filter / sort / take flags.
+
+Use --list to enumerate the aliases the loaded manifest declares. Use
+--format / --json to override the output format (defaults match the
+underlying verb: tab-aligned table for the legacy view, compact at TTY,
+JSON when piped).
+
+```
+tusk run [alias] [flags]
+```
+
+### Examples
+
+```
+  # Run a pre-declared alias
+  tusk run open-tickets
+
+  # Enumerate every alias the manifest declares
+  tusk run --list
+
+  # Force JSON regardless of the alias's default
+  tusk run open-tickets --json
+```
+
+### Options
+
+```
+      --format string   output format: compact|json (default: matches the verb's TTY behavior)
+  -h, --help            help for run
+      --json            emit structured JSON (sugar for --format json)
+      --list            list every alias declared in tusk.toml
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_status.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_status.md
+
+## tusk status
+
+Print a one-screen workspace summary
+
+### Synopsis
+
+Print a one-screen summary of workspace state: node counts by
+type, total edges, embedding-queue depth, and time of last reindex.
+
+Use status as a fast pulse check; use "tusk doctor" for validation
+warnings and drift detail.
+
+```
+tusk status [flags]
+```
+
+### Examples
+
+```
+  # Fast pulse check
+  tusk status
+
+  # Watch status in a loop while "tusk watch" is running
+  watch -n 5 tusk status
+```
+
+### Options
+
+```
+  -h, --help   help for status
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_update.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_update.md
+
+## tusk update
+
+Replace the running tusk binary with a published release
+
+### Synopsis
+
+Replace the running tusk binary with a build from GitHub Releases.
+
+With no argument, or with "latest", the newest published release is
+installed. Pass a tag to pin a specific version; a bare "2.3.0" is
+normalized to "v2.3.0". Installing an older version than the one running
+is allowed and reported as a downgrade.
+
+The archive is verified against the release checksums file before anything
+is extracted, and the previous binary is kept aside until the replacement
+is in place, so a failed swap rolls back rather than leaving no binary.
+
+Man pages ship in the release archive and are installed alongside the
+binary, following the same layout as install.sh: a binary in <prefix>/bin
+puts its man pages in <prefix>/share/man. Set MAN_DIR to override. Man-page
+installation is best-effort — a read-only directory prints a note and does
+not fail an update that already succeeded.
+
+INSTALL METHOD
+  A binary managed by Homebrew, installed with "go install", or built from
+  source is owned by that tool, and replacing it in place would leave the
+  tool's records inconsistent. Those are refused with the correct upgrade
+  command for that method; pass --force to replace the binary anyway.
+  "--check" predicts the refusal rather than reporting an update that the
+  real run would reject.
+
+  --force also permits reinstalling the version already running, which
+  repairs a corrupted binary in place.
+
+  Your workspace and its .tusk/ index are never touched by an update.
+
+EXIT CODES
+  0  success, including --check whatever it found
+  1  generic failure
+  2  network, release-resolution, or invalid-version failure
+  3  checksum verification failure
+  4  install-method refusal
+  5  permission or swap failure
+
+```
+tusk update [version] [flags]
+```
+
+### Examples
+
+```
+  # Update to the latest release
+  tusk update
+
+  # Pin a specific version (or roll back to one)
+  tusk update v2.3.0
+
+  # Report what an update would do, without changing anything
+  tusk update --check
+  tusk update --check --json
+
+  # Replace a Homebrew- or go-install-managed binary anyway
+  tusk update --force
+```
+
+### Options
+
+```
+      --check   report the available version without installing anything
+      --force   replace the binary even when another tool manages it, or reinstall the current version
+  -h, --help    help for update
+      --json    emit machine-readable JSON
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_watch.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_watch.md
+
+## tusk watch
+
+Watch the workspace for external edits and keep the index in sync
+
+### Synopsis
+
+Watch the workspace for filesystem changes and update the index in
+real time.
+
+The watcher debounces rapid edits, follows file moves via fsnotify, and
+drains the embedding queue in the background. It uses the same internal
+service as "tusk node create" / "modify", so files edited in vim, Obsidian,
+or piped from an LLM produce identical index state.
+
+Runs until interrupted (Ctrl-C). Pair with "tusk status" or "tusk doctor"
+in another shell to observe progress.
+
+Setting `[embeddings] workers = 0` (or `TUSK_EMBED_WORKERS=0`) makes
+"tusk watch" refuse to start; the watcher needs a drainer.
+
+```
+tusk watch [flags]
+```
+
+### Examples
+
+```
+  # Foreground: keep the index live while you author in any editor
+  tusk watch
+
+  # Background with a status pulse every 5 seconds
+  tusk watch &
+  watch -n 5 tusk status
+```
+
+### Options
+
+```
+  -h, --help   help for watch
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph
+
+# docs/cli/tusk_web.md
+
+Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk_web.md
+
+## tusk web
+
+Serve the unified web app: 3D graph + reading views
+
+### Synopsis
+
+Serve a local, read-only web app for the vault, combining the 3D graph
+view and the reading view behind one server, and keep it live as files change.
+
+Switch between the two views from the top bar, or deep-link a view directly:
+"/" opens the graph, "/read" opens the reader. A light/dark theme toggle in the
+header follows your system by default and remembers your choice.
+
+The graph view groups nodes by a configurable cluster lens (set under
+[graph.cluster] in tusk.toml), sizes and brightens them by degree, and lets you
+filter by type or edge kind, inspect neighbors, and walk sub-units. The reading
+view renders node documents (math, mermaid diagrams, images), offers semantic
+search, and surfaces graph-expansion neighbors.
+
+The server binds to loopback by default. It does not open a browser
+automatically: press space in this terminal to open it, or pass --open.
+
+```
+tusk web [flags]
+```
+
+### Examples
+
+```
+  # Serve on 127.0.0.1:7373 and press space to open
+  tusk web
+
+  # Open the browser automatically on the reading view
+  tusk web --open --view read
+
+  # Bind a specific loopback port
+  tusk web --addr 127.0.0.1:9000
+```
+
+### Options
+
+```
+      --addr string   loopback listen address (default "127.0.0.1:7373")
+  -h, --help          help for web
+      --open          open the browser automatically at startup
+      --view string   initial view to open: graph|read (default "graph")
+```
+
+### Options inherited from parent commands
+
+```
+  -v, --verbose   emit debug-level logs to stderr
+```
+
+### SEE ALSO
+
+* [tusk](https://raw.githubusercontent.com/germanamz/tusk/main/docs/cli/tusk.md)	 - Local-first memory for agents: index a markdown + HTML vault into a graph

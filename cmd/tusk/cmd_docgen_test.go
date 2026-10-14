@@ -11,7 +11,7 @@ func TestGenerateDocsProducesManAndMarkdown(test *testing.T) {
 	manDir := filepath.Join(tempDir, "man")
 	docDir := filepath.Join(tempDir, "docs", "cli")
 
-	if generateErr := generateDocs(manDir, docDir); generateErr != nil {
+	if generateErr := generateDocs(manDir, docDir, ""); generateErr != nil {
 		test.Fatalf("generateDocs: %v", generateErr)
 	}
 

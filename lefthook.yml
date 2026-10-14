@@ -49,14 +49,15 @@ pre-push:
   parallel: false
   commands:
     docs-drift:
-      # Regenerate CLI docs and fail if anything changed. The man and
-      # markdown trees are checked in, so any edit to Cobra help strings
-      # must be accompanied by their regenerated artifacts.
+      # Regenerate the docs and fail if anything changed. The man and
+      # markdown trees and llms-full.txt are checked in, so an edit to Cobra
+      # help strings, the README or docs/guide/ must be accompanied by the
+      # regenerated artifacts.
       run: |
-        go run ./cmd/tusk docgen man docs/cli
-        if ! git diff --quiet -- man docs/cli; then
+        go run ./cmd/tusk docgen --llms-full llms-full.txt man docs/cli
+        if ! git diff --quiet -- man docs/cli llms-full.txt; then
           echo "tusk docgen produced changes. Run 'make docs' and commit the result."
-          git --no-pager diff --stat -- man docs/cli
+          git --no-pager diff --stat -- man docs/cli llms-full.txt
           exit 1
         fi
     frontend-dist-drift:

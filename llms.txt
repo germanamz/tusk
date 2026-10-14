@@ -6,6 +6,7 @@ Tusk is a single Go binary. A markdown file is a node when its YAML frontmatter 
 
 ## Start here
 
+- [Everything in one file](https://raw.githubusercontent.com/germanamz/tusk/main/llms-full.txt): the README, every guide and the whole CLI reference joined, for one fetch
 - [README](https://raw.githubusercontent.com/germanamz/tusk/main/README.md): what tusk is, install, a quickstart, per-client MCP setup, and the setup steps for agents
 - [Install and update](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/install.md): install script, `go install`, building from source, `tusk update`
 
