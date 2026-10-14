@@ -139,14 +139,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Regenerate CLI docs
-        run: go run ./cmd/tusk docgen man docs/cli
+      - name: Regenerate docs
+        run: go run ./cmd/tusk docgen --llms-full llms-full.txt man docs/cli
 
       - name: Fail on drift
         run: |
-          if ! git diff --quiet -- man docs/cli; then
-            echo "::error::CLI docs are stale. Run 'make docs' and commit the result."
-            git --no-pager diff -- man docs/cli
+          if ! git diff --quiet -- man docs/cli llms-full.txt; then
+            echo "::error::Generated docs are stale. Run 'make docs' and commit the result."
+            git --no-pager diff -- man docs/cli llms-full.txt
             exit 1
           fi
 

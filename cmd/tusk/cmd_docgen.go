@@ -32,18 +32,26 @@ Edit the help strings, then run ` + "`make docs`" + `.
 `
 
 func newDocgenCmd() *cobra.Command {
-	return &cobra.Command{
+	var llmsFull string
+
+	docgenCmd := &cobra.Command{
 		Use:    "docgen <man-dir> <md-dir>",
-		Short:  "(internal) regenerate man pages and markdown CLI reference",
+		Short:  "(internal) regenerate man pages, the markdown CLI reference and llms-full.txt",
 		Args:   cobra.ExactArgs(2),
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return generateDocs(args[0], args[1])
+			return generateDocs(args[0], args[1], llmsFull)
 		},
 	}
+
+	docgenCmd.Flags().StringVar(&llmsFull, "llms-full", "", "also write llms-full.txt here; README.md and docs/guide/ are read from its directory")
+
+	return docgenCmd
 }
 
-func generateDocs(manDir, docDir string) error {
+// generateDocs writes the man pages to manDir and the markdown reference to
+// docDir, then, when llmsFullPath is set, llms-full.txt from the fresh tree.
+func generateDocs(manDir, docDir, llmsFullPath string) error {
 	if mkErr := os.MkdirAll(manDir, 0o755); mkErr != nil {
 		return fmt.Errorf("mkdir man: %w", mkErr)
 	}
@@ -88,7 +96,15 @@ func generateDocs(manDir, docDir string) error {
 		return fmt.Errorf("gen markdown: %w", mdErr)
 	}
 
-	return writeIndex(rootCmd, filepath.Join(docDir, "README.md"))
+	if indexErr := writeIndex(rootCmd, filepath.Join(docDir, "README.md")); indexErr != nil {
+		return indexErr
+	}
+
+	if llmsFullPath == "" {
+		return nil
+	}
+
+	return writeLLMsFull(llmsFullPath, docDir, commandPages(rootCmd))
 }
 
 func writeIndex(rootCmd *cobra.Command, indexPath string) error {
@@ -110,27 +126,52 @@ func writeIndex(rootCmd *cobra.Command, indexPath string) error {
 func writeCommandTree(out io.Writer, cmd *cobra.Command, depth int) error {
 	indent := strings.Repeat("  ", depth)
 
-	mdName := strings.ReplaceAll(cmd.CommandPath(), " ", "_") + ".md"
-
-	if _, writeErr := fmt.Fprintf(out, "%s- [`%s`](%s) — %s\n", indent, cmd.CommandPath(), mdName, cmd.Short); writeErr != nil {
+	if _, writeErr := fmt.Fprintf(out, "%s- [`%s`](%s) — %s\n", indent, cmd.CommandPath(), commandPageName(cmd), cmd.Short); writeErr != nil {
 		return writeErr
 	}
 
-	children := cmd.Commands()
-
-	sort.Slice(children, func(i, j int) bool {
-		return children[i].Name() < children[j].Name()
-	})
-
-	for _, child := range children {
-		if child.Hidden || child.Name() == "help" || child.Name() == "completion" {
-			continue
-		}
-
+	for _, child := range documentedChildren(cmd) {
 		if writeErr := writeCommandTree(out, child, depth+1); writeErr != nil {
 			return writeErr
 		}
 	}
 
 	return nil
+}
+
+// commandPages lists the command pages in the order the index lists them:
+// depth first, subcommands by name.
+func commandPages(cmd *cobra.Command) []string {
+	pages := []string{commandPageName(cmd)}
+
+	for _, child := range documentedChildren(cmd) {
+		pages = append(pages, commandPages(child)...)
+	}
+
+	return pages
+}
+
+// commandPageName is the markdown file cobra generates for cmd.
+func commandPageName(cmd *cobra.Command) string {
+	return strings.ReplaceAll(cmd.CommandPath(), " ", "_") + ".md"
+}
+
+// documentedChildren returns cmd's subcommands that get a reference page,
+// sorted by name.
+func documentedChildren(cmd *cobra.Command) []*cobra.Command {
+	var children []*cobra.Command
+
+	for _, child := range cmd.Commands() {
+		if child.Hidden || child.Name() == "help" || child.Name() == "completion" {
+			continue
+		}
+
+		children = append(children, child)
+	}
+
+	sort.Slice(children, func(left, right int) bool {
+		return children[left].Name() < children[right].Name()
+	})
+
+	return children
 }

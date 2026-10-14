@@ -52,7 +52,7 @@ web:
 frontend: web
 
 docs: build
-	$(BUILD_DIR)/$(BINARY_NAME) docgen man docs/cli
+	$(BUILD_DIR)/$(BINARY_NAME) docgen --llms-full llms-full.txt man docs/cli
 
 # Local-only check of the Claude Code plugin `tusk claude install` writes:
 # installs it into a scratch vault, copies its tests beside it, then runs
@@ -75,7 +75,7 @@ help:
 	@echo "  vet               — run go vet"
 	@echo "  lint              — run golangci-lint"
 	@echo "  fmt               — run gofmt across the tree"
-	@echo "  docs              — regenerate man pages and markdown CLI reference"
+	@echo "  docs              — regenerate man pages, the markdown CLI reference and llms-full.txt"
 	@echo "  claude-plugin-check — validate and test the Claude Code plugin (needs the claude CLI)"
 	@echo "  clean             — remove build artifacts"
 	@echo "  web               — build the unified web frontend into internal/webapp/dist"
