@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/germanamz/tusk/internal/mcp"
@@ -57,9 +56,9 @@ func serveWebUI(ctx context.Context, cmd *cobra.Command, cfg webUIConfig) error 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	cwd, cwdErr := os.Getwd()
-	if cwdErr != nil {
-		return cwdErr
+	ws, findErr := findWorkspace(cmd)
+	if findErr != nil {
+		return findErr
 	}
 
 	// footer coordinates the interactive status footer with the background logs
@@ -78,7 +77,7 @@ func serveWebUI(ctx context.Context, cmd *cobra.Command, cfg webUIConfig) error 
 		mcp.WithLogger(logger),
 	}
 
-	runtime, openErr := mcp.Open(cwd, opts...)
+	runtime, openErr := mcp.Open(ws.Root, opts...)
 	if openErr != nil {
 		return openErr
 	}

@@ -38,7 +38,7 @@ any remaining sentinel rows on its next run.`,
 				return fmt.Errorf("--type, --source, and --target are required")
 			}
 
-			ws, loaded, resolveErr := resolveWorkspace()
+			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
 				return resolveErr

@@ -53,7 +53,7 @@ tusk query --include paths does. It is never part of the default shape.`,
   tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, loaded, resolveErr := resolveWorkspace()
+			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
 				return resolveErr

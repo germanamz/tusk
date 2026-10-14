@@ -26,7 +26,7 @@ warnings and drift detail.`,
   # Watch status in a loop while "tusk watch" is running
   watch -n 5 tusk status`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, loaded, resolveErr := resolveWorkspace()
+			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
 				return resolveErr

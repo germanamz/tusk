@@ -227,7 +227,7 @@ func TestClaudeInstall_NeedsWorkspace(test *testing.T) {
 
 	_, installErr := runCLI("claude", "install")
 
-	if installErr == nil || !strings.Contains(installErr.Error(), "run tusk init first") {
+	if installErr == nil || !strings.Contains(installErr.Error(), "run tusk init") {
 		test.Errorf("install outside a workspace = %v, want a tusk init hint", installErr)
 	}
 }

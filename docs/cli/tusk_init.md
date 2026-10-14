@@ -8,7 +8,8 @@ Initialize a Tusk workspace in the current directory
 
 ### Synopsis
 
-Initialize a Tusk workspace in the current directory.
+Initialize a Tusk workspace in the current directory, or in the directory
+--workspace names.
 
 Creates tusk.toml (the manifest declaring node types and edge types) with a
 minimal default schema, bootstraps the SQLite index under .tusk/, and appends
@@ -38,6 +39,9 @@ tusk init [flags]
   # Create a workspace named "my-brain" in the current directory
   tusk init --name my-brain
 
+  # Create it in another folder without changing into it
+  tusk init --name notes --workspace ~/notes
+
   # Index a folder of notes you already have
   cd ~/notes && tusk init --name notes && tusk reindex
 
@@ -63,7 +67,8 @@ tusk init [flags]
 ### Options inherited from parent commands
 
 ```
-  -v, --verbose   emit debug-level logs to stderr
+  -v, --verbose         emit debug-level logs to stderr
+  -C, --workspace dir   run as if started in dir: find tusk.toml from there instead of the working directory (default $TUSK_WORKSPACE)
 ```
 
 ### SEE ALSO

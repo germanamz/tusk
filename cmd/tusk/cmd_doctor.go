@@ -213,7 +213,7 @@ they are not flagged as missing embeddings.`,
 				return failOnErr
 			}
 
-			ws, loaded, resolveErr := resolveWorkspace()
+			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
 				return resolveErr

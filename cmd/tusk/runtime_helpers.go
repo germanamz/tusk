@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/germanamz/tusk/internal/aliasdispatch"
 	"github.com/germanamz/tusk/internal/embed"
@@ -18,21 +17,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// resolveWorkspace finds the enclosing workspace, loads its manifest, and
-// merges the built-in type packs — the shared read-verb preamble. Not used by
-// init (which creates the workspace) or watch/reindex (which interleave logger
-// setup between Find and Load).
-func resolveWorkspace() (*workspace.Workspace, *manifest.Manifest, error) {
-	cwd, cwdErr := os.Getwd()
-
-	if cwdErr != nil {
-		return nil, nil, cwdErr
-	}
-
-	ws, findErr := workspace.Find(cwd)
+// resolveWorkspace finds the workspace the command runs in, loads its
+// manifest, and merges the built-in type packs — the shared read-verb
+// preamble. Not used by init (which creates the workspace) or watch/reindex
+// (which interleave logger setup between finding and loading).
+func resolveWorkspace(cmd *cobra.Command) (*workspace.Workspace, *manifest.Manifest, error) {
+	ws, findErr := findWorkspace(cmd)
 
 	if findErr != nil {
-		return nil, nil, fmt.Errorf("workspace: %w", findErr)
+		return nil, nil, findErr
 	}
 
 	loaded, loadErr := manifest.Load(ws.ManifestPath)

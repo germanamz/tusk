@@ -70,6 +70,10 @@ CONFIGURATION
     [alias.<name>]           saved queries runnable via "tusk run <name>"
 
   Environment overrides (read once at startup, highest precedence):
+    TUSK_WORKSPACE           the vault to run in when --workspace is absent,
+                             for MCP clients that set env but no working
+                             directory. --workspace wins over it, and it wins
+                             over the working directory.
     TUSK_EMBED_WORKERS       embed/reindex pool size; 0 = read-only instance.
                              Falls back to [embeddings] workers, then
                              max(1, NumCPU/2).
@@ -100,6 +104,9 @@ CONFIGURATION
   # Serve the graph to an MCP agent (Claude Code, Cursor, Zed)
   tusk mcp
 
+  # Serve a vault from anywhere, e.g. for Claude Desktop
+  tusk mcp --workspace ~/notes
+
   # Give Claude Code sessions in this vault its digest and tools
   tusk claude install
 
@@ -111,6 +118,7 @@ CONFIGURATION
 	}
 
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "emit debug-level logs to stderr")
+	rootCmd.PersistentFlags().StringP(workspaceFlag, "C", "", "run as if started in `dir`: find tusk.toml from there instead of the working directory (default $"+workspaceEnv+")")
 
 	rootCmd.AddCommand(newInitCmd())
 	rootCmd.AddCommand(newNodeCmd())

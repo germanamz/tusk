@@ -9,7 +9,13 @@ tusk mcp --transport sse --addr 127.0.0.1:8765    # SSE
 
 It holds the workspace open for the lifetime of the session: a single SQLite handle, an embed-queue drainer, and an fsnotify watcher all live in the same process so the index stays warm across tool calls.
 
-The server finds its workspace by walking up from its working directory to the nearest `tusk.toml`, and exits with `no tusk.toml found` when there isn't one. Per-client configuration, including which clients start the server in your project folder, is in the README under [Connect your agent](../../README.md#connect-your-agent). A `--workspace` flag for clients that can't set a working directory is tracked in [#794](https://github.com/germanamz/tusk/issues/794).
+The server finds its workspace by walking up from the directory it starts in to the nearest `tusk.toml`, and exits with `no tusk.toml in <dir> or any parent directory` when there isn't one. A client that starts servers somewhere else (Claude Desktop starts them in `/`) points it at the vault with `--workspace`:
+
+```bash
+tusk mcp --workspace ~/notes
+```
+
+`-C` is the short form, and `TUSK_WORKSPACE` does the same for a client whose config sets `env` but not `args`. The flag wins over the variable, and the variable over the starting directory. Every other command takes the same flag. Per-client configuration, including which clients start the server in your project folder, is in the README under [Connect your agent](../../README.md#connect-your-agent).
 
 ## The Claude Code plugin
 

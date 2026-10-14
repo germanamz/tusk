@@ -4,6 +4,7 @@ package workspace
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -17,8 +18,26 @@ const IndexDirname = ".tusk"
 // IndexFilename is the SQLite index file name inside IndexDirname.
 const IndexFilename = "index.db"
 
-// ErrNotFound is returned by Find when no tusk.toml is found by walking up.
+// ErrNotFound matches (via errors.Is) the *NotFoundError Find returns when no
+// tusk.toml is found by walking up.
 var ErrNotFound = errors.New("workspace: no tusk.toml found")
+
+// NotFoundError is the error Find returns when the walk reaches the filesystem
+// root without finding tusk.toml. It names the directory the walk started
+// from, which an MCP client that launched the server in / would not otherwise
+// show.
+type NotFoundError struct {
+	Dir string // absolute directory the walk started from
+}
+
+func (notFound *NotFoundError) Error() string {
+	return fmt.Sprintf("no tusk.toml in %s or any parent directory", notFound.Dir)
+}
+
+// Is reports ErrNotFound as a match, so callers keep testing with errors.Is.
+func (notFound *NotFoundError) Is(target error) bool {
+	return target == ErrNotFound
+}
 
 // Workspace describes a located Tusk workspace on disk.
 type Workspace struct {
@@ -27,14 +46,17 @@ type Workspace struct {
 	IndexPath    string // absolute path to .tusk/index.db (may not yet exist)
 }
 
-// Find walks up from startDir looking for tusk.toml. Returns ErrNotFound
-// once it reaches the filesystem root without finding one.
+// Find walks up from startDir looking for tusk.toml. Returns a *NotFoundError
+// (matching ErrNotFound) once it reaches the filesystem root without finding
+// one.
 func Find(startDir string) (*Workspace, error) {
 	current, absErr := filepath.Abs(startDir)
 
 	if absErr != nil {
 		return nil, absErr
 	}
+
+	start := current
 
 	for {
 		manifestPath := filepath.Join(current, ManifestFilename)
@@ -51,7 +73,7 @@ func Find(startDir string) (*Workspace, error) {
 		parent := filepath.Dir(current)
 
 		if parent == current {
-			return nil, ErrNotFound
+			return nil, &NotFoundError{Dir: start}
 		}
 
 		current = parent

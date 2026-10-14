@@ -20,17 +20,19 @@ import (
 	"github.com/germanamz/tusk/internal/version"
 )
 
-// serverInstructions is sent back in the MCP initialize response. Clients
-// surface this to the model at session start, so it carries the load of
-// telling agents that Tusk is local (not a remote service), that these tools
-// — not the `tusk` shell binary — are the interface to reach for, and pointing
-// at the tusk_help tool for everything else. Keep it short — the deep content
-// lives in the tusk_help topics.
-const serverInstructions = `Tusk is a LOCAL workspace indexer running over the current working directory.
+// serverInstructionsTemplate is sent back in the MCP initialize response, with
+// the workspace root filled in. Clients surface this to the model at session
+// start, so it carries the load of telling agents that Tusk is local (not a
+// remote service) and where the vault is — the server may run outside it under
+// --workspace, so "./" would point the agent at the wrong folder — that these
+// tools, not the `tusk` shell binary, are the interface to reach for, and
+// pointing at the tusk_help tool for everything else. Keep it short — the deep
+// content lives in the tusk_help topics.
+const serverInstructionsTemplate = `Tusk is a LOCAL workspace indexer running over the vault at %[1]s.
 There is no remote service. Every tool operates on:
-  - markdown and HTML files under ./
-  - the schema declared in ./tusk.toml
-  - the SQLite index at ./.tusk/index.db
+  - markdown and HTML files under %[1]s
+  - the schema declared in %[2]s
+  - the SQLite index at %[3]s
 
 These tusk_* tools are the interface for agents — prefer them over the "tusk"
 shell binary (it may also be on PATH). They run in this already-warm process
@@ -45,7 +47,7 @@ Everyday work maps to tools, not shell verbs:
             tusk_node_delete, tusk_edge_add, tusk_edge_remove
   - upkeep: tusk_reindex, tusk_doctor, tusk_reload, tusk_reset
 
-To declare new node-types or edge-types, edit ./tusk.toml in your editor (not
+To declare new node-types or edge-types, edit %[2]s in your editor (not
 the shell), then call tusk_reload to validate and hot-swap the schema (it also
 kicks a reindex and converges any sibling daemons). A write rejected with "not
 declared in manifest" right after editing tusk.toml means the daemon's cached
@@ -57,6 +59,11 @@ rebuild it from your files.
 
 Call tusk_help() for an overview + topic index, or tusk_help(topic: "<name>")
 for deep dives on: workflow, node-types, edge-types, manifest, filter, query, packs.`
+
+// serverInstructions renders serverInstructionsTemplate for runtime's vault.
+func serverInstructions(runtime *Runtime) string {
+	return fmt.Sprintf(serverInstructionsTemplate, runtime.Root, runtime.ManifestPath, runtime.IndexPath)
+}
 
 // Server wraps mcp-go's server with a Tusk Runtime.
 type Server struct {
@@ -78,7 +85,7 @@ func NewServer(runtime *Runtime) *Server {
 		"tusk",
 		version.Current,
 		server.WithToolCapabilities(true),
-		server.WithInstructions(serverInstructions),
+		server.WithInstructions(serverInstructions(runtime)),
 	)
 
 	srv := &Server{

@@ -13,7 +13,7 @@ MCP server. Bundles the open workspace + index + services into a `Runtime`, regi
 
 - `Open(workspaceDir string) (*Runtime, error)` — long-lived bundle.
 - `(*Runtime).Close()`.
-- `NewServer(*Runtime) *Server` — wraps mcp-go.
+- `NewServer(*Runtime) *Server` — wraps mcp-go. The initialize response's instructions name the runtime's absolute root, `tusk.toml` and index paths rather than `./`, because under `--workspace` the server runs outside the vault.
 - `(*Server).RunBackground(ctx) error` — starts the five background goroutines (gated on `Workers > 0`).
 - Tools: `tusk_status`, `tusk_node_get`, `tusk_node_list`, `tusk_query`, `tusk_doctor`, `tusk_node_create`, `tusk_node_modify`, `tusk_node_move`, `tusk_node_delete`, `tusk_edge_add`, `tusk_edge_remove`, `tusk_reindex`, `tusk_reset`.
 
