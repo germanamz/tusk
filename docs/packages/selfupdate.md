@@ -70,8 +70,12 @@ version: building a tagged repository locally yields a *pseudo-version* such as
 proves nothing. A local build is stamped with `vcs.revision`; `go install`
 builds from the module cache and carries no VCS settings at all.
 
-Path signals are evaluated before the version fallback, so a Homebrew Cellar
-binary is classified as Homebrew even when a formula built it from source.
+Homebrew is recognized by a `Cellar` (formula) or `Caskroom` (cask) segment in
+the symlink-resolved path, or a `linuxbrew` prefix. `brew install
+germanamz/tap/tusk` is a cask, so its `<prefix>/bin/tusk` link resolves into
+`<prefix>/Caskroom/tusk/<ver>/tusk`. Path signals are evaluated before the
+version fallback, so a Homebrew binary is classified as Homebrew even when a
+formula built it from source.
 
 ## Ordering invariants
 

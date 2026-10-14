@@ -119,6 +119,48 @@ jobs:
           gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
             -F draft=false -f make_latest=true
 
+      # goreleaser wrote the Homebrew cask (skip_upload in .goreleaser.yaml)
+      # but pushed nothing. Hand it to the homebrew-tap job, which runs only
+      # once this job has made the archives the cask points at public.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: homebrew-cask
+          path: dist/homebrew/Casks/tusk.rb
+          if-no-files-found: error
+
+  # Point `brew install germanamz/tap/tusk` at the release publish just made
+  # live. Its own job so a tap failure doesn't fail publish, which would skip
+  # next-pr, and so "Re-run failed jobs" repeats only the push, not the asset
+  # uploads.
+  homebrew-tap:
+    needs: [create-release, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: homebrew-cask
+
+      # The workflow GITHUB_TOKEN can't write to another repo, so this uses a
+      # fine-grained PAT with contents write on germanamz/homebrew-tap only.
+      - name: Commit the cask to germanamz/homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          TAG: ${{ needs.create-release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          api=repos/germanamz/homebrew-tap/contents/Casks/tusk.rb
+          # Replacing a file takes its current blob sha; the first release
+          # creates it. On a 404 gh still prints the error body, so branch on
+          # the exit status, not the output.
+          sha_args=()
+          if sha="$(gh api "$api" --jq .sha 2>/dev/null)"; then
+            sha_args=(-f sha="$sha")
+          fi
+          gh api --method PUT "$api" --silent \
+            -f message="tusk ${TAG}" \
+            -f content="$(base64 -w0 tusk.rb)" \
+            "${sha_args[@]}"
+
   # Phase 2: compute the next release PR. This runs after publish so that, on a
   # release-merge run, the just-published tag exists and release-please can
   # anchor on the real latest version. On ordinary pushes (publish skipped) the

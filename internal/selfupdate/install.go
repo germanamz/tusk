@@ -18,7 +18,8 @@ const (
 	// MethodRelease is a binary from a GitHub release archive — installed
 	// by install.sh or unpacked by hand. Safe to swap.
 	MethodRelease Method = iota
-	// MethodHomebrew is a Homebrew-managed binary under a Cellar prefix.
+	// MethodHomebrew is a Homebrew-managed binary under a Cellar (formula) or
+	// Caskroom (cask) prefix.
 	MethodHomebrew
 	// MethodGoInstall is a binary produced by "go install" into GOBIN.
 	MethodGoInstall
@@ -67,15 +68,18 @@ func (method Method) UpgradeCommand() string {
 // binary and send the user to a git checkout they may not have — so the
 // module build info, which does distinguish the two, is consulted first.
 func DetectMethod(execPath string, currentVersion string) Method {
-	// Homebrew links <prefix>/bin/tusk at <prefix>/Cellar/tusk/<ver>/bin/tusk,
-	// so the Cellar segment only appears once symlinks are resolved.
+	// Homebrew links <prefix>/bin/tusk at <prefix>/Cellar/tusk/<ver>/bin/tusk
+	// for a formula and at <prefix>/Caskroom/tusk/<ver>/tusk for a cask, the
+	// way the germanamz/tap cask installs it. Either segment only appears once
+	// symlinks are resolved.
 	resolved := execPath
 
 	if link, linkErr := filepath.EvalSymlinks(execPath); linkErr == nil {
 		resolved = link
 	}
 
-	if containsPathSegment(resolved, "Cellar") || containsPathSegment(resolved, "linuxbrew") {
+	if containsPathSegment(resolved, "Cellar") || containsPathSegment(resolved, "Caskroom") ||
+		containsPathSegment(resolved, "linuxbrew") {
 		return MethodHomebrew
 	}
 

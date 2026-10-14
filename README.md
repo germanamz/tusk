@@ -68,10 +68,16 @@ $ echo $?
 ## Install
 
 ```bash
+brew install germanamz/tap/tusk
+```
+
+Or, without Homebrew:
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
 ```
 
-This downloads the latest release for macOS, Linux or Windows (amd64 or arm64) into `~/.local/bin`. With Go 1.26+ you can run `go install github.com/germanamz/tusk/cmd/tusk@latest` instead. Semantic and hybrid search need [Ollama](https://ollama.com) running locally with an embedding model (`ollama pull nomic-embed-text`). Everything else works without it.
+The script downloads the latest release for macOS, Linux or Windows (amd64 or arm64) into `~/.local/bin`. With Go 1.26+ you can run `go install github.com/germanamz/tusk/cmd/tusk@latest` instead. Semantic and hybrid search need [Ollama](https://ollama.com) running locally with an embedding model (`ollama pull nomic-embed-text`). Everything else works without it.
 
 Updating (`tusk update`), pinning a version and building from source are in [docs/guide/install.md](docs/guide/install.md).
 

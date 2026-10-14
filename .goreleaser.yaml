@@ -70,6 +70,76 @@ signs:
       - "--bundle=${signature}"
       - "${artifact}"
 
+# Homebrew cask behind `brew install germanamz/tap/tusk`, for macOS and Linux.
+# skip_upload keeps goreleaser from pushing it: this config runs under
+# --skip=publish, and the release only goes public after goreleaser exits. The
+# homebrew-tap job in release-please.yml commits dist/homebrew/Casks/tusk.rb to
+# the tap once the archives it points at can be downloaded.
+homebrew_casks:
+  - name: tusk
+    binaries: [tusk]
+    description: Index markdown into a typed, searchable graph that agents query over MCP
+    homepage: https://github.com/germanamz/tusk
+    # release.disable leaves goreleaser no release to derive download URLs from.
+    url:
+      template: "https://github.com/germanamz/tusk/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    # A cask's manpage stanza takes one file and no globs, so every page is
+    # listed. TestGoreleaserCaskListsEveryManPage fails when `make docs` adds or
+    # drops a page this list doesn't match.
+    manpages:
+      - man/tusk-claude-context.1
+      - man/tusk-claude-install.1
+      - man/tusk-claude-refs.1
+      - man/tusk-claude-status.1
+      - man/tusk-claude-uninstall.1
+      - man/tusk-claude.1
+      - man/tusk-context.1
+      - man/tusk-doctor.1
+      - man/tusk-edge-add.1
+      - man/tusk-edge-list.1
+      - man/tusk-edge-remove.1
+      - man/tusk-edge.1
+      - man/tusk-init.1
+      - man/tusk-mcp.1
+      - man/tusk-node-create.1
+      - man/tusk-node-delete.1
+      - man/tusk-node-get.1
+      - man/tusk-node-list.1
+      - man/tusk-node-modify.1
+      - man/tusk-node-move.1
+      - man/tusk-node-render.1
+      - man/tusk-node.1
+      - man/tusk-pack-add.1
+      - man/tusk-pack.1
+      - man/tusk-query.1
+      - man/tusk-reindex.1
+      - man/tusk-reload.1
+      - man/tusk-reset.1
+      - man/tusk-run.1
+      - man/tusk-status.1
+      - man/tusk-update.1
+      - man/tusk-watch.1
+      - man/tusk-web.1
+      - man/tusk.1
+    generate_completions_from_executable:
+      executable: tusk
+      args: [completion]
+      shells: [bash, zsh, fish]
+    # The binaries are cosign-signed but not Apple-notarized, so Gatekeeper
+    # refuses the quarantined copy brew downloads. Clearing the flag in
+    # preflight, not postflight, matters: brew runs the binary to generate the
+    # completions before postflight would get to it.
+    hooks:
+      pre:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/tusk"]
+          end
+    skip_upload: true
+    repository:
+      owner: germanamz
+      name: homebrew-tap
+
 changelog:
   sort: asc
   filters:
