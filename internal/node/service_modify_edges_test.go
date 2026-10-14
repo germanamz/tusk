@@ -12,6 +12,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // #670 (D1): modifying an unrelated scalar property must NOT drop the node's
@@ -36,7 +37,7 @@ func TestServiceModify_PreservesFrontmatterEdges(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		dir, repo, edgeRepo, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
-		node.NewIndexRefLookup(repo),
+		node.NewIndexRefLookup(repo, wikilink.DefaultCase),
 		index.NewFileStateRepo(idx), "test-worker", time.Minute,
 	)
 
@@ -116,7 +117,7 @@ func TestServiceModify_PreservesStructuralContainsEdges(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		dir, repo, edgeRepo, manifest.EdgeTypes{}, nil,
 		nodeTypes, nil, nil, nil, nil,
-		node.NewIndexRefLookup(repo),
+		node.NewIndexRefLookup(repo, wikilink.DefaultCase),
 		index.NewFileStateRepo(idx), "test-worker", time.Minute,
 	)
 

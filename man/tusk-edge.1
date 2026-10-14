@@ -69,7 +69,9 @@ by the named property on each source node. Example:
 .PP
 Body wikilinks ([[path/to/target]]) materialize as edges of any edge type
 the manifest declares with "wikilinks = true" — a navigational shorthand
-useful for prose, distinct from typed frontmatter edges.
+useful for prose, distinct from typed frontmatter edges. A wikilink can also
+be relative to its page ([[../path/to/target]]) or a bare file name as
+Obsidian writes it ([[target]]), which finds the one file with that name.
 
 .PP
 Use "tusk edge list" with --from/--to/--type to filter.

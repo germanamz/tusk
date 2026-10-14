@@ -8,6 +8,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/webui"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // NodeSource lists and fetches nodes. Satisfied by *index.NodeRepo.
@@ -60,6 +61,10 @@ type Deps struct {
 	Root  string
 	Nodes NodeSource
 	Edges EdgeSource
+
+	// Files resolves a body wikilink that names a file by name ([[auth-rfc]])
+	// the way the index does (#791). nil takes every name as an id.
+	Files wikilink.Files
 
 	// Search backs POST /api/search; nil makes the endpoint report 503.
 	Search Searcher

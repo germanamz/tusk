@@ -10,6 +10,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // Moving an .mdx node must keep the markdown-twin id convention (the id RETAINS
@@ -48,7 +49,7 @@ func TestRename_RetargetsReferrerToMovedMDXNode(test *testing.T) {
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "notes/guide.mdx", "notes/manual.mdx",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/guide.mdx", "notes/manual.mdx",
 	)
 
 	if renameErr != nil {

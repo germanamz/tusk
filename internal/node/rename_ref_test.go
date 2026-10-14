@@ -12,6 +12,7 @@ import (
 	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // refRenameFixture wires a ref-aware service and edge/node repos over a fresh
@@ -54,7 +55,7 @@ func newRefRenameFixture(test *testing.T) refRenameFixture {
 	service := node.NewServiceWithBehaviors(
 		root, nodeRepo, edgeRepo, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
-		node.NewIndexRefLookup(nodeRepo),
+		node.NewIndexRefLookup(nodeRepo, wikilink.DefaultCase),
 		fileState, "test-worker", time.Minute,
 	)
 
@@ -92,7 +93,7 @@ func (fixture refRenameFixture) rename(test *testing.T, oldID, newRelPath string
 
 	plan, renameErr := node.Rename(
 		fixture.root, fixture.nodeRepo, fixture.edgeRepo, fixture.fileState,
-		"test-worker", time.Minute, fixture.edgeTypes, fixture.nodeTypes, nil, linenum.DefaultScheme,
+		"test-worker", time.Minute, fixture.edgeTypes, fixture.nodeTypes, nil, linenum.DefaultScheme, wikilink.DefaultCase,
 		oldID, newRelPath,
 	)
 
@@ -367,7 +368,7 @@ func TestRename_RecordsRefDriftForBrokenReferrerRef(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		root, nodeRepo, edgeRepo, edgeTypes, nil,
 		nodeTypes, driftRepo, nil, nil, nil,
-		node.NewIndexRefLookup(nodeRepo),
+		node.NewIndexRefLookup(nodeRepo, wikilink.DefaultCase),
 		fileState, "test-worker", time.Minute,
 	)
 
@@ -391,13 +392,13 @@ func TestRename_RecordsRefDriftForBrokenReferrerRef(test *testing.T) {
 	// leaves the incoming edge dangling and records NO drift, so the broken
 	// reviewer ref is exactly the pre-existing-but-undriften state the move
 	// must not silently swallow.
-	if deleteErr := node.Delete(root, nodeRepo, edgeRepo, fileState, nil, "test-worker", time.Minute, "people/ghost"); deleteErr != nil {
+	if deleteErr := node.Delete(root, nodeRepo, edgeRepo, fileState, nil, "test-worker", time.Minute, wikilink.DefaultCase, "people/ghost"); deleteErr != nil {
 		test.Fatalf("delete ghost: %v", deleteErr)
 	}
 
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
-		edgeTypes, nodeTypes, driftRepo, linenum.DefaultScheme, "people/jane", "people/jane-doe.md",
+		edgeTypes, nodeTypes, driftRepo, linenum.DefaultScheme, wikilink.DefaultCase, "people/jane", "people/jane-doe.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -457,7 +458,7 @@ func TestDelete_EnqueuesDerivedReferrers(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		root, nodeRepo, edgeRepo, edgeTypes, nil,
 		nodeTypes, index.NewPropertyDriftRepo(store), nil, nil, nil,
-		node.NewIndexRefLookup(nodeRepo),
+		node.NewIndexRefLookup(nodeRepo, wikilink.DefaultCase),
 		fileState, "test-worker", time.Minute,
 	)
 
@@ -476,7 +477,7 @@ func TestDelete_EnqueuesDerivedReferrers(test *testing.T) {
 		test.Fatalf("precondition: want derived assignee edge tasks/auth -> people/jane, got %+v", edges)
 	}
 
-	if deleteErr := node.Delete(root, nodeRepo, edgeRepo, fileState, queue, "test-worker", time.Minute, "people/jane"); deleteErr != nil {
+	if deleteErr := node.Delete(root, nodeRepo, edgeRepo, fileState, queue, "test-worker", time.Minute, wikilink.DefaultCase, "people/jane"); deleteErr != nil {
 		test.Fatalf("delete: %v", deleteErr)
 	}
 
@@ -529,7 +530,7 @@ func TestRename_LeavesBareTitleRefWhenTitleEqualsOldID(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		root, nodeRepo, edgeRepo, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
-		node.NewIndexRefLookup(nodeRepo),
+		node.NewIndexRefLookup(nodeRepo, wikilink.DefaultCase),
 		fileState, "test-worker", time.Minute,
 	)
 
@@ -564,7 +565,7 @@ func TestRename_LeavesBareTitleRefWhenTitleEqualsOldID(test *testing.T) {
 
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
-		edgeTypes, nodeTypes, nil, linenum.DefaultScheme, "notes/foo", "notes/bar.md",
+		edgeTypes, nodeTypes, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/foo", "notes/bar.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}

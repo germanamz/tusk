@@ -18,6 +18,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 func openTempIndex(test *testing.T, root string) *index.Index {
@@ -1313,7 +1314,7 @@ func TestServiceCreate_RefResolutionDangling(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		dir, repo, edges, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
-		node.NewIndexRefLookup(repo), // helper from this task
+		node.NewIndexRefLookup(repo, wikilink.DefaultCase), // helper from this task
 		index.NewFileStateRepo(idx), "test-worker", time.Minute,
 	)
 
@@ -1363,7 +1364,7 @@ func TestServiceCreate_RefResolutionHappy(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		dir, repo, edges, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
-		node.NewIndexRefLookup(repo),
+		node.NewIndexRefLookup(repo, wikilink.DefaultCase),
 		index.NewFileStateRepo(idx), "test-worker", time.Minute,
 	)
 
@@ -1412,7 +1413,7 @@ func TestServiceModify_RefRemovedDeletesEdge(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		dir, repo, edgeRepo, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
-		node.NewIndexRefLookup(repo),
+		node.NewIndexRefLookup(repo, wikilink.DefaultCase),
 		index.NewFileStateRepo(idx), "test-worker", time.Minute,
 	)
 
@@ -1482,7 +1483,7 @@ func TestServiceCreate_RefAcyclicCycleRejected(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		dir, repo, edgeRepo, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
-		node.NewIndexRefLookup(repo),
+		node.NewIndexRefLookup(repo, wikilink.DefaultCase),
 		index.NewFileStateRepo(idx), "test-worker", time.Minute,
 	)
 

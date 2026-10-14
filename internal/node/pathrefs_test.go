@@ -13,6 +13,7 @@ import (
 	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 func pathRefEdgeTypes() manifest.EdgeTypes {
@@ -120,7 +121,7 @@ func TestService_WritesKeepPathRefsInStep(test *testing.T) {
 
 	if _, renameErr := node.Rename(
 		root, nodes, edges, fileState, "test-worker", time.Minute,
-		pathRefEdgeTypes(), nil, nil, linenum.DefaultScheme, "technical/ledger", "technical/ledger-core.md",
+		pathRefEdgeTypes(), nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "technical/ledger", "technical/ledger-core.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -152,7 +153,7 @@ func TestService_MoveRederivesRelativeLinks(test *testing.T) {
 
 	if _, renameErr := node.Rename(
 		root, nodes, edges, fileState, "test-worker", time.Minute,
-		pathRefEdgeTypes(), nil, nil, linenum.SchemeLF, "technical/ledger", "technical/deep/ledger.md",
+		pathRefEdgeTypes(), nil, nil, linenum.SchemeLF, wikilink.DefaultCase, "technical/ledger", "technical/deep/ledger.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -355,7 +356,7 @@ func TestRename_LeavesPathsOnlyValuesAsWritten(test *testing.T) {
 
 	if _, renameErr := node.Rename(
 		root, nodes, edges, fileState, "test-worker", time.Minute,
-		pathRefEdgeTypes(), nil, nil, linenum.SchemeLF, "notes/foo", "notes/bar.md",
+		pathRefEdgeTypes(), nil, nil, linenum.SchemeLF, wikilink.DefaultCase, "notes/foo", "notes/bar.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}

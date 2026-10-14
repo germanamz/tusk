@@ -12,6 +12,7 @@ import (
 	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 func TestDelete_RemovesFileAndEdges(test *testing.T) {
@@ -48,7 +49,7 @@ func TestDelete_RemovesFileAndEdges(test *testing.T) {
 	}
 
 	if deleteErr := node.Delete(
-		root, nodeRepo, edgeRepo, index.NewFileStateRepo(store), nil, "test-worker", time.Minute, "tickets/child",
+		root, nodeRepo, edgeRepo, index.NewFileStateRepo(store), nil, "test-worker", time.Minute, wikilink.DefaultCase, "tickets/child",
 	); deleteErr != nil {
 		test.Fatalf("Delete: %v", deleteErr)
 	}
@@ -78,7 +79,7 @@ func TestDelete_ReturnsErrorWhenNodeNotFound(test *testing.T) {
 	edgeRepo := index.NewEdgeRepo(store)
 
 	deleteErr := node.Delete(
-		root, nodeRepo, edgeRepo, index.NewFileStateRepo(store), nil, "test-worker", time.Minute, "tickets/missing",
+		root, nodeRepo, edgeRepo, index.NewFileStateRepo(store), nil, "test-worker", time.Minute, wikilink.DefaultCase, "tickets/missing",
 	)
 
 	if deleteErr == nil {
@@ -122,7 +123,7 @@ func TestRename_MovesFileAndRewritesReferringEdgesInFrontmatter(test *testing.T)
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "tickets/old-parent", "tickets/new-parent.md",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "tickets/old-parent", "tickets/new-parent.md",
 	)
 
 	if renameErr != nil {
@@ -210,7 +211,7 @@ func TestRename_RewritesBlockSequenceEdgeTargets(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "tickets/a", "tickets/a-renamed.md",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "tickets/a", "tickets/a-renamed.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -269,7 +270,7 @@ func TestRename_InheritsSourceExtensionWhenTargetHasNone(test *testing.T) {
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/foo", "notes/bar",
+		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/foo", "notes/bar",
 	)
 
 	if renameErr != nil {
@@ -314,7 +315,7 @@ func TestRename_HonorsExplicitTargetExtension(test *testing.T) {
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/foo", "notes/bar.md",
+		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/foo", "notes/bar.md",
 	)
 
 	if renameErr != nil {
@@ -346,7 +347,7 @@ func TestRename_ReturnsErrorWhenTargetExists(test *testing.T) {
 	_, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "a", "b.md",
+		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "a", "b.md",
 	)
 
 	if renameErr == nil {
@@ -412,7 +413,7 @@ func TestRename_RewritesBodyWikilinksOnDisk(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "notes/target", "notes/renamed.md",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/target", "notes/renamed.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -490,7 +491,7 @@ func TestRename_RewritesAliasedBodyWikilinkOnDisk(test *testing.T) {
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "notes/target", "notes/renamed.md",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/target", "notes/renamed.md",
 	)
 	if renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
@@ -596,7 +597,7 @@ func TestRename_RetargetsSubUnitSourcedIncomingEdges(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "notes/target", "notes/renamed.md",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/target", "notes/renamed.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -661,7 +662,7 @@ func TestRename_LeavesDestinationStaleSoReindexRebuildsSubUnits(test *testing.T)
 
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo, fileState, "test-worker", time.Minute,
-		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, "notes/moved", "notes/dest.md",
+		manifest.EdgeTypes{}, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/moved", "notes/dest.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -719,7 +720,7 @@ func TestRename_RewritesSelfReferenceInMovedFileBody(test *testing.T) {
 	plan, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "notes/self", "notes/renamed-self.md",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/self", "notes/renamed-self.md",
 	)
 
 	if renameErr != nil {
@@ -779,7 +780,7 @@ func TestRename_KeepsMovedFilesOutgoingEdges(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "tickets/child", "tickets/renamed-child.md",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "tickets/child", "tickets/renamed-child.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}
@@ -840,7 +841,7 @@ func TestRename_DoesNotRebaseStructuralContainsEdges(test *testing.T) {
 	if _, renameErr := node.Rename(
 		root, nodeRepo, edgeRepo,
 		index.NewFileStateRepo(store), "test-worker", time.Minute,
-		edgeTypes, nil, nil, linenum.DefaultScheme, "notes/moved", "notes/dest.md",
+		edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase, "notes/moved", "notes/dest.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)
 	}

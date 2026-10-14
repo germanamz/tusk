@@ -11,6 +11,7 @@ type Node struct {
 	Adopted    bool                // Type is the fallback ParseFileAs was given, not the file's own: the file has no `type:`, so writers must not add one
 	Properties map[string]any      // frontmatter keys NOT matching a declared edge type
 	Edges      map[string][]string // edge-type-name → ordered list of target node ids
+	NameLinks  map[string][]string // edge-type-name → the Edges targets a body [[wikilink]] names by file name ([[auth-rfc]]); set by MaterializeWikilinks, their rows carry the link so the index resolves the name (#791)
 	PathValues map[string][]string // paths-only edge-type-name → the workspace paths its frontmatter value names; set by ResolveEdges, recorded as path refs by PathRefs
 	Body       []byte              // markdown body after the closing `---` delimiter
 	BodyOffset int                 // byte offset in the file as read where Body begins; sub-unit line numbers count from the file's top
@@ -19,8 +20,8 @@ type Node struct {
 	HTMLImages []string            // raw <img src> values in document order; populated only for HTML nodes by ParseHTMLFile, scanned for path refs by PathRefs
 }
 
-// Clone returns a shallow copy of the Node with the Properties, Edges and
-// PathValues maps deep-copied so callers can mutate the clone without
+// Clone returns a shallow copy of the Node with the Properties, Edges,
+// NameLinks and PathValues maps deep-copied so callers can mutate the clone without
 // affecting the original.
 func (nd *Node) Clone() *Node {
 	if nd == nil {
@@ -38,6 +39,7 @@ func (nd *Node) Clone() *Node {
 	}
 
 	cloned.Edges = cloneTargets(nd.Edges)
+	cloned.NameLinks = cloneTargets(nd.NameLinks)
 	cloned.PathValues = cloneTargets(nd.PathValues)
 
 	return &cloned

@@ -22,6 +22,7 @@ const (
 // missing, so a new kind cannot ship unclassified.
 var severityByKind = map[string]string{
 	IssueDanglingEdge:              SeverityError,
+	IssueAmbiguousWikilink:         SeverityError,
 	IssueEdgeTypeViolation:         SeverityError,
 	IssueEdgeCardinalityViolation:  SeverityError,
 	IssueRefDangling:               SeverityError,

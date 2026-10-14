@@ -1,12 +1,25 @@
 package node
 
-import "testing"
+import (
+	"testing"
 
-// rewriteBodyWikilinks retargets a moved node's id inside body [[wikilinks]].
+	"github.com/germanamz/tusk/internal/wikilink"
+)
+
+// idMove is the linkRetarget of a move of oldID to newID in a vault where no
+// other file is known: workspace paths to oldID retarget, and nothing resolves
+// by name.
+func idMove(oldID, newID string) linkRetarget {
+	move := newLinkMove(wikilink.NewNames(wikilink.DefaultCase), oldID, newID, newID+".md")
+
+	return move.retargetFrom("source.md", "source.md")
+}
+
+// rewriteBodyLinks retargets a moved node's id inside body [[wikilinks]].
 // It must handle the bare, deep-link, and Obsidian aliased forms, preserve the
 // `#fragment` and `|display` suffix verbatim, and — critically — never touch a
 // longer id that merely shares oldID as a prefix (#690).
-func TestRewriteBodyWikilinks(test *testing.T) {
+func TestRewriteBodyLinks(test *testing.T) {
 	const body = "---\ntitle: x\n---\n"
 
 	cases := []struct {
@@ -77,7 +90,7 @@ func TestRewriteBodyWikilinks(test *testing.T) {
 
 	for _, testCase := range cases {
 		test.Run(testCase.name, func(subtest *testing.T) {
-			got := string(rewriteBodyWikilinks([]byte(testCase.input), "notes/old", "notes/new"))
+			got := string(rewriteBodyLinks([]byte(testCase.input), idMove("notes/old", "notes/new")))
 
 			if got != testCase.want {
 				subtest.Errorf("rewrite:\n got: %q\nwant: %q", got, testCase.want)

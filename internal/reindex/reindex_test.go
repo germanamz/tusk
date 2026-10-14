@@ -27,6 +27,7 @@ import (
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
 	"github.com/germanamz/tusk/internal/reindex"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 func TestRun_IndexesAllMarkdownNodes(test *testing.T) {
@@ -2816,7 +2817,7 @@ func TestRun_AfterRename_ConvergesSubUnitEdges(test *testing.T) {
 
 	if _, renameErr := node.Rename(
 		root, repo, edgeRepo, index.NewFileStateRepo(store),
-		"test-worker", time.Minute, edgeTypes, nil, nil, linenum.DefaultScheme,
+		"test-worker", time.Minute, edgeTypes, nil, nil, linenum.DefaultScheme, wikilink.DefaultCase,
 		"notes/target", "notes/renamed.md",
 	); renameErr != nil {
 		test.Fatalf("Rename: %v", renameErr)

@@ -10,6 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/germanamz/tusk/internal/linenum"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // validCardinalities lists the legal Cardinality values for runtime validation.
@@ -808,6 +809,10 @@ func validate(loaded *Manifest) error {
 
 	if _, schemeErr := linenum.ParseScheme(loaded.Workspace.LineNumbering); schemeErr != nil {
 		return fmt.Errorf("manifest: workspace.%w", schemeErr)
+	}
+
+	if _, caseErr := wikilink.ParseCase(loaded.Workspace.LinkCase); caseErr != nil {
+		return fmt.Errorf("manifest: workspace.%w", caseErr)
 	}
 
 	if loaded.Embeddings.Provider != "" {

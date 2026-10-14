@@ -6,6 +6,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // fakeRefLookup is the test-only RefLookup. Title lookups consult the
@@ -18,6 +19,18 @@ type fakeRefLookup struct {
 func (lookup *fakeRefLookup) FindByID(nodeID string) (foundType string, found bool) {
 	foundType, found = lookup.ids[nodeID]
 	return
+}
+
+// ResolveName matches a name-form wikilink against the ids map: the id itself,
+// else every id whose last path segment is the name.
+func (lookup *fakeRefLookup) ResolveName(name string) (string, []string, error) {
+	names := wikilink.NewNames(wikilink.DefaultCase)
+
+	for id := range lookup.ids {
+		names.Add(id, id+".md")
+	}
+
+	return names.ResolveName(name)
 }
 
 func (lookup *fakeRefLookup) FindByTitle(targetType, title string) ([]string, error) {
@@ -264,5 +277,46 @@ func TestResolveRefs_WildcardToAcceptsAnyType(test *testing.T) {
 
 	if len(result.HardErrors) != 0 || len(result.Edges) != 1 {
 		test.Errorf("expected one edge; got %+v", result)
+	}
+}
+
+// #791: a wikilink ref value resolves like a body link. A file name finds the
+// one file with that name, two files make it ref_ambiguous with both listed,
+// and a relative path resolves from the node's folder.
+func TestResolveRefs_WikilinkNamesResolveByFileName(test *testing.T) {
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "owner", Type: "ref", To: "person"}}},
+	}
+
+	lookup := &fakeRefLookup{
+		ids: map[string]string{"people/alice": "person", "a/bob": "person", "b/bob": "person"},
+	}
+
+	for _, tc := range []struct {
+		value      string
+		wantTarget string
+		wantKind   node.RefErrKind
+		candidates []string
+	}{
+		{value: "[[alice|Alice]]", wantTarget: "people/alice"},
+		{value: "[[../people/alice]]", wantTarget: "people/alice"},
+		{value: "[[bob]]", wantKind: node.RefErrAmbiguous, candidates: []string{"a/bob", "b/bob"}},
+		{value: "[[carol]]", wantKind: node.RefErrDangling},
+	} {
+		parsed := newParsedNode("tickets/t1", "ticket", map[string]any{"owner": tc.value})
+		result := node.ResolveRefs(parsed, decls, lookup)
+
+		if tc.wantTarget != "" {
+			if len(result.HardErrors) > 0 || len(result.Edges) != 1 || result.Edges[0].TargetID != tc.wantTarget {
+				test.Errorf("%s: edges %+v, errors %+v; want %s", tc.value, result.Edges, result.HardErrors, tc.wantTarget)
+			}
+
+			continue
+		}
+
+		if len(result.HardErrors) != 1 || result.HardErrors[0].Kind != tc.wantKind ||
+			strings.Join(result.HardErrors[0].Candidates, ",") != strings.Join(tc.candidates, ",") {
+			test.Errorf("%s: errors %+v, want one %s with candidates %v", tc.value, result.HardErrors, tc.wantKind, tc.candidates)
+		}
 	}
 }

@@ -44,7 +44,9 @@ A few keys are reserved: "type" (required, picks the node-type schema),
 "title", and any "status-property" declared by an active behavior pack.
 
 Body wikilinks ([[path/to/target]]) materialize as edges of any edge type
-the manifest declares with "wikilinks = true".
+the manifest declares with "wikilinks = true". A wikilink can also be
+relative to its page ([[../path/to/target]]) or a bare file name
+([[target]]), which finds the one file with that name.
 
 The node subcommands are thin wrappers over the same internal service the
 watcher and reindex use, so creating a node by CLI and saving a file in

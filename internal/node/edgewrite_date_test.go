@@ -10,6 +10,7 @@ import (
 	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // Regression: ReindexSource re-persists the node row, so it must canonicalize a
@@ -39,7 +40,7 @@ func TestReindexSource_CanonicalizesUnquotedDateInNodeRow(test *testing.T) {
 		test.Fatal(err)
 	}
 
-	if err := node.ReindexSource(dir, repo, edgeRepo, node.NewIndexRefLookup(repo), edgeTypes, nodeTypes, "tickets/t", linenum.DefaultScheme); err != nil {
+	if err := node.ReindexSource(dir, repo, edgeRepo, node.NewIndexRefLookup(repo, wikilink.DefaultCase), edgeTypes, nodeTypes, "tickets/t", linenum.DefaultScheme, wikilink.DefaultCase); err != nil {
 		test.Fatalf("ReindexSource: %v", err)
 	}
 

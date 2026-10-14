@@ -1194,6 +1194,7 @@ func registerNodeMoveTool(srv *Server) {
 			srv.runtime.Manifest.NodeTypes,
 			srv.runtime.PropertyDrift,
 			srv.runtime.Manifest.LineNumbering(),
+			srv.runtime.Manifest.LinkCase(),
 			nodeID,
 			newPath,
 		)
@@ -1235,6 +1236,7 @@ func registerNodeDeleteTool(srv *Server) {
 			srv.runtime.EmbedQueue,
 			srv.runtime.WorkerID,
 			srv.runtime.LeaseTTL,
+			srv.runtime.Manifest.LinkCase(),
 			nodeID,
 		); deleteErr != nil {
 			return toolError(deleteErr), nil

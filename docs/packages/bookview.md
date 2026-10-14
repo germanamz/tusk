@@ -37,7 +37,8 @@ sanitizes the result.
 - `APIBase = "/api/read"` — the mount prefix `internal/webapp` grafts
   bookview under.
 - `Deps` — bundles everything the provider needs: `Root`, `Nodes`
-  (`NodeSource`), `Edges` (`EdgeSource`), `Search` (`Searcher`; nil makes
+  (`NodeSource`), `Edges` (`EdgeSource`), `Files` (`wikilink.Files`, the
+  index's name lookup; nil takes every wikilink name as an id), `Search` (`Searcher`; nil makes
   `/api/read/search` report 503), `Related` (`RelatedSource`; nil makes the
   rail come back empty), `Meta` (`webui.MetaReader`; nil reports a
   constant zero change signal), `Logger`, `PollInterval`. The Host
@@ -65,7 +66,11 @@ sanitizes the result.
     is the raw body with frontmatter stripped
     (`render.StripFrontmatter`). `Wikilinks` maps every raw `[[target]]`
     found in the body to its resolution (`WikilinkTarget{ID, Title,
-    Exists}`).
+    Exists}`). A target resolves the way the index resolves it (a path, a
+    relative path from the page, a file name through `Files`; #791), then by
+    title as a reader-only fallback. A name several files share renders dead
+    without the title fallback, because the index has no edge for it and
+    doctor reports it.
   - `LinkRef{ID, Title, Type, EdgeType}` — one entry in a node's reading
     rails (see below).
   - `SearchRequest` / `SearchResponse` / `Match` — the search payload.

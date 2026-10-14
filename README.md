@@ -99,7 +99,7 @@ tusk reindex
 tusk web --open
 ```
 
-When the folder already holds markdown, `init` says how many files have no `type:`, adds the `vault` pack (note, meeting and decision types, plus wikilink edges) and sets `default-type = "note"` in `tusk.toml`. Every file then indexes as a note without being edited: its path, minus the extension, is its id, its first `# ` heading is its title, and `[[folder/other-note]]` wikilinks become edges.
+When the folder already holds markdown, `init` says how many files have no `type:`, adds the `vault` pack (note, meeting and decision types, plus wikilink edges) and sets `default-type = "note"` in `tusk.toml`. Every file then indexes as a note without being edited: its path, minus the extension, is its id, its first `# ` heading is its title, and its wikilinks become edges in any of the forms Obsidian writes: by name (`[[other-note]]`), as a path (`[[folder/other-note]]`), or relative to the note (`[[../folder/other-note]]`).
 
 Frontmatter can still give a file another type and properties:
 
@@ -114,7 +114,7 @@ title: Use SSO
 Builds on [[notes/auth-rfc]].
 ```
 
-Pass `tusk init --no-adopt`, or delete `default-type` from `tusk.toml`, to index only files with a `type:`. Obsidian's short `[[note-name]]` links don't resolve yet ([#791](https://github.com/germanamz/tusk/issues/791)), so links between adopted notes need to be written as paths for now.
+Pass `tusk init --no-adopt`, or delete `default-type` from `tusk.toml`, to index only files with a `type:`.
 
 [Workspaces, nodes and the manifest](docs/guide/workspace.md) covers types, edges, type packs and what gets indexed.
 
@@ -192,7 +192,7 @@ A prompt you can paste into your agent:
 
 **grep and ripgrep** need no setup and are exact when you know the words. Tusk adds search by meaning, a schema, and links you can query. It costs an index, and Ollama for semantic search.
 
-**Obsidian** is a good editor for the same kind of vault, and the two can share a folder: Obsidian for writing, tusk for agents and checks. Obsidian's short `[[note-name]]` links don't resolve in tusk yet ([#791](https://github.com/germanamz/tusk/issues/791)).
+**Obsidian** is a good editor for the same kind of vault, and the two can share a folder: Obsidian for writing, tusk for agents and checks. Tusk resolves the links Obsidian writes, short names included, and `tusk node move` keeps them pointing where they did.
 
 **A vector database or RAG pipeline** scales further, with more embedding models and hosted options. Tusk's index is derived from files you can read and review, and structure (types, edges, rules) is queryable in the same call as similarity. Tusk only talks to Ollama today.
 

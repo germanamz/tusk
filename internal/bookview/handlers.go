@@ -90,7 +90,7 @@ func (srv *Server) handleNode(writer http.ResponseWriter, request *http.Request)
 	// an entry for one could only be a key nothing matches.
 	markdown := render.StripFrontmatter(body)
 
-	wikilinks, wikilinksErr := srv.resolveWikilinks(markdown)
+	wikilinks, wikilinksErr := srv.resolveWikilinks(markdown, row.Path)
 
 	if wikilinksErr != nil {
 		http.Error(writer, wikilinksErr.Error(), http.StatusServiceUnavailable)

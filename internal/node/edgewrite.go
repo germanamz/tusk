@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/linenum"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/pathref"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // ErrEdgeTypeNotDeclared is the sentinel Service.AddEdge / Service.RemoveEdge
@@ -73,7 +75,7 @@ func (service *Service) AddEdge(edgeType, sourceID, targetID string) error {
 		return writeErr
 	}
 
-	return ReindexSource(service.root, service.repo, service.edges, service.refs, service.edgeTypes, service.nodeTypes, sourceID, service.lineNumbering)
+	return ReindexSource(service.root, service.repo, service.edges, service.refs, service.edgeTypes, service.nodeTypes, sourceID, service.lineNumbering, service.manifest.LinkCase())
 }
 
 // RemoveEdge removes the (edgeType, sourceID, targetID) edge from the source's
@@ -87,11 +89,11 @@ func (service *Service) RemoveEdge(edgeType, sourceID, targetID string) error {
 
 	sourceType := indexedType(service.repo, index.FilePathForID(sourceID))
 
-	if writeErr := RemoveEdgeFromFrontmatter(service.root, sourceID, sourceType, edgeType, targetID, service.edgeTypes, service.nodeTypes); writeErr != nil {
+	if writeErr := RemoveEdgeFromFrontmatter(service.root, sourceID, sourceType, edgeType, targetID, service.edgeTypes, service.nodeTypes, service.repo.FileNames(service.manifest.LinkCase())); writeErr != nil {
 		return writeErr
 	}
 
-	if reindexErr := ReindexSource(service.root, service.repo, service.edges, service.refs, service.edgeTypes, service.nodeTypes, sourceID, service.lineNumbering); reindexErr != nil {
+	if reindexErr := ReindexSource(service.root, service.repo, service.edges, service.refs, service.edgeTypes, service.nodeTypes, sourceID, service.lineNumbering, service.manifest.LinkCase()); reindexErr != nil {
 		return reindexErr
 	}
 
@@ -268,6 +270,11 @@ func AddEdgeToFrontmatter(
 // not present. Removes the key entirely when the last target is removed.
 // sourceType is the source's indexed type, as for AddEdgeToFrontmatter.
 //
+// A value written as a wikilink matches when it names targetID the way the
+// edge it produced does (#791): "[[notes/x|X]]", "[[../notes/x]]" and, when
+// files resolves names, "[[x]]" all remove the edge to notes/x. files may be
+// nil, which takes a name as written.
+//
 // Callers MUST serialize concurrent calls on the same source file (e.g.,
 // hold the workspace lock). The function performs an unguarded read-mutate-
 // write cycle; concurrent callers would produce a lost-update.
@@ -275,6 +282,7 @@ func RemoveEdgeFromFrontmatter(
 	workspaceRoot, sourceID, sourceType, edgeName, targetID string,
 	edgeTypes manifest.EdgeTypes,
 	nodeTypes map[string]manifest.NodeType,
+	files wikilink.Files,
 ) error {
 	if _, declared := edgeTypes[edgeName]; !declared {
 		return fmt.Errorf("edgewrite: edge type %q not declared in manifest", edgeName)
@@ -310,7 +318,7 @@ func RemoveEdgeFromFrontmatter(
 	removed := false
 
 	for _, candidate := range targets {
-		if candidate == targetID {
+		if candidate == targetID || wikilinkValueNames(candidate, index.FilePathForID(sourceID), targetID, files) {
 			removed = true
 			continue
 		}
@@ -375,6 +383,7 @@ func materializeReadEdges(
 // against the rewritten file, and ref properties are resolved so ref-derived
 // edges keep their resolved node ID rather than a raw title (#670 audit, D2/C2).
 // nodes and refs may be nil to skip node-row persistence / ref resolution.
+// linkCase is how the file's name-form wikilinks match file names.
 //
 // Callers MUST hold the workspace lock; this performs I/O and index writes that
 // overlap with the lock contract of the calling command.
@@ -387,6 +396,7 @@ func ReindexSource(
 	nodeTypes map[string]manifest.NodeType,
 	sourceID string,
 	lineNumbering linenum.Scheme,
+	linkCase wikilink.Case,
 ) error {
 	relPath := index.FilePathForID(sourceID)
 	absPath := filepath.Join(workspaceRoot, relPath)
@@ -446,7 +456,7 @@ func ReindexSource(
 		// file's own content edges and runs no sub-unit sync, so its
 		// kind='structural' contains rows must survive rather than be wiped
 		// until the next full re-parse (#680).
-		if upsertErr := edges.UpsertContentEdges(parsed.ID, parsed.Path, flattenEdges(parsed, nodeTypes)); upsertErr != nil {
+		if upsertErr := edges.UpsertContentEdges(parsed.ID, parsed.Path, EdgeRows(parsed, nodeTypes)); upsertErr != nil {
 			return fmt.Errorf("edgewrite: upsert %s: %w", relPath, upsertErr)
 		}
 
@@ -456,9 +466,39 @@ func ReindexSource(
 		if replaceErr := edges.ReplacePathRefs(parsed.ID, PathRefs(parsed, content, edgeTypes, lineNumbering)); replaceErr != nil {
 			return fmt.Errorf("edgewrite: path refs %s: %w", relPath, replaceErr)
 		}
+
+		// The rows above store name-form links as written; resolve them.
+		if resolveErr := index.ResolveLinks(nodes, edges, linkCase); resolveErr != nil {
+			return fmt.Errorf("edgewrite: resolve links %s: %w", relPath, resolveErr)
+		}
 	}
 
 	return nil
+}
+
+// wikilinkValueNames reports whether a frontmatter value written as a wikilink,
+// in the file at sourcePath, names targetID: its target as written, or as it
+// resolves (a relative path, or a name through files when files is non-nil).
+func wikilinkValueNames(value, sourcePath, targetID string, files wikilink.Files) bool {
+	match := refWikilinkPattern.FindStringSubmatch(strings.TrimSpace(value))
+
+	if len(match) != 2 {
+		return false
+	}
+
+	target, _ := wikilink.SplitAlias(match[1])
+
+	if target == targetID || wikilink.Normalize(target, sourcePath) == targetID {
+		return true
+	}
+
+	if files == nil {
+		return false
+	}
+
+	resolved, _, _ := wikilink.Resolve(target, sourcePath, files)
+
+	return resolved == targetID
 }
 
 // toTargetList coalesces a frontmatter edge value (scalar string or list of

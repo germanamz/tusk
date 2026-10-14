@@ -11,6 +11,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // D2/C2: `edge add` on a node carrying a bare-title ref property must keep the
@@ -36,7 +37,7 @@ func TestAddEdge_PreservesResolvedRefEdgeAndNodeRow(test *testing.T) {
 	service := node.NewServiceWithBehaviors(
 		dir, repo, edgeRepo, edgeTypes, nil,
 		nodeTypes, nil, nil, nil, nil,
-		node.NewIndexRefLookup(repo),
+		node.NewIndexRefLookup(repo, wikilink.DefaultCase),
 		index.NewFileStateRepo(idx), "test-worker", time.Minute,
 	)
 

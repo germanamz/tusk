@@ -18,6 +18,7 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // Issue kinds.
@@ -25,6 +26,12 @@ const (
 	IssueDanglingEdge      = "dangling-edge"
 	IssueEmbedRetry        = "embed-retry"
 	IssueWorkflowViolation = "workflow-violation"
+
+	// IssueAmbiguousWikilink surfaces a wikilink that names a file by name
+	// ([[auth-rfc]]) when two or more files have that name. The edge stays
+	// unresolved, and the finding lists the files the name could mean in place
+	// of a plain dangling-edge (#791).
+	IssueAmbiguousWikilink = "ambiguous-wikilink"
 
 	IssueUndeclaredProperty = "undeclared-property"
 	IssueTypeMismatch       = "type-mismatch"
@@ -493,7 +500,7 @@ func checkDanglingEdges(config Config) ([]Issue, error) {
 		return nil, nil
 	}
 
-	return findDanglingEdges(config.Nodes, config.Edges)
+	return findDanglingEdges(config.Nodes, config.Edges, config.Manifest.LinkCase())
 }
 
 // checkDerivedEdgeTypes flags a derived edge whose target node exists but whose
@@ -1472,7 +1479,7 @@ func Migrate(config Config) (*MigrationReport, error) {
 				fmt.Sprintf("%s [%s]: %s → %s", row.Type, row.SourcePath, row.SourceID, row.TargetID))
 		}
 
-		if reindexErr := node.ReindexSource(config.Root, config.Nodes, config.Edges, node.NewIndexRefLookup(config.Nodes), config.Manifest.EdgeTypes, config.Manifest.NodeTypes, sourceID, config.Manifest.LineNumbering()); reindexErr != nil {
+		if reindexErr := node.ReindexSource(config.Root, config.Nodes, config.Edges, node.NewIndexRefLookup(config.Nodes, config.Manifest.LinkCase()), config.Manifest.EdgeTypes, config.Manifest.NodeTypes, sourceID, config.Manifest.LineNumbering(), config.Manifest.LinkCase()); reindexErr != nil {
 			return nil, fmt.Errorf("doctor: reindex %s: %w", sourceID, reindexErr)
 		}
 
@@ -1617,7 +1624,11 @@ type danglingKey struct {
 // sub-unit above it, so edges are grouped per (file, type, target): one Issue
 // at the file id, with the sub-unit ids carrying the same link as Locations
 // (sorted). Issues keep the order of each group's first edge in ListAll.
-func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo) ([]Issue, error) {
+//
+// A wikilink that names a file by name and is unresolved because several
+// files have that name is reported as ambiguous-wikilink, with the files,
+// matched under linkCase; one that names no file is a dangling edge.
+func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wikilink.Case) ([]Issue, error) {
 	allEdges, listErr := edges.ListAll()
 
 	if listErr != nil {
@@ -1650,7 +1661,10 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo) ([]Issue, e
 		exists[row.ID] = struct{}{}
 	}
 
-	var issues []Issue
+	var (
+		issues []Issue
+		names  *wikilink.Names
+	)
 
 	groupIndex := map[danglingKey]int{}
 
@@ -1667,11 +1681,33 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo) ([]Issue, e
 			position = len(issues)
 			groupIndex[key] = position
 
-			issues = append(issues, Issue{
+			issue := Issue{
 				Kind:    IssueDanglingEdge,
 				NodeID:  fileID,
 				Message: fmt.Sprintf("edge %q -> %q (target missing)", edge.Type, edge.TargetID),
-			})
+			}
+
+			if edge.Link != "" {
+				// Loaded once, and only for a vault with an unresolved name.
+				if names == nil {
+					loaded, namesErr := nodes.LinkNames(linkCase)
+
+					if namesErr != nil {
+						return nil, namesErr
+					}
+
+					names = loaded
+				}
+
+				name, _ := wikilink.SplitFragment(edge.Link)
+
+				if _, candidates, _ := names.ResolveName(name); len(candidates) > 1 {
+					issue.Kind = IssueAmbiguousWikilink
+					issue.Message = fmt.Sprintf("edge %q -> [[%s]] names %d files: %s; link one by its path", edge.Type, edge.Link, len(candidates), strings.Join(candidates, ", "))
+				}
+			}
+
+			issues = append(issues, issue)
 		}
 
 		if isSubUnit && !slices.Contains(issues[position].Locations, edge.SourceID) {

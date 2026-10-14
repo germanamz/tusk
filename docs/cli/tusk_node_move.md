@@ -16,6 +16,14 @@ file keeps its on-disk extension. All other node files that reference the old
 id are rewritten in the same transaction, so the index never observes a broken
 state.
 
+Every wikilink keeps naming the note it named. A relative link
+([[../old-id]]) is re-rendered from where its file lives after the move, the
+moved note's own links included. A file-name link ([[old-name]]) stays as
+written while the name still finds the note, becomes [[new-name]] when the
+move renames the file, and becomes the full id when another note already has
+that name. Links to that other note by name are rewritten to its full id too,
+and their files count as referring files.
+
 ```
 tusk node move <old-id> <new-rel-path> [flags]
 ```

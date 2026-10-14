@@ -11,8 +11,10 @@ import (
 )
 
 // RefLookup is the I/O surface ResolveRefs needs. Production wires it
-// to *index.NodeRepo; tests pass synthetic fakes.
+// to *index.NodeRepo; tests pass synthetic fakes. Its wikilink.Files half
+// resolves a wikilink value that names a file by name ([[auth-rfc]]) (#791).
 type RefLookup interface {
+	wikilink.Files
 	FindByID(nodeID string) (nodeType string, found bool)
 	FindByTitle(targetType, title string) ([]string, error)
 }
@@ -118,7 +120,7 @@ func ResolveRefs(parsed *Node, decls map[string]manifest.NodeType, lookup RefLoo
 				continue
 			}
 
-			edge, refErr := resolveOneValue(prop.Name, strValue, prop.To, lookup)
+			edge, refErr := resolveOneValue(prop.Name, strValue, prop.To, parsed.Path, lookup)
 
 			if refErr != nil {
 				result.HardErrors = append(result.HardErrors, *refErr)
@@ -154,7 +156,7 @@ func ResolveRefs(parsed *Node, decls map[string]manifest.NodeType, lookup RefLoo
 					continue
 				}
 
-				edge, refErr := resolveOneValue(prop.Name, elemStr, prop.To, lookup)
+				edge, refErr := resolveOneValue(prop.Name, elemStr, prop.To, parsed.Path, lookup)
 
 				if refErr != nil {
 					result.HardErrors = append(result.HardErrors, *refErr)
@@ -200,10 +202,10 @@ func resolveRefEdges(parsed *Node, decls map[string]manifest.NodeType, lookup Re
 	return refResult
 }
 
-// resolveOneValue resolves a single string value for a ref property.
-// Returns a RefEdge on success, a RefError on failure, or (nil, nil) when the
-// value is empty (skip).
-func resolveOneValue(propName, value, targetType string, lookup RefLookup) (*RefEdge, *RefError) {
+// resolveOneValue resolves a single string value for a ref property of the
+// node stored at sourcePath. Returns a RefEdge on success, a RefError on
+// failure, or (nil, nil) when the value is empty (skip).
+func resolveOneValue(propName, value, targetType, sourcePath string, lookup RefLookup) (*RefEdge, *RefError) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return nil, nil
@@ -211,10 +213,35 @@ func resolveOneValue(propName, value, targetType string, lookup RefLookup) (*Ref
 
 	matches := refWikilinkPattern.FindStringSubmatch(trimmed)
 	if len(matches) == 2 {
-		// Wikilink branch: resolve by node ID, dropping any `|alias` display
-		// suffix so `[[id|Label]]` resolves to id exactly like a bare `[[id]]`
-		// (#690). The raw value is still reported in diagnostics below.
-		nodeID, _ := wikilink.SplitAlias(matches[1])
+		// Wikilink branch: resolve the way a body link resolves, dropping any
+		// `|alias` display suffix so `[[id|Label]]` resolves to id exactly like
+		// a bare `[[id]]` (#690). A relative path resolves from sourcePath and a
+		// file name through the lookup (#791). The raw value is still reported
+		// in diagnostics below.
+		target, _ := wikilink.SplitAlias(matches[1])
+		nodeID, candidates, resolveErr := wikilink.Resolve(target, sourcePath, lookup)
+
+		if resolveErr != nil {
+			return nil, &RefError{
+				Kind:     RefErrDangling,
+				Property: propName,
+				Value:    value,
+				To:       targetType,
+				Reason:   fmt.Sprintf("ref property %q — name lookup error: %v", propName, resolveErr),
+			}
+		}
+
+		if len(candidates) > 1 {
+			return nil, &RefError{
+				Kind:       RefErrAmbiguous,
+				Property:   propName,
+				Value:      value,
+				To:         targetType,
+				Candidates: candidates,
+				Reason:     fmt.Sprintf("ref property %q — value %q names %d files: %s", propName, value, len(candidates), strings.Join(candidates, ", ")),
+			}
+		}
+
 		foundType, found := lookup.FindByID(nodeID)
 
 		if !found {
@@ -309,12 +336,15 @@ func (refErr *RefValidationError) Error() string {
 
 // indexRefLookup is the production RefLookup backed by *index.NodeRepo.
 type indexRefLookup struct {
+	index.FileNames
+
 	repo *index.NodeRepo
 }
 
-// NewIndexRefLookup returns a RefLookup that queries the SQLite index.
-func NewIndexRefLookup(repo *index.NodeRepo) RefLookup {
-	return &indexRefLookup{repo: repo}
+// NewIndexRefLookup returns a RefLookup that queries the SQLite index,
+// matching wikilink file names under linkCase.
+func NewIndexRefLookup(repo *index.NodeRepo, linkCase wikilink.Case) RefLookup {
+	return &indexRefLookup{FileNames: repo.FileNames(linkCase), repo: repo}
 }
 
 // FindByID looks up a node by its ID and returns its type.

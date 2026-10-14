@@ -216,7 +216,7 @@ func TestRemoveEdgeFromFrontmatter_RemovesFromList(test *testing.T) {
 		},
 	}
 
-	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "", "blocks", "tickets/x", edgeTypes, nil); err != nil {
+	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "", "blocks", "tickets/x", edgeTypes, nil, nil); err != nil {
 		test.Fatalf("RemoveEdgeFromFrontmatter: %v", err)
 	}
 
@@ -249,7 +249,7 @@ func TestRemoveEdgeFromFrontmatter_RemovesKeyWhenLastTarget(test *testing.T) {
 		},
 	}
 
-	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "", "blocks", "tickets/x", edgeTypes, nil); err != nil {
+	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "", "blocks", "tickets/x", edgeTypes, nil, nil); err != nil {
 		test.Fatalf("RemoveEdgeFromFrontmatter: %v", err)
 	}
 
@@ -276,7 +276,7 @@ func TestRemoveEdgeFromFrontmatter_NoOpWhenAbsent(test *testing.T) {
 		},
 	}
 
-	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "", "blocks", "tickets/x", edgeTypes, nil); err != nil {
+	if err := node.RemoveEdgeFromFrontmatter(dir, "src", "", "blocks", "tickets/x", edgeTypes, nil, nil); err != nil {
 		test.Errorf("idempotent no-op should not error: %v", err)
 	}
 }

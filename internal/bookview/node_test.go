@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // writeNodeFile writes body to root/relPath, creating parent directories.
@@ -169,6 +170,40 @@ func TestNodeWikilinksResolveByTitle(test *testing.T) {
 	// id it must navigate to — the two differ on this path, which is the point.
 	if got["Bee Note"] != (WikilinkTarget{ID: "notes/bee", Title: "Bee Note", Exists: true}) {
 		test.Fatalf("wikilinks[Bee Note]=%+v want the title resolved to its id", got["Bee Note"])
+	}
+}
+
+// TestNodeWikilinksResolveByFileName pins parity with the index (#791): a
+// [[name]] resolves to the one file with that name and a [[../path]] from the
+// page's folder, exactly where the index derives an edge. A name two files
+// share is not a link the reader can pick for the author, even through the
+// title fallback (a note adopted from plain markdown is titled by its name).
+func TestNodeWikilinksResolveByFileName(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "inbox/a.md", "---\ntitle: A\n---\nsee [[auth-rfc]], [[../notes/auth-rfc#S1]] and [[dup]]\n")
+
+	nodes := fakeNodes{file: []index.NodeRow{
+		{ID: "inbox/a", Type: "note", Title: "A", Path: "inbox/a.md"},
+		{ID: "notes/auth-rfc", Type: "note", Title: "Auth RFC", Path: "notes/auth-rfc.md"},
+		{ID: "x/dup", Type: "note", Title: "dup", Path: "x/dup.md"},
+		{ID: "y/dup", Type: "note", Title: "dup", Path: "y/dup.md"},
+	}}
+
+	files := wikilink.NewNames(wikilink.DefaultCase)
+
+	for _, row := range nodes.file {
+		files.Add(row.ID, row.Path)
+	}
+
+	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}, Files: files}), "inbox/a")
+	want := WikilinkTarget{ID: "notes/auth-rfc", Title: "Auth RFC", Exists: true}
+
+	if got["auth-rfc"] != want || got["../notes/auth-rfc#S1"] != want {
+		test.Fatalf("wikilinks = %+v, want auth-rfc and ../notes/auth-rfc#S1 resolved to notes/auth-rfc", got)
+	}
+
+	if got["dup"].Exists {
+		test.Fatalf("wikilinks[dup]=%+v want an ambiguous name left unresolved", got["dup"])
 	}
 }
 
