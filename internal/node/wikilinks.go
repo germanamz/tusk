@@ -10,10 +10,11 @@ import (
 // repeated calls and duplicate links do not create duplicate edges.
 //
 // A relative target ([[../notes/x]]) is stored as the id it names from this
-// file. A target that names a file by name ([[auth-rfc]]) is stored as written
-// and listed in parsed.NameLinks: the index resolves it to a file once every
-// file is known (index.ResolveLinks), and keeps re-resolving it as files come
-// and go (#791).
+// file. A target found by lookup (wikilink.NeedsLookup: a file name,
+// [[auth-rfc]], or any #fragment, [[notes/x#Some heading]]) is also listed in
+// parsed.LookupLinks: the index resolves it once every file is known
+// (index.ResolveLinks), and keeps re-resolving it as files and their headings
+// come and go (#791, #808).
 func MaterializeWikilinks(parsed *Node, edgeTypes manifest.EdgeTypes) {
 	// Extract once: the body's wikilinks do not change per edge type, but the
 	// extraction strips fenced code and runs a regex over the whole body. The
@@ -29,12 +30,12 @@ func MaterializeWikilinks(parsed *Node, edgeTypes manifest.EdgeTypes) {
 			stored := wikilink.Normalize(target, parsed.Path)
 			parsed.Edges[name] = appendUnique(parsed.Edges[name], stored)
 
-			if wikilink.IsName(target) {
-				if parsed.NameLinks == nil {
-					parsed.NameLinks = map[string][]string{}
+			if wikilink.NeedsLookup(target) {
+				if parsed.LookupLinks == nil {
+					parsed.LookupLinks = map[string][]string{}
 				}
 
-				parsed.NameLinks[name] = appendUnique(parsed.NameLinks[name], stored)
+				parsed.LookupLinks[name] = appendUnique(parsed.LookupLinks[name], stored)
 			}
 		}
 	}

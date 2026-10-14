@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 	content_hash    TEXT NULL,                  -- sha256 of embed payload (leaves) / heading (sections); NULL for files
 	start_line      INTEGER NULL,               -- first file line a sub-unit covers (1-based); NULL for files and HTML sub-units
 	end_line        INTEGER NULL,               -- last file line a sub-unit covers (inclusive); NULL like start_line
-	name_key        TEXT NULL,                  -- wikilink.NameKey of a file row's file name, matched by name-form wikilinks; NULL for sub-units
+	name_key        TEXT NULL,                  -- what a wikilink matches the row by: a file's wikilink.NameKey, a section's wikilink.HeadingKey; NULL for other sub-units
 	kind            TEXT NOT NULL,              -- row-class: 'file' | 'subunit'
 	source          TEXT NULL,                  -- namespace identifier; NULL = user
 	CHECK (
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS edges (
 	source_path TEXT NOT NULL,
 	kind        TEXT NOT NULL,              -- 'direct' | 'derived' | 'structural'
 	source      TEXT NULL,                  -- namespace identifier; NULL = user
-	link        TEXT NULL,                  -- a name-form wikilink's text ("auth-rfc#S1") that target_id is resolved from; NULL for every other edge
+	link        TEXT NULL,                  -- the text of a wikilink resolved by lookup ("auth-rfc", "notes/x#Some heading") that target_id is resolved from; NULL for every other edge
 	UNIQUE(source, type, source_id, target_id, source_path),
 	FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
 	CHECK (

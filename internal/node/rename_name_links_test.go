@@ -294,3 +294,73 @@ func TestRemoveEdge_MatchesAWikilinkValue(test *testing.T) {
 		test.Errorf("relates-to left in frontmatter:\n%s", content)
 	}
 }
+
+// Heading links keep naming their section across a move of the note they
+// point into (#808): the path-written one's text follows the move, the name
+// keeps its text, and a link to the referrer's own heading is untouched. The
+// moved note's sections come back with its next parse; until then its links
+// wait on the note.
+func TestRename_HeadingLinksFollowAMove(test *testing.T) {
+	vault := newNameLinkVault(test)
+
+	vault.create("notes/auth-rfc.md", "# Intro\n\nBody.\n\n## Setup\n\nSteps.\n", nil)
+	vault.create("inbox/today.md", "See [[auth-rfc#Setup]] and [[notes/auth-rfc#setup|setup]].\n\n# Agenda\n\nBack to [[#Agenda]].\n", nil)
+
+	vault.wantTargets("inbox/today", "references", "inbox/today#S1", "notes/auth-rfc#S1.1")
+
+	vault.move("notes/auth-rfc", "archive/auth-rfc.md")
+
+	vault.wantContains("inbox/today.md", "[[auth-rfc#Setup]]", "[[archive/auth-rfc#setup|setup]]", "[[#Agenda]]")
+	vault.wantTargets("inbox/today", "references", "archive/auth-rfc", "archive/auth-rfc#setup", "inbox/today#S1")
+
+	// The moved note's next parse (any write) brings its sections back.
+	if _, modifyErr := vault.service.Modify(node.ModifyInput{ID: "archive/auth-rfc", SetProps: map[string]any{"status": "moved"}}); modifyErr != nil {
+		test.Fatalf("Modify: %v", modifyErr)
+	}
+
+	vault.wantTargets("inbox/today", "references", "archive/auth-rfc#S1.1", "inbox/today#S1")
+}
+
+// A frontmatter heading link is removed by the section it resolved to (#808),
+// the target `edge list` shows for it.
+func TestRemoveEdge_MatchesAHeadingLinkBySection(test *testing.T) {
+	vault := newNameLinkVault(test)
+
+	vault.create("notes/auth-rfc.md", "# Intro\n\nBody.\n\n## Setup\n\nSteps.\n", nil)
+	vault.create("inbox/today.md", "Body.\n", map[string]any{"relates-to": []any{"[[auth-rfc#Setup]]", "[[auth-rfc]]"}})
+
+	vault.wantTargets("inbox/today", "relates-to", "notes/auth-rfc", "notes/auth-rfc#S1.1")
+
+	if removeErr := vault.service.RemoveEdge("relates-to", "inbox/today", "notes/auth-rfc#S1.1"); removeErr != nil {
+		test.Fatalf("RemoveEdge: %v", removeErr)
+	}
+
+	vault.wantTargets("inbox/today", "relates-to", "notes/auth-rfc")
+	vault.wantContains("inbox/today.md", "[[auth-rfc]]")
+
+	if content := vault.read("inbox/today.md"); strings.Contains(content, "Setup") {
+		test.Errorf("the heading link was left in frontmatter:\n%s", content)
+	}
+}
+
+// A frontmatter heading link whose heading is gone, beside a plain link to
+// the same note, is listed at the note plus the fragment; removing that
+// target removes it and leaves the plain link.
+func TestRemoveEdge_MatchesAParkedHeadingLink(test *testing.T) {
+	vault := newNameLinkVault(test)
+
+	vault.create("notes/auth-rfc.md", "# Intro\n\nBody.\n", nil)
+	vault.create("inbox/today.md", "Body.\n", map[string]any{"relates-to": []any{"[[auth-rfc]]", "[[auth-rfc#Gone]]"}})
+
+	vault.wantTargets("inbox/today", "relates-to", "notes/auth-rfc", "notes/auth-rfc#Gone")
+
+	if removeErr := vault.service.RemoveEdge("relates-to", "inbox/today", "notes/auth-rfc#Gone"); removeErr != nil {
+		test.Fatalf("RemoveEdge: %v", removeErr)
+	}
+
+	vault.wantTargets("inbox/today", "relates-to", "notes/auth-rfc")
+
+	if content := vault.read("inbox/today.md"); strings.Contains(content, "Gone") {
+		test.Errorf("the parked heading link was left in frontmatter:\n%s", content)
+	}
+}

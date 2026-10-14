@@ -11,10 +11,11 @@ import (
 )
 
 // RefLookup is the I/O surface ResolveRefs needs. Production wires it
-// to *index.NodeRepo; tests pass synthetic fakes. Its wikilink.Files half
-// resolves a wikilink value that names a file by name ([[auth-rfc]]) (#791).
+// to *index.NodeRepo; tests pass synthetic fakes. Its wikilink.Lookup half
+// resolves a wikilink value that names a file by name ([[auth-rfc]], #791) or
+// a section by heading ([[auth-rfc#Some heading]], #808).
 type RefLookup interface {
-	wikilink.Files
+	wikilink.Lookup
 	FindByID(nodeID string) (nodeType string, found bool)
 	FindByTitle(targetType, title string) ([]string, error)
 }
@@ -71,6 +72,8 @@ func ResolveRefs(parsed *Node, decls map[string]manifest.NodeType, lookup RefLoo
 
 	var result RefResolutionResult
 
+	source := wikilink.Source{ID: parsed.ID, Path: parsed.Path}
+
 	for _, prop := range nodeType.Properties {
 		if !manifest.IsRefProperty(prop) {
 			continue
@@ -120,7 +123,7 @@ func ResolveRefs(parsed *Node, decls map[string]manifest.NodeType, lookup RefLoo
 				continue
 			}
 
-			edge, refErr := resolveOneValue(prop.Name, strValue, prop.To, parsed.Path, lookup)
+			edge, refErr := resolveOneValue(prop.Name, strValue, prop.To, source, lookup)
 
 			if refErr != nil {
 				result.HardErrors = append(result.HardErrors, *refErr)
@@ -156,7 +159,7 @@ func ResolveRefs(parsed *Node, decls map[string]manifest.NodeType, lookup RefLoo
 					continue
 				}
 
-				edge, refErr := resolveOneValue(prop.Name, elemStr, prop.To, parsed.Path, lookup)
+				edge, refErr := resolveOneValue(prop.Name, elemStr, prop.To, source, lookup)
 
 				if refErr != nil {
 					result.HardErrors = append(result.HardErrors, *refErr)
@@ -203,9 +206,9 @@ func resolveRefEdges(parsed *Node, decls map[string]manifest.NodeType, lookup Re
 }
 
 // resolveOneValue resolves a single string value for a ref property of the
-// node stored at sourcePath. Returns a RefEdge on success, a RefError on
-// failure, or (nil, nil) when the value is empty (skip).
-func resolveOneValue(propName, value, targetType, sourcePath string, lookup RefLookup) (*RefEdge, *RefError) {
+// node source. Returns a RefEdge on success, a RefError on failure, or
+// (nil, nil) when the value is empty (skip).
+func resolveOneValue(propName, value, targetType string, source wikilink.Source, lookup RefLookup) (*RefEdge, *RefError) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
 		return nil, nil
@@ -215,11 +218,13 @@ func resolveOneValue(propName, value, targetType, sourcePath string, lookup RefL
 	if len(matches) == 2 {
 		// Wikilink branch: resolve the way a body link resolves, dropping any
 		// `|alias` display suffix so `[[id|Label]]` resolves to id exactly like
-		// a bare `[[id]]` (#690). A relative path resolves from sourcePath and a
-		// file name through the lookup (#791). The raw value is still reported
-		// in diagnostics below.
+		// a bare `[[id]]` (#690). A relative path resolves from the source's
+		// folder, a file name through the lookup (#791), and a #fragment to
+		// the sub-unit it addresses or the section whose heading it names
+		// (#808). The raw value is still reported in diagnostics below.
 		target, _ := wikilink.SplitAlias(matches[1])
-		nodeID, candidates, resolveErr := wikilink.Resolve(target, sourcePath, lookup)
+		resolved, resolveErr := wikilink.ResolveTarget(target, source, lookup)
+		candidates := resolved.Candidates
 
 		if resolveErr != nil {
 			return nil, &RefError{
@@ -242,6 +247,21 @@ func resolveOneValue(propName, value, targetType, sourcePath string, lookup RefL
 			}
 		}
 
+		// A body link whose heading is gone still lands on the note, but a
+		// ref is typed: the note is not the section it was declared to name.
+		if resolved.MissingFragment {
+			_, fragment := wikilink.SplitFragment(target)
+
+			return nil, &RefError{
+				Kind:     RefErrDangling,
+				Property: propName,
+				Value:    value,
+				To:       targetType,
+				Reason:   fmt.Sprintf("ref property %q — value %q: %s has no sub-unit or heading %q", propName, value, resolved.ID, fragment),
+			}
+		}
+
+		nodeID := resolved.ID
 		foundType, found := lookup.FindByID(nodeID)
 
 		if !found {

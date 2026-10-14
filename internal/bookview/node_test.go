@@ -207,6 +207,35 @@ func TestNodeWikilinksResolveByFileName(test *testing.T) {
 	}
 }
 
+// TestNodeWikilinksHeadingLinks pins heading links (#808): one into another
+// note is live when the note is, whatever its heading names, and one with no
+// path part ([[#Heading]]) names the page itself, live and titled like it.
+func TestNodeWikilinksHeadingLinks(test *testing.T) {
+	root := test.TempDir()
+	writeNodeFile(test, root, "inbox/a.md", "---\ntitle: A\n---\nsee [[auth-rfc#Open Questions]] and [[#Agenda|the agenda]]\n\n# Agenda\n")
+
+	nodes := fakeNodes{file: []index.NodeRow{
+		{ID: "inbox/a", Type: "note", Title: "A", Path: "inbox/a.md"},
+		{ID: "notes/auth-rfc", Type: "note", Title: "Auth RFC", Path: "notes/auth-rfc.md"},
+	}}
+
+	files := wikilink.NewNames(wikilink.DefaultCase)
+
+	for _, row := range nodes.file {
+		files.Add(row.ID, row.Path)
+	}
+
+	got := wikilinksFor(test, New(Deps{Root: root, Nodes: nodes, Edges: fakeEdges{}, Files: files}), "inbox/a")
+
+	if got["auth-rfc#Open Questions"] != (WikilinkTarget{ID: "notes/auth-rfc", Title: "Auth RFC", Exists: true}) {
+		test.Fatalf("wikilinks[auth-rfc#Open Questions]=%+v want the note", got["auth-rfc#Open Questions"])
+	}
+
+	if got["#Agenda"] != (WikilinkTarget{ID: "inbox/a", Title: "A", Exists: true}) {
+		test.Fatalf("wikilinks[#Agenda]=%+v want the page itself", got["#Agenda"])
+	}
+}
+
 // TestNodeWikilinksTitlePrefersFileOverSubUnit pins the cross-file title
 // collision, which is routine once sub-units are indexed: headings like
 // "Introduction" / "Overview" / "Notes" collide with real note titles all the

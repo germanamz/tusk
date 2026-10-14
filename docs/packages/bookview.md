@@ -68,7 +68,9 @@ sanitizes the result.
     found in the body to its resolution (`WikilinkTarget{ID, Title,
     Exists}`). A target resolves the way the index resolves it (a path, a
     relative path from the page, a file name through `Files`; #791), then by
-    title as a reader-only fallback. A name several files share renders dead
+    title as a reader-only fallback. A `#fragment` target resolves to its
+    file, whatever the fragment names, and one with no path part
+    (`[[#Heading]]`) to the page itself (#808). A name several files share renders dead
     without the title fallback, because the index has no edge for it and
     doctor reports it.
   - `LinkRef{ID, Title, Type, EdgeType}` — one entry in a node's reading

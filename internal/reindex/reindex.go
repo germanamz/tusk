@@ -41,11 +41,13 @@ import (
 // doctor reports (#759): a broken file is otherwise never re-read. Bump it as
 // well when a fix stops another writer leaving rows stale, as with the sub-units
 // node create/modify never synced (#782): the pass skips the files those writes
-// stamped, so nothing else would heal them. And bump it when an edge row gains
-// a field the pass fills, as with the link text of name-form wikilinks (#791).
+// stamped, so nothing else would heal them. And bump it when a row gains a
+// field the pass fills, as with the link text of name-form wikilinks (#791),
+// and the heading key of a section plus the link text of every link with a
+// #fragment (#808).
 const (
 	edgeDerivationVersionKey = "edge_derivation_version"
-	edgeDerivationVersion    = "2026-10-13-name-form-wikilinks"
+	edgeDerivationVersion    = "2026-10-14-heading-fragments"
 )
 
 // lineNumberingKey stores the [workspace].line-numbering scheme the sub-unit

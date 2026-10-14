@@ -9,6 +9,7 @@ import (
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/render"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // handleIndex serves the Contents pane's node index: every file-level node
@@ -90,7 +91,7 @@ func (srv *Server) handleNode(writer http.ResponseWriter, request *http.Request)
 	// an entry for one could only be a key nothing matches.
 	markdown := render.StripFrontmatter(body)
 
-	wikilinks, wikilinksErr := srv.resolveWikilinks(markdown, row.Path)
+	wikilinks, wikilinksErr := srv.resolveWikilinks(markdown, wikilink.Source{ID: row.ID, Path: row.Path})
 
 	if wikilinksErr != nil {
 		http.Error(writer, wikilinksErr.Error(), http.StatusServiceUnavailable)

@@ -193,10 +193,14 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 		// existed holds NULL lines. Either way the row must turn over or it
 		// serves stale lines forever.
 		sameLines := prior.StartLine == row.StartLine && prior.EndLine == row.EndLine
+		// A section's heading key is new to rows written before heading links
+		// resolved (#808), and the forced pass that fills it changes nothing
+		// else about the row.
+		sameKey := prior.NameKey == row.NameKey
 
-		if sameOrdinal && sameContent && sameProps && sameLines {
-			// Address, ordinal, content, properties, and lines all unchanged —
-			// leave the row untouched.
+		if sameOrdinal && sameContent && sameProps && sameLines && sameKey {
+			// Address, ordinal, content, properties, lines, and key all
+			// unchanged — leave the row untouched.
 			continue
 		}
 
@@ -453,7 +457,18 @@ func buildSubUnitRow(fileRow index.NodeRow, unit Unit, subunitID string) (index.
 		ContentHash:    sql.NullString{String: unit.ContentHash, Valid: unit.ContentHash != ""},
 		StartLine:      sql.NullInt64{Int64: int64(unit.StartLine), Valid: unit.StartLine > 0},
 		EndLine:        sql.NullInt64{Int64: int64(unit.EndLine), Valid: unit.EndLine > 0},
+		NameKey:        sectionKey(unit),
 	}, nil
+}
+
+// sectionKey is the name_key a section row is stored with: the HeadingKey of
+// its heading, which a heading link is matched on. NULL for every other kind.
+func sectionKey(unit Unit) sql.NullString {
+	if unit.Kind != KindSection {
+		return sql.NullString{}
+	}
+
+	return sql.NullString{String: wikilink.HeadingKey(unit.Heading), Valid: true}
 }
 
 // parentRowID resolves a unit's parent row id. When parentAddress is empty the
@@ -541,10 +556,12 @@ func edgeIdentity(edge index.EdgeRow) index.EdgeRow {
 // buildOutboundEdges runs DeriveEdges against the unit and shapes the
 // result into index.EdgeRow values, the way node.MaterializeWikilinks shapes a
 // file's: a workspace path is stored as the target id, a relative path as the
-// id it names from sourcePath, and a file name ([[auth-rfc]]) as written, with
-// the row's Link set so index.ResolveLinks points it at the file (#791). A
-// target with no node row lands as an edge pointing at a missing node; the
-// doctor/dangling-ref machinery handles it.
+// id it names from sourcePath, and a target found by lookup (a file name,
+// [[auth-rfc]], or any #fragment, [[notes/auth-rfc#Some heading]]) as
+// written, with the row's Link set so index.ResolveLinks points it at the
+// file or the sub-unit (#791, #808). A target with no node row lands as an
+// edge pointing at a missing node; the doctor/dangling-ref machinery handles
+// it.
 func buildOutboundEdges(unit Unit, sourceID, sourcePath string, wikilinkEdgeNames []string) []index.EdgeRow {
 	specs := DeriveEdges(unit, wikilinkEdgeNames)
 
@@ -567,7 +584,7 @@ func buildOutboundEdges(unit Unit, sourceID, sourcePath string, wikilinkEdgeName
 
 		link := ""
 
-		if wikilink.IsName(spec.TargetID) {
+		if wikilink.NeedsLookup(spec.TargetID) {
 			link = target
 		}
 

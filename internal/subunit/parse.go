@@ -110,6 +110,7 @@ func walkBlock(
 			Kind:    KindSection,
 			Address: addr,
 			Text:    fullText,
+			Heading: headingText,
 			Properties: map[string]any{
 				"heading-level": typed.Level,
 			},
