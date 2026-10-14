@@ -4,6 +4,14 @@
 
 - (Optional, for semantic search) [Ollama](https://ollama.com) running locally with an embedding model, e.g. `ollama pull nomic-embed-text`. Everything except semantic and hybrid queries works without it.
 
+## Homebrew (macOS and Linux)
+
+```bash
+brew install germanamz/tap/tusk
+```
+
+Installs the prebuilt binary along with its man pages and bash, zsh and fish completions. The release binaries are cosign-signed but not notarized by Apple, so on macOS the cask clears the quarantine flag during install to keep Gatekeeper from blocking it.
+
 ## One-liner (prebuilt binary)
 
 ```bash
@@ -51,6 +59,9 @@ The archive is verified against the release checksums before anything is extract
 A binary managed by Homebrew, installed with `go install`, or built from source is owned by that tool, so `tusk update` refuses it and prints the right command instead (`--force` overrides):
 
 ```bash
+# Homebrew
+brew upgrade tusk
+
 # From source
 cd tusk && git pull && make build && install bin/tusk /usr/local/bin/tusk
 

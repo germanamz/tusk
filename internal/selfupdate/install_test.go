@@ -38,12 +38,42 @@ func TestDetectMethodHomebrew(test *testing.T) {
 		"/opt/homebrew/Cellar/tusk/1.2.0/bin/tusk",
 		"/usr/local/Cellar/tusk/1.2.0/bin/tusk",
 		"/home/linuxbrew/.linuxbrew/bin/tusk",
+		"/opt/homebrew/Caskroom/tusk/1.2.0/tusk",
+		"/usr/local/Caskroom/tusk/1.2.0/tusk",
 	}
 
 	for _, path := range cases {
 		if got := DetectMethod(path, "v1.2.0"); got != MethodHomebrew {
 			test.Errorf("DetectMethod(%q) = %v, want MethodHomebrew", path, got)
 		}
+	}
+}
+
+// TestDetectMethodHomebrewCaskLink rebuilds the layout `brew install
+// germanamz/tap/tusk` leaves behind: <prefix>/bin/tusk is a symlink into
+// <prefix>/Caskroom/tusk/<ver>/. Only the resolved path names the Caskroom, so
+// the bin link alone must still classify as Homebrew.
+func TestDetectMethodHomebrewCaskLink(test *testing.T) {
+	prefix := test.TempDir()
+	staged := filepath.Join(prefix, "Caskroom", "tusk", "1.2.0", "tusk")
+	link := filepath.Join(prefix, "bin", "tusk")
+
+	for _, dir := range []string{filepath.Dir(staged), filepath.Dir(link)} {
+		if mkdirErr := os.MkdirAll(dir, 0o755); mkdirErr != nil {
+			test.Fatal(mkdirErr)
+		}
+	}
+
+	if writeErr := os.WriteFile(staged, []byte("binary"), 0o755); writeErr != nil {
+		test.Fatal(writeErr)
+	}
+
+	if linkErr := os.Symlink(staged, link); linkErr != nil {
+		test.Skipf("symlinks unavailable: %v", linkErr)
+	}
+
+	if got := DetectMethod(link, "v1.2.0"); got != MethodHomebrew {
+		test.Errorf("DetectMethod(cask bin link) = %v, want MethodHomebrew", got)
 	}
 }
 

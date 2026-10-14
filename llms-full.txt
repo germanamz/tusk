@@ -76,10 +76,16 @@ $ echo $?
 ## Install
 
 ```bash
+brew install germanamz/tap/tusk
+```
+
+Or, without Homebrew:
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
 ```
 
-This downloads the latest release for macOS, Linux or Windows (amd64 or arm64) into `~/.local/bin`. With Go 1.26+ you can run `go install github.com/germanamz/tusk/cmd/tusk@latest` instead. Semantic and hybrid search need [Ollama](https://ollama.com) running locally with an embedding model (`ollama pull nomic-embed-text`). Everything else works without it.
+The script downloads the latest release for macOS, Linux or Windows (amd64 or arm64) into `~/.local/bin`. With Go 1.26+ you can run `go install github.com/germanamz/tusk/cmd/tusk@latest` instead. Semantic and hybrid search need [Ollama](https://ollama.com) running locally with an embedding model (`ollama pull nomic-embed-text`). Everything else works without it.
 
 Updating (`tusk update`), pinning a version and building from source are in [docs/guide/install.md](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/install.md).
 
@@ -253,6 +259,14 @@ Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/install
 
 - (Optional, for semantic search) [Ollama](https://ollama.com) running locally with an embedding model, e.g. `ollama pull nomic-embed-text`. Everything except semantic and hybrid queries works without it.
 
+## Homebrew (macOS and Linux)
+
+```bash
+brew install germanamz/tap/tusk
+```
+
+Installs the prebuilt binary along with its man pages and bash, zsh and fish completions. The release binaries are cosign-signed but not notarized by Apple, so on macOS the cask clears the quarantine flag during install to keep Gatekeeper from blocking it.
+
 ## One-liner (prebuilt binary)
 
 ```bash
@@ -300,6 +314,9 @@ The archive is verified against the release checksums before anything is extract
 A binary managed by Homebrew, installed with `go install`, or built from source is owned by that tool, so `tusk update` refuses it and prints the right command instead (`--force` overrides):
 
 ```bash
+# Homebrew
+brew upgrade tusk
+
 # From source
 cd tusk && git pull && make build && install bin/tusk /usr/local/bin/tusk
 
