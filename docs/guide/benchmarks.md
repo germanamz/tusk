@@ -4,7 +4,7 @@ Does an agent spend less to answer a question with `tusk_query` than with grep a
 
 With tusk, the agent cited the right section on every run (91% with grep) and made one tool call fewer per question (2 against 3). It also read 11% more input tokens per question and cost 37% more, and took the same time. On this corpus tusk buys accuracy, not tokens. A query result runs about 8 KB, where a grep result runs under 1 KB, so tusk comes out ahead only on questions where grep has to dig.
 
-Two later changes shifted this. [Lexical fusion](#lexical-fusion) ranks the answer higher, and [Smaller results](#smaller-results) halved the size of a query result. On the latest full run, on 10-15, tusk read 16% fewer input tokens than grep per question (0.84×, with an interval from 0.76 to 1.06), cost about the same, made one tool call fewer and cited the right section on every run (96% with grep).
+Three later changes shifted this. [Lexical fusion](#lexical-fusion) ranks the answer higher, [Smaller results](#smaller-results) halved the size of a query result, and [Passage text](#passage-text) puts the matched section's text in the result, so the agent can often skip the Read. On the latest full run, on 10-15, tusk read 20% fewer input tokens than grep per question (0.80×, with an interval from 0.70 to 0.94), cost about the same, made one tool call fewer and cited the right section on every run (98% with grep).
 
 A second, larger corpus came out the other way on tokens. On a private vault of 79 files, tusk read 17% fewer input tokens, made two tool calls fewer and finished 28% faster, and accuracy was about the same. See [A second corpus](#a-second-corpus).
 
@@ -57,7 +57,7 @@ Tusk read more input tokens than grep on 24 of the 40 questions. Three things ac
 
 Tusk won when grep had to dig. On `move-note-name-links` (0.28×), `path-missing-severity` (0.34×) and `session-summary-concurrency` (0.35×), the question's words (move, rename, exit, doctor, queries) match lines all over the corpus. Grep ran three to seven searches and read several sections, while one query landed on the section.
 
-So the follow-ups to try are smaller query results (fewer fields per matched section, fewer sections by default), returning the matched section's text when it's short so the agent doesn't need a Read, and better ranking for long sections that cover several topics ([Lexical fusion](#lexical-fusion) covers that one, and [Smaller results](#smaller-results) the first). This benchmark is how to tell whether they work.
+So the follow-ups to try are smaller query results (fewer fields per matched section, fewer sections by default), returning the matched section's text when it's short so the agent doesn't need a Read, and better ranking for long sections that cover several topics ([Lexical fusion](#lexical-fusion) covers that one, [Smaller results](#smaller-results) the first and [Passage text](#passage-text) the second). This benchmark is how to tell whether they work.
 
 ## A second corpus
 
@@ -178,6 +178,30 @@ The median query result fell from 9.9 KB to 4.9 KB. Over all 120 runs, input tok
 The smaller section cap has a price. In 14 of the 120 runs, the first query returned the file that holds the answer but cut the answering section, against 9 with three sections per file, and the agent read the file every time. Runs with a Read went from 58 to 68 in all. Four questions got dearer. The two worst, `session-summary-concurrency` (1.67×) and `unquoted-frontmatter-wikilink` (1.60×), each took an extra query or Read in two of their three runs. The other 36 read less, 35 of them by more than 5%, so the smaller results saved more than the extra Reads cost.
 
 Against the grep arm of the same run, tusk read 0.84× the input tokens per question (0.76–1.06), less on 25 of the 40 questions, and cost 1.03× (0.90–1.20). The `main` binary, set against the same grep runs, read 0.99× (0.84–1.21) and cost 1.36×. The runs are in [`eval/results/2026-10-15-smaller-results/`](../../eval/results/2026-10-15-smaller-results/) (both arms) and [`eval/results/2026-10-15-smaller-results-main/`](../../eval/results/2026-10-15-smaller-results-main/) (the control).
+
+## Passage text
+
+Even with smaller results, the agent read a file after its query in 68 of 120 runs ([#814](https://github.com/germanamz/tusk/issues/814)). A matched section's snippet is 200 characters around the first query word it contains, and that is often not the sentence that answers. Of the 47 Reads that asked for a line range, 30 asked for the top result's first section, give or take two lines.
+
+So the top result's best section now carries its own text in place of the snippet. That `text` is the markdown between the section's heading and its first subsection, read from the file, and `text_lines` says which lines of the file it covers. A section over 2 KB comes as a window of whole paragraphs and list items around the one that matched. `include=["body"]` gives every result's best section its text. The paragraph or bullet that scored would have been too narrow on its own. On `lone-carriage-return-lines` the bullet that matched names the `universal` scheme, and the answer needs the bullet above it, which says `lf` is the default.
+
+The tusk arm ran on one day with one copy of the docs, once with the binary from `main` and once with the change, alongside a fresh grep arm.
+
+| `tusk_query` and read | Before | After | After against before, per question |
+| --- | --- | --- | --- |
+| Input tokens | 17,868 | 12,348 | 0.98× (0.68–1.10) |
+| Tool calls | 2 | 1 | 0 (−1 to 0) |
+| Tool output | 5.9 KB | 7.2 KB | 1.06× (0.92–1.36) |
+| Time | 6.4 s | 5.9 s | 1.02× (0.94–1.14) |
+| Cost | $0.025 | $0.024 | 1.01× (0.92–1.16) |
+| Cited the right section | 100% | 100% | |
+| Judged correct | 100% | 100% | |
+
+The medians in the first two columns move much further than the ratio per question, because the change splits the questions in two. Runs with a Read fell from 70 to 32. Seventeen questions read 24% to 47% fewer tokens, and in 16 of them fewer runs read a file. Eleven questions were answered by one query in both runs, and nine of those read 10% to 23% more, since the section text rides along on every later turn. Over all 120 runs, input tokens fell 10% and tool calls 22% (211 to 165). Cost stayed flat: the text is new to the prompt cache, written at about 12 times the price of a cached read, so the bigger results cost about what the skipped turns saved.
+
+Of the 32 runs that still read a file, 22 read the second, third or fourth result, because the top result held a different section. The other 10 read the top file. In one, the answer sat just past the 2 KB window. In the other nine, the text came from a section that doesn't answer the question, in six of them the file's "Public surface" list. One question got much dearer. In `slow-browser-tab` (1.78×) the answer is in the third result. The control's agents passed `include=["body"]` on all three runs, which gave every result its best paragraph in full. After the change, two of the three runs left `body` out, saw only a snippet for the third result, and read the file. With the top section's text arriving anyway, agents asked for `body` in 37 of 128 queries, against 79 of 133 before.
+
+Against the grep arm of the same run, tusk read 0.80× the input tokens per question (0.70–0.94), less on 31 of the 40 questions, and cost 1.05× (0.90–1.29). The `main` binary, set against the same grep runs, read 0.91× (0.80–1.08). The runs are in [`eval/results/2026-10-15-passage-text/`](../../eval/results/2026-10-15-passage-text/) (both arms) and [`eval/results/2026-10-15-passage-text-main/`](../../eval/results/2026-10-15-passage-text-main/) (the control).
 
 ## How it was measured
 
