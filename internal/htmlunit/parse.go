@@ -58,10 +58,12 @@ func walk(
 		if lvl, ok := headingLevel(node.Data); ok && !inBlock {
 			ctx.CloseToLevel(lvl)
 			addr := ctx.OpenSectionAddress()
+			heading := elementText(node)
 			emit(subunit.Unit{
 				Kind:    subunit.KindSection,
 				Address: addr,
-				Text:    elementText(node),
+				Text:    heading,
+				Heading: heading,
 				Properties: map[string]any{
 					"heading-level": lvl,
 				},

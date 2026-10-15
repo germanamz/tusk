@@ -18,16 +18,27 @@ Finds `[[wikilinks]]` in markdown text and resolves their targets to node ids. I
 - `SplitAlias(inner) (target, alias)` — splits a link's inner text at the first `|`. `[[id|Label]]` links to `id`; the alias comes back verbatim with its leading `|`, so a rewrite can swap the target and keep the display text byte-for-byte (#690).
 - `SplitFragment(target)`, `IsName(target)`, `IsRelative(target)` — classify a target by the form it names its note in (see below).
 - `Normalize(target, sourcePath)` — what an edge stores for a link written in the file at `sourcePath` before any name is looked up: a relative path becomes the id it names, anything else stays as written. `RelativeTo(sourcePath, id)` renders the relative link back, for `tusk node move`.
-- `Resolve(target, sourcePath, files)` — the id a target names, with the candidates when a name matches none or several files. `files` is a `Files`: `*Names` answers from memory, and `index.FileNames` answers one name at a time from the index.
+- `Resolve(target, sourcePath, files)` — the id a target's path part names, with the candidates when a name matches none or several files, and any `#fragment` put back as written. `files` is a `Files`: `*Names` answers from memory, and `index.FileNames` answers one name at a time from the index.
+- `ResolveTarget(target, source, lookup) (Target, error)` — the whole lookup: the file the path part names (the linking file itself for `[[#Heading]]`), checked to exist, then the sub-unit the fragment names in it. `Target.MissingFragment` reports a fragment that named nothing, in which case `Target.ID` is the file. `lookup` is a `Lookup`, a `Files` that also answers `Anchors` (`Exists`, `Sections`); `index.FileNames` is one, and `index.ResolveLinks` builds a cached one per pass.
+- `HeadingKey(text)`, `MatchHeading(chain, sections)`, `Section` — the heading match: the folded key a heading is compared on (what `nodes.name_key` stores for a section row), and the walk that finds a heading or a `Parent#Child` chain among a file's sections.
+- `NeedsLookup(target)`, `IsBlockRef(fragment)` — whether an edge must keep a link's text to resolve it (a name, or any fragment), and whether a fragment is an Obsidian block reference (`#^id`).
 - `Names` (`NewNames`, `Add`, `Remove`, `Clone`, `Path`, `ResolveName`) — an in-memory index of file nodes by name, which reindex and doctor load once per pass and a move compares before and after.
-- `FileName(relPath)`, `NameKey(name)`, `MatchName(...)` — a file's name (its base name without the extension), its case-folded key (what `nodes.name_key` stores), and the match decision both `Files` implementations share.
+- `FileName(relPath)`, `NameKey(name)`, `MatchName(...)` — a file's name (its base name without the extension), its case-folded key (what `nodes.name_key` stores for a file row), and the match decision both `Files` implementations share.
 - `Case` / `ParseCase` — the `[workspace] link-case` setting: `insensitive` (the default) or `sensitive`.
 
 ## How a target names its note
 
-A target names its note in one of three forms, the three Obsidian's link format setting writes (#791). A path (`[[notes/auth-rfc]]`) is the node id itself. A relative path (`[[../notes/auth-rfc]]`, `[[./auth-rfc]]`) starts from the linking file's folder; one that climbs out of the workspace names nothing. A name (`[[auth-rfc]]`) has no folder: the file whose id is exactly the name wins, so a link that resolved before names existed still does, and otherwise the name is matched against every file's name and one match resolves it. A `#fragment` is cut off before resolution and put back on the id after.
+A target names its note in one of three forms, the three Obsidian's link format setting writes (#791). A path (`[[notes/auth-rfc]]`) is the node id itself. A relative path (`[[../notes/auth-rfc]]`, `[[./auth-rfc]]`) starts from the linking file's folder; one that climbs out of the workspace names nothing. A name (`[[auth-rfc]]`) has no folder: the file whose id is exactly the name wins, so a link that resolved before names existed still does, and otherwise the name is matched against every file's name and one match resolves it. An empty path part (`[[#Heading]]`) names the linking file.
 
-Name lookup depends on the whole set of files, so it is not done while a file is parsed. Edge writers store a name with its own text as the target and the text in the row's link column, and `index.ResolveLinks` points those rows at their files after each reindex drain and each write. That makes the result independent of the order files are read in, and a file added or removed outside tusk changes what a name finds without re-reading the files that link to it.
+## How a fragment names a section
+
+A `#fragment` is cut off before the file is resolved and then looked up in that file (#808). A structural address (`#S1.2`, `#S1P3`) that the file has wins, so every link that resolved before heading lookup existed resolves the same way. Otherwise the fragment is heading text, Obsidian's heading link: it is folded by `HeadingKey` (letters and digits kept in lower case, everything else a word break) and matched against the keys of the file's sections. `Foo: Bar`, `foo bar` and the GitHub-style `foo-bar` are one key. A chain, `#Parent#Child`, looks for each heading below the one matched before it, at any depth, and a heading several sections share resolves to the first in document order, as in Obsidian.
+
+A fragment that names nothing in an existing file resolves to the file, with `MissingFragment` set, so the graph keeps the link to the note and doctor reports the miss as `missing-heading`. Block references (`#^block-id`) are not matched yet and always resolve to the file.
+
+## When lookups happen
+
+Name and heading lookup depend on files other than the one being parsed, so neither is done while a file is parsed. Edge writers store a target that `NeedsLookup` with its own text as the target and the text in the row's link column, and `index.ResolveLinks` points those rows at their nodes after each reindex drain and each write. That makes the result independent of the order files are read in. A file added or removed outside tusk changes what a name finds, and a heading renamed or moved changes what a fragment finds, without re-reading the files that link to them.
 
 ## Code never links
 

@@ -272,8 +272,11 @@ func AddEdgeToFrontmatter(
 //
 // A value written as a wikilink matches when it names targetID the way the
 // edge it produced does (#791): "[[notes/x|X]]", "[[../notes/x]]" and, when
-// files resolves names, "[[x]]" all remove the edge to notes/x. files may be
-// nil, which takes a name as written.
+// files resolves names, "[[x]]" all remove the edge to notes/x, and
+// "[[x#Some heading]]" the edge to the section it names (#808), or, when the
+// heading is gone, to the note or the note plus the fragment, wherever
+// `edge list` shows it. files may be nil, which takes a name or heading as
+// written.
 //
 // Callers MUST serialize concurrent calls on the same source file (e.g.,
 // hold the workspace lock). The function performs an unguarded read-mutate-
@@ -282,7 +285,7 @@ func RemoveEdgeFromFrontmatter(
 	workspaceRoot, sourceID, sourceType, edgeName, targetID string,
 	edgeTypes manifest.EdgeTypes,
 	nodeTypes map[string]manifest.NodeType,
-	files wikilink.Files,
+	files wikilink.Lookup,
 ) error {
 	if _, declared := edgeTypes[edgeName]; !declared {
 		return fmt.Errorf("edgewrite: edge type %q not declared in manifest", edgeName)
@@ -318,7 +321,7 @@ func RemoveEdgeFromFrontmatter(
 	removed := false
 
 	for _, candidate := range targets {
-		if candidate == targetID || wikilinkValueNames(candidate, index.FilePathForID(sourceID), targetID, files) {
+		if candidate == targetID || wikilinkValueNames(candidate, wikilink.Source{ID: sourceID, Path: index.FilePathForID(sourceID)}, targetID, files) {
 			removed = true
 			continue
 		}
@@ -476,10 +479,10 @@ func ReindexSource(
 	return nil
 }
 
-// wikilinkValueNames reports whether a frontmatter value written as a wikilink,
-// in the file at sourcePath, names targetID: its target as written, or as it
-// resolves (a relative path, or a name through files when files is non-nil).
-func wikilinkValueNames(value, sourcePath, targetID string, files wikilink.Files) bool {
+// wikilinkValueNames reports whether a frontmatter value written as a wikilink
+// in source names targetID: its target as written, or as it resolves (a
+// relative path, or a name or #fragment through files when files is non-nil).
+func wikilinkValueNames(value string, source wikilink.Source, targetID string, files wikilink.Lookup) bool {
 	match := refWikilinkPattern.FindStringSubmatch(strings.TrimSpace(value))
 
 	if len(match) != 2 {
@@ -488,7 +491,7 @@ func wikilinkValueNames(value, sourcePath, targetID string, files wikilink.Files
 
 	target, _ := wikilink.SplitAlias(match[1])
 
-	if target == targetID || wikilink.Normalize(target, sourcePath) == targetID {
+	if target == targetID || wikilink.Normalize(target, source.Path) == targetID {
 		return true
 	}
 
@@ -496,9 +499,17 @@ func wikilinkValueNames(value, sourcePath, targetID string, files wikilink.Files
 		return false
 	}
 
-	resolved, _, _ := wikilink.Resolve(target, sourcePath, files)
+	resolved, _ := wikilink.ResolveTarget(target, source, files)
 
-	return resolved == targetID
+	if resolved.ID == targetID {
+		return true
+	}
+
+	// A missed heading beside a twin is listed at its note plus the fragment
+	// (index.ResolveLinks parks it there), so that target names it too.
+	_, fragment := wikilink.SplitFragment(target)
+
+	return resolved.MissingFragment && resolved.ID+fragment == targetID
 }
 
 // toTargetList coalesces a frontmatter edge value (scalar string or list of

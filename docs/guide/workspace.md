@@ -57,11 +57,17 @@ Names match in any letter case by default, as Obsidian does. To match only the c
 link-case = "sensitive"   # default "insensitive"
 ```
 
-Paths always match exactly. A `#S1` fragment still addresses a section of the note it follows (`[[auth-rfc#S1]]`). A heading-text fragment such as `[[auth-rfc#Some heading]]` does not resolve yet ([#808](https://github.com/germanamz/tusk/issues/808)), so that link dangles.
+Paths always match exactly.
+
+#### Links to a heading
+
+A `#` after the note points the link at one of its sections. Write the heading's text, as Obsidian does: `[[auth-rfc#Open questions]]` links to the `## Open questions` section of `auth-rfc`. Case, punctuation and spacing don't matter, so `[[auth-rfc#open-questions]]` finds `## Open Questions:` too. When several headings share the text, the link goes to the first one in the note. To pick another, name the heading above it as well: `[[auth-rfc#Phase 2#Open questions]]` finds the `Open questions` inside `Phase 2`, however deep. `[[#Open questions]]`, with no note, links to a heading of the note it is written in. A structural address such as `[[auth-rfc#S1.2]]` still names that sub-unit, and wins over a heading with the same text.
+
+Heading links follow the headings. Rename, add or reorder headings in a note, and every link into it finds its heading again on the next reindex, without the linking notes being re-read. When the heading is gone, the link points at the note itself, which still exists, and `tusk doctor` reports a `missing-heading` warning naming the link. A block reference (`[[auth-rfc#^block-id]]`) points at the note for now.
 
 The same rules apply to a frontmatter value written as a wikilink, under an edge type (`relates-to: "[[auth-rfc]]"`) or a `ref` property. Names resolve once the whole workspace is indexed, so the order files are read in never matters, and a note added, removed or renamed outside tusk changes what a name finds on the next reindex without the linking files being re-read.
 
-`tusk node move` keeps every link pointing where it did. A name stays as written while it still finds the moved note, so moving `auth-rfc.md` to another folder leaves `[[auth-rfc]]` alone; renaming the file rewrites it to the new name. When the move gives the note a name another note already has, the links to both notes become full paths, since the name alone would no longer tell them apart. Relative links are re-rendered from where each file lives after the move, the moved note's own included.
+`tusk node move` keeps every link pointing where it did. A name stays as written while it still finds the moved note, so moving `auth-rfc.md` to another folder leaves `[[auth-rfc]]` alone; renaming the file rewrites it to the new name. When the move gives the note a name another note already has, the links to both notes become full paths, since the name alone would no longer tell them apart. Relative links are re-rendered from where each file lives after the move, the moved note's own included. A `#heading` after the note stays as written.
 
 ### Folders of plain markdown
 

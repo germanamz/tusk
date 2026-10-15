@@ -1134,23 +1134,23 @@ func EdgeRows(parsedNode *Node, nodeTypes map[string]manifest.NodeType) []index.
 }
 
 // directEdgeTarget returns the target a direct edge stores for one value of
-// edgeType, and the link text when that target is a file name the index
-// resolves: a frontmatter wikilink is unwrapped like a body link, a body link
-// MaterializeWikilinks marked as a name keeps its mark, and a bare frontmatter
-// value is a node id as written.
+// edgeType, and the link text when the index finds that target by lookup (a
+// file name or a #fragment): a frontmatter wikilink is unwrapped like a body
+// link, a body link MaterializeWikilinks marked for lookup keeps its mark, and
+// a bare frontmatter value is a node id as written.
 func directEdgeTarget(parsedNode *Node, edgeType, value string) (string, string) {
 	if match := refWikilinkPattern.FindStringSubmatch(strings.TrimSpace(value)); len(match) == 2 {
 		inner, _ := wikilink.SplitAlias(match[1])
 		target := wikilink.Normalize(inner, parsedNode.Path)
 
-		if wikilink.IsName(inner) {
+		if wikilink.NeedsLookup(inner) {
 			return target, target
 		}
 
 		return target, ""
 	}
 
-	if slices.Contains(parsedNode.NameLinks[edgeType], value) {
+	if slices.Contains(parsedNode.LookupLinks[edgeType], value) {
 		return value, value
 	}
 

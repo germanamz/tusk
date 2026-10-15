@@ -109,6 +109,9 @@ func TestResolveLinks_PointsNameLinksAtTheirFile(test *testing.T) {
 		test.Fatalf("ResolveLinks: %v", resolveErr)
 	}
 
+	// The note has no sub-unit S1, and the source links it already, so the
+	// fragment waits at notes/auth-rfc#S1 rather than doubling that edge
+	// (#808; heading_links_test.go has the rest).
 	want := []index.EdgeRow{
 		linkEdge("inbox/today", "dup", "dup"),
 		linkEdge("inbox/today", "missing", "missing"),

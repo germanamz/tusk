@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/germanamz/tusk/internal/typeref"
+	"github.com/germanamz/tusk/internal/wikilink"
 )
 
 // EdgeRow is the index representation of a single edge.
@@ -19,11 +20,15 @@ import (
 // Source carries the namespace identifier when present (e.g. "markdown" for
 // structural sub-unit edges). NULL for direct and derived edges.
 //
-// Link is the text of a name-form wikilink ([[auth-rfc]], [[Auth RFC#S1]]):
-// the edge names its target by file name, so TargetID is whatever that name
-// resolves to now, and ResolveLinks re-resolves it whenever the set of files
-// may have changed. Writers store the link text as TargetID too and leave the
-// lookup to ResolveLinks. Empty (NULL) for every other edge.
+// Link is the text of a wikilink whose target is found by lookup
+// (wikilink.NeedsLookup): a name-form link ([[auth-rfc]], [[Auth RFC#S1]]),
+// which names its file by file name, or any link with a #fragment
+// ([[notes/auth-rfc#Some heading]], [[#Some heading]]), whose sub-unit is
+// found by address or heading (#808). A relative link is stored as the path it
+// names. TargetID is whatever the link resolves to now, and ResolveLinks
+// re-resolves it whenever the set of files or their headings may have
+// changed. Writers store the link text as TargetID too and leave the lookup
+// to ResolveLinks. Empty (NULL) for every other edge.
 type EdgeRow struct {
 	Type       string
 	SourceID   string
@@ -238,6 +243,12 @@ func (repo *EdgeRepo) ListByType(edgeType string) ([]EdgeRow, error) {
 // removes those, keeping the oldest row per identity. A name-form row and a
 // path-written row to the same target differ in link and both stay here;
 // ResolveLinks, which re-points name-form rows, drops that kind of twin.
+//
+// A path-written link with a fragment ([[notes/old#Some heading]]) keeps its
+// link text so ResolveLinks can find the heading, and that text names oldID
+// too, so it moves with the target. A name-form link's text is the move
+// rewriter's to change (RenameLink): when oldID has no folder, a link that
+// reads like it is a name, and is left alone here.
 func (repo *EdgeRepo) RetargetEdges(oldID, newID string) error {
 	tx, beginErr := repo.db.Begin()
 
@@ -249,9 +260,11 @@ func (repo *EdgeRepo) RetargetEdges(oldID, newID string) error {
 
 	if _, execErr := tx.Exec(`
 		UPDATE OR REPLACE edges
-		SET target_id = ?1 || substr(target_id, length(?2) + 1)
+		SET target_id = ?1 || substr(target_id, length(?2) + 1),
+		    link      = CASE WHEN ?4 AND substr(link, 1, length(?3)) = ?3
+		                     THEN ?1 || substr(link, length(?2) + 1) ELSE link END
 		WHERE target_id = ?2 OR substr(target_id, 1, length(?3)) = ?3`,
-		newID, oldID, prefix,
+		newID, oldID, prefix, !wikilink.IsName(oldID),
 	); execErr != nil {
 		_ = tx.Rollback()
 

@@ -614,10 +614,24 @@ func TestRename_RetargetsSubUnitSourcedIncomingEdges(test *testing.T) {
 		}
 	}
 
-	for _, newTargetID := range []string{"notes/renamed#S1", "notes/renamed#S1P1"} {
-		if listed, _ := edgeRepo.ListByTarget(newTargetID); len(listed) != 1 {
-			test.Errorf("sub-unit-targeted edge not retargeted to %s, got %+v", newTargetID, listed)
+	if listed, _ := edgeRepo.ListByTarget("notes/renamed#S1"); len(listed) != 1 {
+		test.Errorf("sub-unit-targeted edge not retargeted to notes/renamed#S1, got %+v", listed)
+	}
+
+	// The body link is looked up (#808): its text follows the move, and as the
+	// moved file has no sub-unit S1P1 (none until its next re-parse) it lands
+	// on the note.
+	thirdEdges, _ := edgeRepo.ListBySource("notes/third")
+	deepLinked := false
+
+	for _, edge := range thirdEdges {
+		if edge.Link == "notes/renamed#S1P1" && edge.TargetID == "notes/renamed" {
+			deepLinked = true
 		}
+	}
+
+	if !deepLinked {
+		test.Errorf("body deep link not re-pointed through its new text, edges = %+v", thirdEdges)
 	}
 
 	thirdContent, _ := os.ReadFile(filepath.Join(root, "notes/third.md"))

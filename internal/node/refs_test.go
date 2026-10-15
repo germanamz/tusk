@@ -12,8 +12,9 @@ import (
 // fakeRefLookup is the test-only RefLookup. Title lookups consult the
 // titles map; node-ID lookups consult the ids map.
 type fakeRefLookup struct {
-	titles map[string]map[string][]string // type → title → []nodeID
-	ids    map[string]string              // nodeID → type (presence indicates existence)
+	titles   map[string]map[string][]string // type → title → []nodeID
+	ids      map[string]string              // nodeID → type (presence indicates existence)
+	sections map[string][]wikilink.Section  // file id → its sections, for heading fragments
 }
 
 func (lookup *fakeRefLookup) FindByID(nodeID string) (foundType string, found bool) {
@@ -31,6 +32,18 @@ func (lookup *fakeRefLookup) ResolveName(name string) (string, []string, error) 
 	}
 
 	return names.ResolveName(name)
+}
+
+// Exists reports a node in the ids map.
+func (lookup *fakeRefLookup) Exists(id string) (bool, error) {
+	_, found := lookup.ids[id]
+
+	return found, nil
+}
+
+// Sections serves the sections map.
+func (lookup *fakeRefLookup) Sections(fileID string) ([]wikilink.Section, error) {
+	return lookup.sections[fileID], nil
 }
 
 func (lookup *fakeRefLookup) FindByTitle(targetType, title string) ([]string, error) {
@@ -317,6 +330,55 @@ func TestResolveRefs_WikilinkNamesResolveByFileName(test *testing.T) {
 		if len(result.HardErrors) != 1 || result.HardErrors[0].Kind != tc.wantKind ||
 			strings.Join(result.HardErrors[0].Candidates, ",") != strings.Join(tc.candidates, ",") {
 			test.Errorf("%s: errors %+v, want one %s with candidates %v", tc.value, result.HardErrors, tc.wantKind, tc.candidates)
+		}
+	}
+}
+
+// #808: a wikilink ref value with a heading fragment resolves to the section
+// that heading names. A ref is typed, so a heading the note lacks is a
+// dangling ref rather than the note itself.
+func TestResolveRefs_HeadingFragmentsResolveToTheirSection(test *testing.T) {
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "spec", Type: "ref", To: "section"}}},
+	}
+
+	lookup := &fakeRefLookup{
+		ids: map[string]string{
+			"docs/rfc": "note", "docs/rfc#S1": "section", "docs/rfc#S2": "section",
+			"tickets/t1": "ticket", "tickets/t1#S1": "section",
+		},
+		sections: map[string][]wikilink.Section{
+			"docs/rfc": {
+				{ID: "docs/rfc#S1", Parent: "docs/rfc", Key: "overview"},
+				{ID: "docs/rfc#S2", Parent: "docs/rfc", Key: "open questions"},
+			},
+			"tickets/t1": {{ID: "tickets/t1#S1", Parent: "tickets/t1", Key: "context"}},
+		},
+	}
+
+	for _, tc := range []struct {
+		value      string
+		wantTarget string
+	}{
+		{value: "[[rfc#Open Questions]]", wantTarget: "docs/rfc#S2"},
+		{value: "[[docs/rfc#S1|the overview]]", wantTarget: "docs/rfc#S1"},
+		{value: "[[#Context]]", wantTarget: "tickets/t1#S1"},
+		{value: "[[rfc#Renamed]]"},
+	} {
+		parsed := newParsedNode("tickets/t1", "ticket", map[string]any{"spec": tc.value})
+		result := node.ResolveRefs(parsed, decls, lookup)
+
+		if tc.wantTarget == "" {
+			if len(result.HardErrors) != 1 || result.HardErrors[0].Kind != node.RefErrDangling ||
+				!strings.Contains(result.HardErrors[0].Reason, `docs/rfc has no sub-unit or heading "#Renamed"`) {
+				test.Errorf("%s: errors %+v, want a dangling ref naming the missing heading", tc.value, result.HardErrors)
+			}
+
+			continue
+		}
+
+		if len(result.HardErrors) > 0 || len(result.Edges) != 1 || result.Edges[0].TargetID != tc.wantTarget {
+			test.Errorf("%s: edges %+v, errors %+v; want %s", tc.value, result.Edges, result.HardErrors, tc.wantTarget)
 		}
 	}
 }

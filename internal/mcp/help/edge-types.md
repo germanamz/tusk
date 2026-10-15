@@ -56,7 +56,13 @@ blocks:
   id is the name wins, else the one file with that name. A name two
   files share stays unresolved and `tusk_doctor` reports it as
   `ambiguous-wikilink`. `[workspace] link-case` picks whether names
-  match in any letter case (default) or exactly.
+  match in any letter case (default) or exactly. A `#fragment` links
+  to a section: a structural address (`[[x#S1.2]]`), or heading text
+  (`[[x#Open questions]]`, case and punctuation ignored; the first
+  matching heading, or `[[x#Parent#Child]]` for one inside another).
+  `[[#Heading]]` names a heading of the page itself. A heading the
+  note lacks leaves the edge on the note, and `tusk_doctor` reports
+  `missing-heading`.
 
 - **`paths = true`** records the workspace paths a page names as path
   refs of this type: inline code (`` `server/ledger/core/service.go` ``),

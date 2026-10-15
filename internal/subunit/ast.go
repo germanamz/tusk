@@ -111,6 +111,12 @@ type Unit struct {
 	// covers, set by AssignLines. 0 means unknown and is stored as NULL.
 	StartLine int
 	EndLine   int
+	// Heading is a section's heading text as its walker reads it: the
+	// markdown walker's normalized text, which drops emphasis markers and
+	// code-span backticks, or the HTML walker's element text. Empty for every
+	// other kind. Its wikilink.HeadingKey is stored as the row's name_key,
+	// which a heading link ([[note#Some heading]]) is matched on (#808).
+	Heading string
 }
 
 // EdgeSpec is a pure-data description of an outbound edge from a

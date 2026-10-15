@@ -19,8 +19,11 @@ import (
 // "#section" fragment. The client cuts the same target out of the body text it
 // is rewriting, so it finds each key by the cut it has already made.
 //
-// sourcePath is the page's own path, which relative links resolve from. The
-// body passed in must be the one the client renders (frontmatter stripped):
+// page is the page's own id, which a link with no path part ([[#Heading]])
+// names, and its path, which relative links resolve from. A link with a
+// #fragment resolves to its file here whatever the fragment names, so it is
+// live exactly when its file is. The body passed in must be the one the
+// client renders (frontmatter stripped):
 // a frontmatter ref is never rewritten, so an entry for it could only be a key
 // nothing matches. Those refs already reach the reader through the links rails.
 //
@@ -32,7 +35,7 @@ import (
 // would put "wikilinks": null on the wire, forcing every consumer to null-check
 // before indexing. wikilink.Extract returns a nil slice for a link-free body, so
 // that is the common path, not an edge case.
-func (srv *Server) resolveWikilinks(body []byte, sourcePath string) (map[string]WikilinkTarget, error) {
+func (srv *Server) resolveWikilinks(body []byte, page wikilink.Source) (map[string]WikilinkTarget, error) {
 	targets := wikilink.Extract(body)
 	resolved := make(map[string]WikilinkTarget, len(targets))
 
@@ -43,7 +46,7 @@ func (srv *Server) resolveWikilinks(body []byte, sourcePath string) (map[string]
 	lookups := make([]string, 0, len(targets))
 
 	for _, target := range targets {
-		id, ambiguous, resolveErr := srv.linkID(target, sourcePath)
+		id, ambiguous, resolveErr := srv.linkID(target, page)
 
 		if resolveErr != nil {
 			return nil, resolveErr
@@ -133,16 +136,20 @@ func (srv *Server) resolveWikilinks(body []byte, sourcePath string) (map[string]
 	return resolved, nil
 }
 
-// linkID returns the id a wikilink target names from the page at sourcePath,
-// or the target itself when it names no file, which the title lookup then gets
-// a try at. ambiguous reports a name several files have. Without deps.Files a
-// name is taken as an id.
-func (srv *Server) linkID(target, sourcePath string) (string, bool, error) {
-	if srv.deps.Files == nil {
-		return wikilink.Normalize(target, sourcePath), false, nil
+// linkID returns the id a wikilink target names from page, or the target
+// itself when it names no file, which the title lookup then gets a try at.
+// ambiguous reports a name several files have. A link with no path part names
+// page itself. Without deps.Files a name is taken as an id.
+func (srv *Server) linkID(target string, page wikilink.Source) (string, bool, error) {
+	if pathPart, fragment := wikilink.SplitFragment(target); pathPart == "" && page.ID != "" {
+		return page.ID + fragment, false, nil
 	}
 
-	id, candidates, resolveErr := wikilink.Resolve(target, sourcePath, srv.deps.Files)
+	if srv.deps.Files == nil {
+		return wikilink.Normalize(target, page.Path), false, nil
+	}
+
+	id, candidates, resolveErr := wikilink.Resolve(target, page.Path, srv.deps.Files)
 
 	if resolveErr != nil || id == "" {
 		return target, len(candidates) > 1, resolveErr

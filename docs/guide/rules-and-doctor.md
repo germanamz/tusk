@@ -16,6 +16,7 @@ Every doctor finding has a severity, and the report lists errors first. An `erro
 - semantic queries seem to be missing nodes → check the embed-queue depth and last error
 - a wikilink points to nothing → a `dangling-edge` error names it
 - a `[[name]]` wikilink matches more than one file → an `ambiguous-wikilink` error lists the files
+- a `[[note#heading]]` wikilink names a heading the note doesn't have → a `missing-heading` warning names it (the link still points at the note)
 - a manifest change just landed → re-validate every affected node
 - a convention you declared as a `[rule.<name>]` is broken → each offending node is a `rule:<name>` issue
 

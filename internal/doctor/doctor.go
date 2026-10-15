@@ -33,6 +33,14 @@ const (
 	// of a plain dangling-edge (#791).
 	IssueAmbiguousWikilink = "ambiguous-wikilink"
 
+	// IssueMissingHeading surfaces a wikilink whose #fragment names no
+	// heading or sub-unit of the note it links to ([[auth-rfc#Renamed]]): the
+	// heading was renamed or removed, or the link has a typo. The edge falls
+	// back to the note itself, so the graph keeps the relationship, and the
+	// finding names the link to fix (#808). Block references (#^id) are not
+	// resolved yet and are not reported.
+	IssueMissingHeading = "missing-heading"
+
 	IssueUndeclaredProperty = "undeclared-property"
 	IssueTypeMismatch       = "type-mismatch"
 	IssueRequiredMissing    = "required-missing"
@@ -1613,10 +1621,13 @@ func LegacyDrift(config Config) ([]Issue, error) {
 
 // danglingKey groups dangling edges into one finding: the source file (a
 // sub-unit's file is the id before '#'), the edge type, and the missing target.
+// A missing-heading finding keys on the note and the link instead, since every
+// heading link that misses lands on the same note.
 type danglingKey struct {
 	fileID   string
 	edgeType string
 	targetID string
+	link     string
 }
 
 // findDanglingEdges scans every edge and flags those whose target_id has no
@@ -1627,7 +1638,9 @@ type danglingKey struct {
 //
 // A wikilink that names a file by name and is unresolved because several
 // files have that name is reported as ambiguous-wikilink, with the files,
-// matched under linkCase; one that names no file is a dangling edge.
+// matched under linkCase; one that names no file is a dangling edge. A link
+// whose #fragment named nothing in its note resolved to the note itself, so
+// its target exists, and is reported as missing-heading.
 func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wikilink.Case) ([]Issue, error) {
 	allEdges, listErr := edges.ListAll()
 
@@ -1641,12 +1654,23 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 	seen := make(map[string]struct{}, len(allEdges))
 
 	for _, edge := range allEdges {
-		if _, ok := seen[edge.TargetID]; ok {
-			continue
+		lookups := []string{edge.TargetID}
+
+		// A heading link left waiting at its fragment is told apart from a
+		// dangling one by whether its note exists.
+		if edge.Link != "" {
+			fileID, _ := wikilink.SplitFragment(edge.TargetID)
+			lookups = append(lookups, fileID)
 		}
 
-		seen[edge.TargetID] = struct{}{}
-		targetIDs = append(targetIDs, edge.TargetID)
+		for _, id := range lookups {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+
+			seen[id] = struct{}{}
+			targetIDs = append(targetIDs, id)
+		}
 	}
 
 	existingRows, byIDErr := nodes.ListByIDs(targetIDs)
@@ -1669,12 +1693,25 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 	groupIndex := map[danglingKey]int{}
 
 	for _, edge := range allEdges {
-		if _, ok := exists[edge.TargetID]; ok {
+		_, targetExists := exists[edge.TargetID]
+		missingHeading, blockRef := fragmentMissed(edge, exists)
+
+		// A block reference lands on its note until block references resolve,
+		// which is no fault of the link.
+		if blockRef || (targetExists && !missingHeading) {
 			continue
 		}
 
 		fileID, _, isSubUnit := strings.Cut(edge.SourceID, index.SubUnitIDSeparator)
 		key := danglingKey{fileID: fileID, edgeType: edge.Type, targetID: edge.TargetID}
+
+		// A missed heading sits on its note in one row and parks beside a
+		// twin in another, so it groups by the note, not the stored target.
+		if missingHeading {
+			key.targetID, _ = wikilink.SplitFragment(edge.TargetID)
+			key.link = edge.Link
+		}
+
 		position, seenGroup := groupIndex[key]
 
 		if !seenGroup {
@@ -1687,7 +1724,11 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 				Message: fmt.Sprintf("edge %q -> %q (target missing)", edge.Type, edge.TargetID),
 			}
 
-			if edge.Link != "" {
+			if missingHeading {
+				fileID, _ := wikilink.SplitFragment(edge.TargetID)
+				issue.Kind = IssueMissingHeading
+				issue.Message = fmt.Sprintf("edge %q -> [[%s]] names no heading in %s", edge.Type, edge.Link, fileID)
+			} else if edge.Link != "" {
 				// Loaded once, and only for a vault with an unresolved name.
 				if names == nil {
 					loaded, namesErr := nodes.LinkNames(linkCase)
@@ -1720,4 +1761,33 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 	}
 
 	return issues, nil
+}
+
+// fragmentMissed reports whether edge is a wikilink whose #fragment named
+// nothing in its note, which exists: ResolveLinks left the edge on the note,
+// or parked it at the note's id plus the fragment because the source links
+// the note already. blockRef reports that the fragment is a block reference
+// (#^id), which misses until block references resolve, and missed is false
+// for it. A bare `#` names the note itself.
+func fragmentMissed(edge index.EdgeRow, exists map[string]struct{}) (missed, blockRef bool) {
+	_, fragment := wikilink.SplitFragment(edge.Link)
+
+	if fragment == "" || fragment == "#" {
+		return false, false
+	}
+
+	fileID, targetFragment := wikilink.SplitFragment(edge.TargetID)
+
+	if _, fileExists := exists[fileID]; !fileExists {
+		return false, false
+	}
+
+	_, resolved := exists[edge.TargetID]
+	fellBack := targetFragment == "" || (!resolved && targetFragment == fragment)
+
+	if wikilink.IsBlockRef(fragment) {
+		return false, fellBack
+	}
+
+	return fellBack, false
 }

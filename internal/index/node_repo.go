@@ -51,6 +51,14 @@ type NodeRow struct {
 	// `start_line` / `end_line`.
 	StartLine sql.NullInt64
 	EndLine   sql.NullInt64
+
+	// NameKey is the key a wikilink names the row by. A file row's is the
+	// folded file name a name-form link matches ([[auth-rfc]]), which Upsert
+	// derives from Path and ignores here. A section row's is the HeadingKey of
+	// its heading, which a heading fragment matches ([[auth-rfc#Some
+	// heading]], #808). NULL for every other sub-unit. Schema column is
+	// `name_key`.
+	NameKey sql.NullString
 }
 
 // ListFilter narrows a NodeRepo.List call. Plan 1b supports type only.
@@ -101,8 +109,8 @@ const nodeUpsertFileSQL = `
 `
 
 // nodeUpsertSubUnitSQL writes a sub-unit-class row: literal
-// `kind='subunit'` and a caller-supplied `source` (bound as the final
-// `?`). Used by BulkUpsert (the sub-unit row writer). The columns are
+// `kind='subunit'`, a caller-supplied `source`, and the row's own name_key
+// (a section's heading key), bound last in that order. Used by BulkUpsert (the sub-unit row writer). The columns are
 // listed in a fixed order so the bind arguments line up; `kind` is a SQL
 // literal to mirror nodeUpsertFileSQL, while `source` is bound so the
 // sub-unit pipeline can stamp the namespace ("markdown" or "html").
@@ -112,9 +120,9 @@ const nodeUpsertSubUnitSQL = `
 		last_mtime, last_size, last_checksum,
 		parent_id, ordinal, embed_payload, content_hash,
 		start_line, end_line,
-		kind, source
+		kind, source, name_key
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'subunit', ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'subunit', ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 		type            = excluded.type,
 		path            = excluded.path,
@@ -130,13 +138,15 @@ const nodeUpsertSubUnitSQL = `
 		start_line      = excluded.start_line,
 		end_line        = excluded.end_line,
 		kind            = 'subunit',
-		source          = excluded.source
+		source          = excluded.source,
+		name_key        = excluded.name_key
 `
 
 // nodeUpsertArgs returns the positional bind arguments shared by
 // nodeUpsertFileSQL and nodeUpsertSubUnitSQL (both bind the same fourteen
 // columns first; `kind` is a SQL literal in both, and each writer appends what
-// is left: the sub-unit `source`, or the file row's `name_key`).
+// is left: the sub-unit `source` and `name_key`, or the file row's `name_key`
+// derived from its path).
 func nodeUpsertArgs(row NodeRow) []any {
 	return []any{
 		row.ID, row.Type, row.Path, row.Title, row.PropertiesJSON,
@@ -181,7 +191,7 @@ func (repo *NodeRepo) BulkUpsert(rows []NodeRow, source string) error {
 	}
 
 	for _, row := range rows {
-		if _, execErr := stmt.Exec(append(nodeUpsertArgs(row), source)...); execErr != nil {
+		if _, execErr := stmt.Exec(append(nodeUpsertArgs(row), source, row.NameKey)...); execErr != nil {
 			stmt.Close()
 			_ = tx.Rollback()
 			return fmt.Errorf("nodeRepo: bulk upsert %s: %w", row.ID, execErr)
@@ -636,7 +646,7 @@ func (repo *NodeRepo) DeleteByPath(filePath string) error {
 const nodeSelectColumns = `SELECT id, type, path, title, properties_json,
 	last_mtime, last_size, last_checksum,
 	parent_id, ordinal, embed_payload, content_hash,
-	start_line, end_line`
+	start_line, end_line, name_key`
 
 // queryNodes runs a SELECT that returns the standard NodeRow column set and
 // materializes the result slice.
@@ -677,7 +687,7 @@ func scanNodeRow(row rowScanner) (*NodeRow, error) {
 		&loaded.ID, &loaded.Type, &loaded.Path, &loaded.Title, &loaded.PropertiesJSON,
 		&loaded.LastMtime, &loaded.LastSize, &loaded.LastChecksum,
 		&loaded.ParentID, &loaded.Ordinal, &loaded.EmbedPayload, &loaded.ContentHash,
-		&loaded.StartLine, &loaded.EndLine,
+		&loaded.StartLine, &loaded.EndLine, &loaded.NameKey,
 	)
 
 	if scanErr != nil {

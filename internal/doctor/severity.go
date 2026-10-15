@@ -52,6 +52,7 @@ var severityByKind = map[string]string{
 	IssueGraphExpansionNoEdges:     SeverityWarning,
 	IssueGraphExpansionWeightZero:  SeverityWarning,
 	IssuePathMissing:               SeverityWarning, // a plan may name a file still to be written
+	IssueMissingHeading:            SeverityWarning, // the edge still lands on the note
 	IssueIndexNotBuilt:             SeverityWarning, // a fresh checkout is not a broken vault
 
 	IssueEmbedLargeChunk:     SeverityAdvice,
