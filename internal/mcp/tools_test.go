@@ -2,7 +2,9 @@ package mcp_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -3023,6 +3025,58 @@ func TestTool_Query_SemanticRowsAreLean(test *testing.T) {
 
 	if second, _ := matched[1].(map[string]any); second["snippet"] != "passage 2" {
 		test.Errorf("second unit snippet = %v, want passage 2", second["snippet"])
+	}
+}
+
+// TestTool_Query_TopUnitCarriesText pins #814 on MCP: when the indexed file is
+// on disk unchanged, the top row's best unit carries its passage as text with
+// text_lines in place of its snippet, and include=body adds no body beside it.
+func TestTool_Query_TopUnitCarriesText(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	seedFivePassages(test, rt)
+
+	source := "---\ntitle: Passages\n---\n\npassage 1\n\npassage 2\n\npassage 3\n\npassage 4\n\npassage 5\n"
+	checksum := sha256.Sum256([]byte(source))
+
+	if mkdirErr := os.MkdirAll(filepath.Join(rt.Root, "notes"), 0o755); mkdirErr != nil {
+		test.Fatalf("mkdir: %v", mkdirErr)
+	}
+
+	if writeErr := os.WriteFile(filepath.Join(rt.Root, "notes", "passages.md"), []byte(source), 0o644); writeErr != nil {
+		test.Fatalf("write: %v", writeErr)
+	}
+
+	if upsertErr := rt.Nodes.Upsert(index.NodeRow{
+		ID: "notes/passages", Type: "note", Path: "notes/passages.md",
+		Title: "Passages", PropertiesJSON: "{}", LastChecksum: hex.EncodeToString(checksum[:]),
+	}); upsertErr != nil {
+		test.Fatalf("file upsert: %v", upsertErr)
+	}
+
+	srv := mcp.NewServer(rt)
+	first := firstQueryResult(test, srv, map[string]any{"filter": "type=note", "semantic": "passage", "include": []any{"body"}})
+
+	if _, present := first["body"]; present {
+		test.Errorf("row carries a body beside its unit text: %v", first)
+	}
+
+	matched, _ := first["matched_units"].([]any)
+	top, _ := matched[0].(map[string]any)
+
+	if top["text"] != "passage 1\n\npassage 2\n\npassage 3\n\npassage 4\n\npassage 5" {
+		test.Errorf("top unit text = %q, want the passages before the first heading", top["text"])
+	}
+
+	if lines, _ := json.Marshal(top["text_lines"]); string(lines) != "[5,13]" {
+		test.Errorf("top unit text_lines = %s, want [5,13]", lines)
+	}
+
+	if _, present := top["snippet"]; present {
+		test.Errorf("top unit carries a snippet beside its text: %v", top)
 	}
 }
 

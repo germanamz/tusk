@@ -315,7 +315,10 @@ func writeMatchedUnits(builder *strings.Builder, row CompactRow, fieldSet map[st
 			line.WriteString(padRight(display.linesCol, linesWidth))
 		}
 
-		if snippetWidth > 0 {
+		// A unit whose text follows its line has no snippet, so its score
+		// comes straight after the lines rather than padded past the
+		// snippet column.
+		if snippetWidth > 0 && units[index].Text == "" {
 			line.WriteString("  ")
 			line.WriteString(padRight(display.snippetCol, snippetWidth))
 		}
@@ -326,10 +329,31 @@ func writeMatchedUnits(builder *strings.Builder, row CompactRow, fieldSet map[st
 
 		builder.WriteString(strings.TrimRight(line.String(), " "))
 		builder.WriteString("\n")
+
+		writeUnitText(builder, units[index])
 	}
 
 	if truncated > 0 {
 		fmt.Fprintf(builder, "  (%d more)\n", truncated)
+	}
+}
+
+// writeUnitText emits a unit's passage text (#814) under its line, headed by
+// the lines it covers and indented four spaces. Blank lines stay empty.
+func writeUnitText(builder *strings.Builder, unit query.MatchedUnit) {
+	if unit.Text == "" {
+		return
+	}
+
+	fmt.Fprintf(builder, "    text L%d-%d:\n", unit.TextStartLine, unit.TextEndLine)
+
+	for line := range strings.SplitSeq(unit.Text, "\n") {
+		if line != "" {
+			builder.WriteString("    ")
+			builder.WriteString(line)
+		}
+
+		builder.WriteString("\n")
 	}
 }
 
@@ -346,7 +370,8 @@ type matchedUnitDisplay struct {
 // or the full id otherwise. The type column decorates sections with their
 // heading level and quoted heading. The lines column is `L<start>-<end>`, or
 // `L<n>` for a one-line unit, and empty when the unit has no position. The
-// snippet column wraps non-empty snippets in quotes.
+// snippet column wraps non-empty snippets in quotes, and is empty for a unit
+// whose text follows its line.
 func formatMatchedUnit(unit query.MatchedUnit) matchedUnitDisplay {
 	idCol := unit.ID
 
@@ -376,7 +401,9 @@ func formatMatchedUnit(unit query.MatchedUnit) matchedUnitDisplay {
 
 	snippetCol := ""
 
-	if unit.Snippet != "" {
+	// A unit with text prints the text below its line; the snippet is a
+	// window of the same passage.
+	if unit.Snippet != "" && unit.Text == "" {
 		snippetCol = fmt.Sprintf("%q", unit.Snippet)
 	}
 

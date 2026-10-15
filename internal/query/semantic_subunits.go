@@ -32,6 +32,8 @@ import (
 //  8. Hydrates each file's ScoredRow with title/type from the structural
 //     pre-filter (cheap byID lookup) and attaches matched_units, capped by
 //     MaxUnits / SemanticDefaultMaxUnits with the pre-cap units_total.
+//  9. Gives the top row's best unit its passage text from the file (every
+//     row's with include=body), so an agent can answer without a Read (#814).
 func runSemanticSubUnits(
 	ctx context.Context,
 	deps Deps,
@@ -469,7 +471,15 @@ func runSemanticSubUnits(
 	// score, ties broken by ordinal ascending for stable output.
 	scoredRows := make([]ScoredRow, 0, len(ordered))
 
-	for _, entry := range ordered {
+	// Passage text needs the files on disk, so it is read only when a
+	// workspace root locates them.
+	var passages *passageReader
+
+	if req.WorkspaceRoot != "" {
+		passages = newPassageReader(req.WorkspaceRoot, deps.Manifest.LineNumbering(), nodes, allSubUnits)
+	}
+
+	for position, entry := range ordered {
 		meta, hasMeta := fileMeta[entry.fileID]
 
 		// Walked-in neighbors may sit outside the structural pre-filter, so
@@ -511,13 +521,25 @@ func runSemanticSubUnits(
 			topSnippet = entry.hit.fileLevelSnippet
 		}
 
+		if passages != nil && len(entry.hit.matched) > 0 && (position == 0 || includeSet.Body) {
+			top := &entry.hit.matched[0]
+
+			if attachErr := passages.attach(top, entry.fileID, meta.Path, rowsByID[entry.hit.bestLeaf[top.ID]]); attachErr != nil {
+				return nil, attachErr
+			}
+		}
+
 		// include=body for file rows mirrors today's behavior: the
-		// best chunk's body wins. For sub-unit rows we serve the chunk of the
-		// leaf behind the top row (a section row reports its best leaf, so
-		// this is the passage that matched, not the section's whole payload);
-		// for a file-level fallback we serve the file-level chunk body.
+		// best chunk's body wins. A sub-unit row whose top unit carries text
+		// gets no body, since the text holds the leaf's chunk; without text
+		// (HTML, a file edited since indexing) it serves the chunk of the leaf
+		// behind the top row (a section row reports its best leaf, so this is
+		// the passage that matched, not the section's whole payload). A
+		// file-level fallback serves the file-level chunk body.
 		if includeSet.Body {
 			switch {
+			case len(entry.hit.matched) > 0 && entry.hit.matched[0].Text != "":
+				// The unit's text already holds the leaf's chunk.
 			case len(entry.hit.matched) > 0:
 				topBody = leafBest[entry.hit.bestLeaf[entry.hit.matched[0].ID]].BestChunkBody
 			case entry.hit.hasFileLevel:

@@ -17,6 +17,7 @@ Turns byte offsets in a file into 1-based line numbers under a configurable sche
   - `SchemeUnicode` (`unicode`): adds VT, FF, NEL (U+0085), LS (U+2028) and PS (U+2029), the UAX #14 mandatory breaks.
 - `ParseScheme(value) (Scheme, error)` — resolves a manifest value; empty is the default, anything else outside the three is an error.
 - `NewTable(source, scheme) *Table` and `(*Table).Line(offset) int` — one scan per file, then a binary search per offset. A terminator's bytes belong to the line they end.
+- `(*Table).Offset(line) int` — the inverse: the byte offset where a line begins, so `source[Offset(first):Offset(last+1)]` is a line range. `internal/query` slices a matched passage's text out of its file this way.
 
 ## Notes
 

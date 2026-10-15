@@ -23,7 +23,7 @@ Agents write a lot: specs, plans, notes, decisions. Most agent-memory servers ke
 
 ### One query instead of grep and read
 
-Say an agent needs to know how embedding prefixes work in this repo. `grep -ril prefix docs/packages` matches 7 files, about 60 KB to read. One hybrid query returns the section that answers it (output trimmed):
+Say an agent needs to know how embedding prefixes work in this repo. `grep -ril prefix docs/packages` matches 7 files, about 60 KB to read. One hybrid query returns the section that answers it, with its text (output trimmed):
 
 ```console
 $ tusk query 'type=package' --semantic "how are embedding prefixes applied to queries and documents" --take 1 --json
@@ -33,17 +33,19 @@ $ tusk query 'type=package' --semantic "how are embedding prefixes applied to qu
 [{
   "id": "docs/packages/embed",
   "title": "internal/embed — semantic indexing",
-  "score": 0.82,
+  "score": 0.909,
   "matched_units": [{
     "heading": "Public surface",
     "lines": [12, 21],
-    "snippet": "…payload), and Header(node) apply the [embeddings] prefixes and header mode. EmbedQuery is the query-side entry point that applies the query prefix."
+    "score": 0.909,
+    "text": "- `Drainer` — long-running goroutine; …\n- `Format` — `Query`, `Document(title, payload)`, and `Header(node)` apply the `[embeddings]` prefixes and header mode. `EmbedQuery` is the query-side entry point that applies the query prefix.\n…",
+    "text_lines": [14, 21]
   }],
   "units_total": 3
 }]
 ```
 
-Over MCP it's the `tusk_query` tool with the same arguments. That's one example. Across 40 questions about these docs, an agent using `tusk_query` cited the right section every time (96% with grep and read), made one tool call fewer and read 16% fewer input tokens per question, at about the same cost. A query result is about 5 KB, against under 1 KB for a grep, so the savings come from the searches and reads tusk skips. On a larger, private vault of 79 files, tusk read 17% fewer input tokens and finished 28% faster. [Benchmarks](docs/guide/benchmarks.md) has the numbers, including the questions where tusk lost.
+Over MCP it's the `tusk_query` tool with the same arguments. That's one example. Across 40 questions about these docs, an agent using `tusk_query` cited the right section every time (98% with grep and read), made one tool call fewer and read 20% fewer input tokens per question, at about the same cost. A query result is about 5.5 KB, against under 1 KB for a grep, so the savings come from the searches and reads tusk skips: the top result carries the text of the section that matched, and most of the time the agent answers from it without opening the file. On a larger, private vault of 79 files, tusk read 17% fewer input tokens and finished 28% faster. [Benchmarks](docs/guide/benchmarks.md) has the numbers, including the questions where tusk lost.
 
 ### Conventions that fail the build
 

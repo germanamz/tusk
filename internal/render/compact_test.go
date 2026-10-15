@@ -364,6 +364,41 @@ func TestCompactNodeRows_MatchedUnitsHeadingAndLines(test *testing.T) {
 	}
 }
 
+// TestCompactNodeRows_MatchedUnitText: a unit carrying its passage text (#814)
+// prints the text, indented under the unit line and headed by the lines it
+// covers, in place of the snippet column.
+func TestCompactNodeRows_MatchedUnitText(test *testing.T) {
+	rows := []CompactRow{{
+		ID: "docs/ledger", Type: "note", Title: "Ledger", Score: 0.82, HasScore: true,
+		MatchedUnits: []query.MatchedUnit{
+			{
+				ID: "docs/ledger#S1.2", Type: "section", Heading: "Balances", HeadingLevel: 2, StartLine: 11, EndLine: 15,
+				Score: 0.82, Snippet: "Balances are derived", HasScore: true,
+				Text: "Balances are derived from entries.\n\n- never stored", TextStartLine: 13, TextEndLine: 15,
+			},
+			{ID: "docs/ledger#P1", Type: "paragraph", StartLine: 9, EndLine: 9, Score: 0.5, Snippet: "Intro", HasScore: true},
+		},
+	}}
+
+	var buf bytes.Buffer
+
+	if err := CompactNodeRows(&buf, rows, CompactOpts{}); err != nil {
+		test.Fatalf("render: %v", err)
+	}
+
+	want := "docs/ledger  note  Ledger  score=0.8200\n" +
+		"  → #S1.2  section H2 \"Balances\"  L11-15  0.8200\n" +
+		"    text L13-15:\n" +
+		"    Balances are derived from entries.\n" +
+		"\n" +
+		"    - never stored\n" +
+		"  → #P1    paragraph              L9      \"Intro\"  0.5000\n"
+
+	if got := buf.String(); got != want {
+		test.Errorf("compact output mismatch.\n--- want ---\n%s\n--- got ---\n%s", want, got)
+	}
+}
+
 // TestCompactNodeRows_MoreCountsUnitsTotal: the "(N more)" tail counts units
 // a max-units cap removed upstream, not only the ones the renderer hides.
 func TestCompactNodeRows_MoreCountsUnitsTotal(test *testing.T) {

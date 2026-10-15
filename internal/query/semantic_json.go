@@ -27,9 +27,10 @@ func (row ScoredRow) WireSnippet() string {
 }
 
 // WireUnits returns MatchedUnits as JSON output carries them. When the row
-// carries Body (include=body), that is the first unit's whole passage, so the
-// first unit's snippet, a window of it, is left out. The row's own slice is
-// not modified: the compact and table views still print every snippet.
+// carries Body (include=body on a row whose top unit has no Text), that is
+// the first unit's best leaf, so the first unit's snippet, a window of it, is
+// left out. The row's own slice is not modified: the compact and table views
+// still print every snippet.
 func (row ScoredRow) WireUnits() []MatchedUnit {
 	if row.Body == "" || len(row.MatchedUnits) == 0 {
 		return row.MatchedUnits

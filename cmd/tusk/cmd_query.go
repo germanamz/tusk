@@ -81,7 +81,8 @@ Three modes, all driven by the same command:
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
 results, --skip M to paginate. Use --include to expand each row with
 body, edges, properties, units or paths (comma-separated; for semantic
-results body is the best-matching chunk). Use --fields to project the rendered shape.
+results body gives every row's best unit its text). Use --fields to project
+the rendered shape.
 Use --format to pick compact or JSON output: with no --include/--fields
 the default is the tab-aligned table, and once a shape flag is set it is
 compact at a TTY and JSON when piped. --json (or --format json) forces
@@ -92,9 +93,12 @@ matched. Each scored passage folds into its innermost section, so one finding
 is one row: the section's id, heading, and line range, with the passage's
 score and snippet. A passage before the first heading is its own row.
 In JSON a semantic unit carries id, heading, lines, score and snippet; the
-row's own snippet appears only on a row with no units, --include body leaves
-the first unit's snippet to the body (its whole passage), and scores are
-rounded to three decimals.
+row's own snippet appears only on a row with no units, and scores are rounded
+to three decimals. The top row's best unit carries text, its section's own
+markdown read from the file (no heading line or subsections; a window of
+whole paragraphs and items around the match past 2 KB), and text_lines, the
+lines it covers, in place of the snippet. --include body gives every row's
+best unit its text. A file edited since it was indexed gets no text.
 --include units lists every file's sub-unit outline on structural queries.
 Every unit carries lines [start, end] (1-based, inclusive, counted from the
 top of the file; absent for HTML), numbered under [workspace] line-numbering.
