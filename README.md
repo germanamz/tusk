@@ -33,7 +33,7 @@ $ tusk query 'type=package' --semantic "how are embedding prefixes applied to qu
 [{
   "id": "docs/packages/embed",
   "title": "internal/embed — semantic indexing",
-  "score": 0.83,
+  "score": 0.82,
   "matched_units": [{
     "heading": "Public surface",
     "lines": [12, 21],

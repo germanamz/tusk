@@ -1,0 +1,21 @@
+{
+  "label": "nomic prefixes on (#811)",
+  "tasks_sha256": "3896fdf384b17d6f066bdd22198b0a55f2cf4c4965450afe37f9259e454fb3fb",
+  "questions": 40,
+  "paths": [
+    "docs/packages"
+  ],
+  "corpus_files": 34,
+  "corpus_sections": 151,
+  "arms": [
+    "grep",
+    "tusk"
+  ],
+  "reps": 3,
+  "model": "sonnet",
+  "judge_model": "haiku",
+  "concurrency": 4,
+  "tusk_version": "v1.0.0-dev (9e6e5b3)",
+  "claude_version": "2.1.300",
+  "started_at": "2026-10-15T15:21:23.435719Z"
+}
