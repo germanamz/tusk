@@ -57,52 +57,65 @@ type MatchedUnit struct {
 	Distance     int     `json:"distance,omitempty"`
 }
 
-// MarshalJSON emits the score/snippet fields only when HasScore is true so
-// structural-with-include=units rows have no score field per spec §5.7. The
-// explain-trace fields use the same omitempty convention as ScoredRow.
+// MarshalJSON emits one of two shapes. A semantic hit (HasScore) is a pointer
+// an agent follows, so it carries only id, heading, lines, score and snippet,
+// plus the explain trace when set, with every score rounded (RoundScore). Its
+// type, parent, heading level and ordinal stay off the wire: the id already
+// names the unit, and an agent pays for each byte again on every later turn
+// (#813). The structural include=units outline has no score per spec §5.7 and
+// keeps those fields, since a caller rebuilds the tree from them.
 func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
-	type alias struct {
-		ID           string   `json:"id"`
-		Type         string   `json:"type"`
-		ParentID     string   `json:"parent_id,omitempty"`
-		Heading      string   `json:"heading,omitempty"`
-		HeadingLevel int      `json:"heading_level,omitempty"`
-		Lines        []int    `json:"lines,omitempty"`
-		Ordinal      int      `json:"ordinal"`
-		Score        *float64 `json:"score,omitempty"`
-		Snippet      string   `json:"snippet,omitempty"`
-		CosineScore  float64  `json:"cosine_score,omitempty"`
-		LexicalScore float64  `json:"lexical_score,omitempty"`
-		GraphScore   float64  `json:"graph_score,omitempty"`
-		FinalScore   float64  `json:"final_score,omitempty"`
-		Distance     int      `json:"distance,omitempty"`
-	}
-
-	out := alias{
-		ID:           unit.ID,
-		Type:         unit.Type,
-		ParentID:     unit.ParentID,
-		Heading:      unit.Heading,
-		HeadingLevel: unit.HeadingLevel,
-		Ordinal:      unit.Ordinal,
-		Snippet:      unit.Snippet,
-		CosineScore:  unit.CosineScore,
-		LexicalScore: unit.LexicalScore,
-		GraphScore:   unit.GraphScore,
-		FinalScore:   unit.FinalScore,
-		Distance:     unit.Distance,
-	}
-
-	if unit.HasScore {
-		score := unit.Score
-		out.Score = &score
-	}
+	var lines []int
 
 	if unit.StartLine > 0 && unit.EndLine > 0 {
-		out.Lines = []int{unit.StartLine, unit.EndLine}
+		lines = []int{unit.StartLine, unit.EndLine}
 	}
 
-	return json.Marshal(out)
+	if !unit.HasScore {
+		return json.Marshal(struct {
+			ID           string `json:"id"`
+			Type         string `json:"type"`
+			ParentID     string `json:"parent_id,omitempty"`
+			Heading      string `json:"heading,omitempty"`
+			HeadingLevel int    `json:"heading_level,omitempty"`
+			Lines        []int  `json:"lines,omitempty"`
+			Ordinal      int    `json:"ordinal"`
+			Snippet      string `json:"snippet,omitempty"`
+		}{
+			ID:           unit.ID,
+			Type:         unit.Type,
+			ParentID:     unit.ParentID,
+			Heading:      unit.Heading,
+			HeadingLevel: unit.HeadingLevel,
+			Lines:        lines,
+			Ordinal:      unit.Ordinal,
+			Snippet:      unit.Snippet,
+		})
+	}
+
+	return json.Marshal(struct {
+		ID           string  `json:"id"`
+		Heading      string  `json:"heading,omitempty"`
+		Lines        []int   `json:"lines,omitempty"`
+		Score        float64 `json:"score"`
+		Snippet      string  `json:"snippet,omitempty"`
+		CosineScore  float64 `json:"cosine_score,omitempty"`
+		LexicalScore float64 `json:"lexical_score,omitempty"`
+		GraphScore   float64 `json:"graph_score,omitempty"`
+		FinalScore   float64 `json:"final_score,omitempty"`
+		Distance     int     `json:"distance,omitempty"`
+	}{
+		ID:           unit.ID,
+		Heading:      unit.Heading,
+		Lines:        lines,
+		Score:        RoundScore(unit.Score),
+		Snippet:      unit.Snippet,
+		CosineScore:  RoundScore(unit.CosineScore),
+		LexicalScore: RoundScore(unit.LexicalScore),
+		GraphScore:   RoundScore(unit.GraphScore),
+		FinalScore:   RoundScore(unit.FinalScore),
+		Distance:     unit.Distance,
+	})
 }
 
 // LoadFileSubUnits returns the file's full sub-unit tree as MatchedUnits in

@@ -2224,7 +2224,9 @@ func seedSemanticVault(test *testing.T, rt *mcp.Runtime, n int, vectorFor func(i
 	}
 }
 
-func TestTool_Query_SemanticDefaultTakeIs10(test *testing.T) {
+// TestTool_Query_SemanticDefaultTakeIs5 pins #813: an MCP semantic query
+// with no take returns 5 files, the page size agents asked for anyway.
+func TestTool_Query_SemanticDefaultTakeIs5(test *testing.T) {
 	rt := bootRuntime(test)
 	defer rt.Close()
 
@@ -2247,8 +2249,8 @@ func TestTool_Query_SemanticDefaultTakeIs10(test *testing.T) {
 
 	results, _ := body["results"].([]any)
 
-	if len(results) != 10 {
-		test.Errorf("len(results) = %d, want 10 (default take)", len(results))
+	if len(results) != 5 {
+		test.Errorf("len(results) = %d, want 5 (default take)", len(results))
 	}
 }
 
@@ -2353,6 +2355,7 @@ func TestTool_Query_SemanticHonorsExplicitMinScore(test *testing.T) {
 		"filter":    "type=note",
 		"semantic":  "anything",
 		"min_score": 0.1,
+		"take":      10,
 	})
 
 	if callErr != nil {
@@ -2941,7 +2944,7 @@ func firstQueryResult(test *testing.T, srv *mcp.Server, args map[string]any) map
 }
 
 // TestTool_Query_MaxUnitsBoundsMatchedUnits pins #765 item 3 on MCP: semantic
-// rows carry at most 3 matched units by default, units_total says how many
+// rows carry at most 2 matched units by default (3 before #813), units_total says how many
 // there were, max_units overrides the default, and the structural outline
 // (asked for with include=units) is not capped by the semantic default.
 func TestTool_Query_MaxUnitsBoundsMatchedUnits(test *testing.T) {
@@ -2959,7 +2962,7 @@ func TestTool_Query_MaxUnitsBoundsMatchedUnits(test *testing.T) {
 		args map[string]any
 		want int
 	}{
-		{name: "semantic default", args: map[string]any{"filter": "type=note", "semantic": "passage"}, want: 3},
+		{name: "semantic default", args: map[string]any{"filter": "type=note", "semantic": "passage"}, want: 2},
 		{name: "explicit max_units", args: map[string]any{"filter": "type=note", "semantic": "passage", "max_units": 4}, want: 4},
 		{name: "structural outline", args: map[string]any{"filter": "type=note", "include": []any{"units"}}, want: 5},
 	}
@@ -2978,6 +2981,82 @@ func TestTool_Query_MaxUnitsBoundsMatchedUnits(test *testing.T) {
 
 		if unit, _ := matched[0].(map[string]any); unit["lines"] == nil {
 			test.Errorf("%s: first unit has no lines: %v", testCase.name, unit)
+		}
+	}
+}
+
+// TestTool_Query_SemanticRowsAreLean pins the #813 wire shape: a row with
+// matched units has no snippet of its own, its units carry only what an agent
+// follows, and with include=body the first unit leaves its passage to body.
+func TestTool_Query_SemanticRowsAreLean(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	seedFivePassages(test, rt)
+
+	srv := mcp.NewServer(rt)
+	first := firstQueryResult(test, srv, map[string]any{"filter": "type=note", "semantic": "passage", "include": []any{"body"}})
+
+	if _, present := first["snippet"]; present {
+		test.Errorf("row carries a snippet beside its matched units: %v", first)
+	}
+
+	if first["body"] != "passage 1" {
+		test.Errorf("body = %v, want the best passage", first["body"])
+	}
+
+	matched, _ := first["matched_units"].([]any)
+
+	if len(matched) != 2 {
+		test.Fatalf("matched_units = %v, want 2", first["matched_units"])
+	}
+
+	top, _ := matched[0].(map[string]any)
+
+	for _, absent := range []string{"snippet", "type", "parent_id", "ordinal", "heading_level"} {
+		if _, present := top[absent]; present {
+			test.Errorf("first unit carries %s: %v", absent, top)
+		}
+	}
+
+	if second, _ := matched[1].(map[string]any); second["snippet"] != "passage 2" {
+		test.Errorf("second unit snippet = %v, want passage 2", second["snippet"])
+	}
+}
+
+// TestTool_Query_RoundsScores pins #813 item 3 on MCP: the score and the
+// explain trace are rounded to three decimals.
+func TestTool_Query_RoundsScores(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+	rt.Manifest.LexicalWeight = 0.5
+
+	// Cosine with the stub query vector {1,0,0} is 1/sqrt(2); the word match
+	// raises it by half the gap to 1: 0.70710678 + 0.5*0.29289322.
+	rt.Nodes.Upsert(index.NodeRow{
+		ID: "notes/round", Type: "note", Path: "notes/round.md", Title: "Round",
+		PropertiesJSON: "{}", LastChecksum: "x",
+	})
+
+	if upsertErr := rt.Embeddings.Upsert(index.EmbeddingRow{
+		NodeID: "notes/round", ChunkIdx: 0, Model: "stub", ContentHash: "h_round",
+		Vector: []float32{1, 1, 0}, Dim: 3, Body: "Broadcast drops the frame for a slow reader.",
+	}); upsertErr != nil {
+		test.Fatalf("Upsert: %v", upsertErr)
+	}
+
+	srv := mcp.NewServer(rt)
+	first := firstQueryResult(test, srv, map[string]any{"filter": "type=note", "semantic": "slow reader", "explain": true})
+
+	want := map[string]float64{"score": 0.854, "cosine_score": 0.707, "lexical_score": 1, "final_score": 0.854}
+
+	for key, value := range want {
+		if first[key] != value {
+			test.Errorf("%s = %v, want %v", key, first[key], value)
 		}
 	}
 }

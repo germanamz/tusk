@@ -39,6 +39,21 @@ func TestQueryCmd_SemanticErrorsWhenEmbeddingsAbsent(test *testing.T) {
 	}
 }
 
+// firstUnitSnippet returns the snippet of a semantic JSON row's first
+// matched unit.
+func firstUnitSnippet(row map[string]any) (string, bool) {
+	units, _ := row["matched_units"].([]any)
+
+	if len(units) == 0 {
+		return "", false
+	}
+
+	unit, _ := units[0].(map[string]any)
+	snippet, ok := unit["snippet"].(string)
+
+	return snippet, ok
+}
+
 func TestQueryCmd_SemanticJSONIncludesSnippet(test *testing.T) {
 	tmpDir := initWorkspace(test)
 
@@ -98,10 +113,16 @@ dim = 3
 		test.Fatalf("empty result list:\n%s", out.String())
 	}
 
-	snippet, ok := results[0]["snippet"].(string)
+	// The row's own snippet repeated its first unit's, so JSON carries it
+	// only on the unit (#813).
+	if _, present := results[0]["snippet"]; present {
+		test.Errorf("result[0] carries a row snippet beside its matched units: %v", results[0])
+	}
+
+	snippet, ok := firstUnitSnippet(results[0])
 
 	if !ok || snippet == "" {
-		test.Errorf("result[0] missing snippet: %v", results[0])
+		test.Errorf("result[0] first matched unit has no snippet: %v", results[0])
 	}
 
 	if !strings.Contains(snippet, "JSON snippet body") {

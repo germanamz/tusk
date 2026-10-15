@@ -91,6 +91,10 @@ Matched units: semantic rows always carry matched_units, the passages that
 matched. Each scored passage folds into its innermost section, so one finding
 is one row: the section's id, heading, and line range, with the passage's
 score and snippet. A passage before the first heading is its own row.
+In JSON a semantic unit carries id, heading, lines, score and snippet; the
+row's own snippet appears only on a row with no units, --include body leaves
+the first unit's snippet to the body (its whole passage), and scores are
+rounded to three decimals.
 --include units lists every file's sub-unit outline on structural queries.
 Every unit carries lines [start, end] (1-based, inclusive, counted from the
 top of the file; absent for HTML), numbered under [workspace] line-numbering.
@@ -377,9 +381,9 @@ func renderStructuralCompact(out io.Writer, rows []query.Row, fields []string) e
 }
 
 // renderQuerySemantic emits the ranked-result rendering for --semantic
-// queries. JSON output is a flat array of {id,score,type,path,title,snippet,
-// body?,properties?,edges?}; the table view shows id/score/snippet; the
-// compact view shows the full §4.4 form including expanded body/edges.
+// queries. JSON output is a flat array of ScoredRow in its wire shape (see
+// ScoredRow.MarshalJSON); the table view shows id/score/snippet; the compact
+// view shows the full §4.4 form including expanded body/edges.
 func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, format outputFormat, fields []string, explain bool, lexical bool) error {
 	switch format {
 	case formatJSON:
