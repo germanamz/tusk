@@ -46,6 +46,10 @@ provider = "ollama"
 endpoint = "http://localhost:11434"
 model    = "nomic-embed-text"
 dim      = 768
+# The task prefixes nomic-embed-text is trained with. Measured in #758 and
+# #811; see docs/guide/querying.md.
+query-prefix    = "search_query: "
+document-prefix = "search_document: "
 
 # Added by `tusk pack add file:///workspaces/tusk/packs/dev.toml` on 2026-05-08
 # Tusk dogfooding pack: dev

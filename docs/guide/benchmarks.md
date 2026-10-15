@@ -77,11 +77,37 @@ Cost came out about even anyway, because of the prompt cache. Tusk's larger resu
 
 The judge marked tusk wrong a little more often, 93% against 97%, but the interval reaches zero. In both arms, most wrong verdicts were right answers with an added claim the reference contradicts.
 
+## Embedding prefixes
+
+`nomic-embed-text` is trained with a prefix on each side, `search_query: ` for queries and `search_document: ` for documents, and `tusk doctor` suggests setting them. On the private vault above they raised note-level MRR@10 from 0.533 to 0.650 ([#758](https://github.com/germanamz/tusk/issues/758)). The runs above had them off. To see whether they also cut what an agent spends, the benchmark ran twice more on one day, with one binary and one copy of the docs ([#811](https://github.com/germanamz/tusk/issues/811)): a full run with both prefixes set, then the tusk arm again without them. The two share one set of grep runs.
+
+| `tusk_query` and read | Prefixes off | Prefixes on | On against off, per question |
+| --- | --- | --- | --- |
+| Input tokens | 21,156 | 22,588 | 1.03× (1.01–1.05) |
+| Tool calls | 2 | 2 | 0 (0 to 0) |
+| Tool output | 10.9 KB | 12.0 KB | 1.06× (1.00–1.14) |
+| Time | 6.7 s | 6.8 s | 0.98× (0.94–1.04) |
+| Cost | $0.033 | $0.036 | 1.05× (1.02–1.08) |
+| Cited the right section | 100% | 100% | |
+| Judged correct | 100% | 100% | |
+
+The last column reads like the one in [Results](#results): the median ratio (or difference) over questions, with a 95% confidence interval.
+
+With the prefixes on, the agent spent a little more: 3% more input tokens and 5% more cost per question, with the same tool calls and every answer correct either way. The questions whose first query had ranked the answer low didn't get cheaper. `link-case-reprocess` read 39.7k tokens without the prefixes and 40.6k with them, even though its section moved from tenth to first.
+
+Ranking improved slightly. Scored offline for the 40 questions, using the first query the agent sent in each tusk run of the 10-14 benchmark, the answering section's MRR@10 rose from 0.62 to 0.67. Resampled by question, the 95% interval of that gain runs from −0.03 to +0.14. File-level MRR@10 didn't move (0.80 and 0.79). On this corpus the first query usually finds the right file with or without the prefixes, and as [Where tusk lost](#where-tusk-lost) found, the agent then reads the file anyway, so a better section rank rarely saves it a step.
+
+The prefixes also raise every score. Over those queries and the 40 questions, 80% of query-to-file scores reach 0.5 without the prefixes and 99% with them, so `tusk_query`'s default `min_score` of 0.5 filters almost nothing once they're on.
+
+This repo's `tusk.toml` sets both prefixes, as the model card says to, but tusk doesn't turn them on by default. Both vaults ranked better with them (here within the noise), an agent on this corpus gained nothing from it, and a default would re-embed every `nomic-embed-text` vault and change what `min_score` means for it. The runs are in [`eval/results/2026-10-15-nomic-prefixes/`](../../eval/results/2026-10-15-nomic-prefixes/) and [`eval/results/2026-10-15-nomic-no-prefixes/`](../../eval/results/2026-10-15-nomic-no-prefixes/).
+
+Both arms read more in these runs than on 10-14: tusk 21.2k and 22.6k tokens against 20.8k, grep 18.0k against 17.1k. The docs, the tusk binary and Claude Code (2.1.300) all changed in between, which is why the comparison above uses a same-day control rather than the 10-14 numbers.
+
 ## How it was measured
 
 The harness is [`eval/agentbench`](../../eval/README.md), and every run's raw record is in [`eval/results/2026-10-14-tusk-docs/`](../../eval/results/2026-10-14-tusk-docs/).
 
-**Corpus.** [`docs/packages/`](../packages/): 34 markdown files, one per internal Go package, 164 KB and 149 headed sections. Each run gets a fresh copy. The grep arm's copy is plain markdown; the tusk arm's copy also has the index, built once by `tusk reindex` before any agent ran, with `nomic-embed-text` embeddings from a local Ollama.
+**Corpus.** [`docs/packages/`](../packages/): 34 markdown files, one per internal Go package, 164 KB and 149 headed sections. Each run gets a fresh copy. The grep arm's copy is plain markdown; the tusk arm's copy also has the index, built once by `tusk reindex` before any agent ran, with `nomic-embed-text` embeddings from a local Ollama and no instruction prefixes (see [Embedding prefixes](#embedding-prefixes)).
 
 **Questions.** [40 questions](../../eval/tasks/tusk-docs.jsonl), each with the section or sections that answer it, spread over 28 of the 34 files. Half are *lexical*: they share a distinctive word with their section, so a grep for it lands. The other half are *paraphrase*: they describe the situation in other words ("What happens when you rebuild the index while Ollama isn't running?"). The questions were written by reading the files, not by searching with either arm's tools, so neither arm picked its own questions.
 
@@ -114,4 +140,4 @@ go run ./eval/agentbench run --tasks eval/tasks/tusk-docs.jsonl --paths docs/pac
   --out eval/results/$(date +%F)-tusk-docs
 ```
 
-You need the `claude` CLI logged in and Ollama running with `nomic-embed-text`. [`eval/README.md`](../../eval/README.md) covers the flags, running it on your own vault, and how to write questions.
+You need the `claude` CLI logged in and Ollama running with `nomic-embed-text`. The harness copies this repo's `tusk.toml`, which now sets the prefixes, so compare a new run with the 10-15 runs rather than the 10-14 one. [`eval/README.md`](../../eval/README.md) covers the flags, running it on your own vault, and how to write questions.
