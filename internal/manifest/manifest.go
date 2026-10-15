@@ -105,6 +105,12 @@ type Manifest struct {
 	// retrieval pipeline.
 	GraphExpansion GraphExpansion `toml:"-"`
 
+	// LexicalWeight is [query] lexical-weight: how much a semantic query's
+	// word overlap with a passage (BM25) raises the passage's cosine score,
+	// in [0, 1]. 0, the default, ranks by cosine alone. See
+	// filter.SemanticRank for the formula.
+	LexicalWeight float64 `toml:"-"`
+
 	// graphCluster carries the on-disk [graph.cluster] primitives captured
 	// by decodeGraphSection. Consumed and cleared by resolveGraphCluster;
 	// consumers should read GraphCluster instead.

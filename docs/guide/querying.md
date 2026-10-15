@@ -82,6 +82,19 @@ A second measurement on tusk's own package docs ([#811](https://github.com/germa
 
 Which settings work best depends on the model and on your notes, so try a few semantic queries before and after a change. Changing `query-prefix` takes effect on the next query. Changing any other key re-embeds every note. Apply the change with `tusk reload` (or `tusk_reload` from an agent) so a running MCP server picks up the new settings too; `tusk reindex` also applies it, but a server that hasn't reloaded stops embedding until it does, rather than embed with the old settings. `tusk doctor` suggests the prefixes when it recognizes one of the models above with them unset, and names the missing one when only one of a two-sided pair is set. If you've tried a prefix and decided against it, set it explicitly to `""` (for example `document-prefix = ""`) and doctor stops suggesting it.
 
+### Matching the query's words
+
+Embeddings match meaning and blur exact wording. A clause buried in a long passage barely moves that passage's vector, and passages dense with identifiers score moderately against almost any query, so the passage that uses your exact words can rank below ones that only sound related. `[query] lexical-weight` blends a word-match score into the ranking:
+
+```toml
+[query]
+lexical-weight = 0.5
+```
+
+Each passage gets a BM25 score for the query's words, scaled so the best match among the candidates scores 1, and its similarity rises by that share of the gap to 1: `score = cosine + weight × lexical × (1 − cosine)`. A score never drops and never passes 1, so whatever cleared `min_score` before still clears it, and a passage just below it can clear it on its words. `--explain` (`explain` on `tusk_query`) shows `cosine_score` and `lexical_score` for each row and passage. The weight is read when a query runs, so changing it re-embeds nothing; run `tusk reload` (or `tusk_reload`) so a running MCP server picks it up.
+
+It's off by default. On tusk's own package docs, replaying the first query an agent sent for each of 40 questions, a weight of 0.5 put the answering section first for 66% of questions instead of 55%, and among the passages an agent sees (five files of three passages each) for 93% instead of 86%. Using each question's full text as the query instead made no measurable difference. Short queries that name identifiers, flags or phrases gain the most. [Benchmarks](benchmarks.md#lexical-fusion) has the numbers and what it did for an agent.
+
 ## Hybrid (recommended for agents)
 
 Structural filter narrows the candidate set; semantic similarity ranks within it.

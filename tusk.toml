@@ -51,6 +51,11 @@ dim      = 768
 query-prefix    = "search_query: "
 document-prefix = "search_document: "
 
+# Blend a word-match (BM25) score into semantic ranking. Measured in #812;
+# see docs/guide/benchmarks.md#lexical-fusion.
+[query]
+lexical-weight = 0.5
+
 # Added by `tusk pack add file:///workspaces/tusk/packs/dev.toml` on 2026-05-08
 # Tusk dogfooding pack: dev
 #

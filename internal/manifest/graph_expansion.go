@@ -181,9 +181,11 @@ type graphExpansionTOML struct {
 	CandidateMultiplier toml.Primitive `toml:"candidate-multiplier"`
 }
 
-// querySection wraps [query] and exposes the [query.graph-expansion] subtable.
-// Kept package-private; consumers read Manifest.GraphExpansion instead.
+// querySection wraps [query]: its lexical-weight key and the
+// [query.graph-expansion] subtable. Kept package-private; consumers read
+// Manifest.LexicalWeight and Manifest.GraphExpansion instead.
 type querySection struct {
+	LexicalWeight  float64            `toml:"lexical-weight"`
 	GraphExpansion graphExpansionTOML `toml:"graph-expansion"`
 }
 

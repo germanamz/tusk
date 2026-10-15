@@ -30,6 +30,8 @@ Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk n
   at the outer level, through AND and OR but not under NOT or past an edge arrow.
   Doctor uses it to decide whether a rule opts into sub-units.
 - `OuterNamesPaths(Expr) []*NamesPathPredicate` — the non-negated `names-path` predicates at the outer level, through AND and OR but not under NOT or past an edge arrow. `tusk query --include paths` narrows each row's listed paths to the refs these match (`NamesPathPredicate.Matches(edgeType, target)`).
+- `SemanticRank(candidates, queryVector, lexicalWeight) []ScoredResult` — ranks chunk vectors by cosine similarity, one row per node at its best chunk. A candidate's `Lexical` (its `lexical.Scores` match, 0 when fusion is off) raises its cosine to `cosine + lexicalWeight × lexical × (1 − cosine)`, which never lowers a score or pushes one past 1. Each `ScoredResult` keeps the winning chunk's body, cosine, and lexical score for snippets and `--explain`.
+- `RenderSnippetForQuery(body, query, maxRunes)` — the snippet window around the earliest query word in a chunk.
 - `Lexer`, token kinds, AST node types — internal but exposed for tests.
 
 Ordering (`<`, `<=`, `>`, `>=`) and range (`lo..hi`) operators are type-aware:

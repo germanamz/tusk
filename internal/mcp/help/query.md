@@ -89,6 +89,17 @@ Each row's `paths` lists the refs that matched:
 - For one page, `tusk_node_get(id=..., include=["paths"])` returns the
   same list.
 
+## Word matches
+
+If `[query] lexical-weight` is set in the manifest, a semantic query's
+words count too: each passage's similarity score is raised by how well
+it matches the query's words (BM25), so a passage that uses the exact
+terms can outrank one whose vector is only a little closer. The raise
+closes that share of the gap to 1, so a score never drops and never
+passes 1, and whatever cleared `min_score` before still clears it. Queries that name the identifiers, flags or phrases you're
+after benefit most. `explain=true` adds `lexical_score` (0 to 1) next to
+`cosine_score`.
+
 ## Graph expansion
 
 If `[query.graph-expansion]` is enabled in the manifest, `tusk_query`
@@ -101,7 +112,8 @@ call:
 - `graph_weight` ([0,1]) — per-hop weight.
 - `graph_edge_types` ([string]) — edge types to walk.
 - `explain` (bool) — include per-row `cosine_score` / `graph_score` /
-  `final_score` / `distance` trace.
+  `final_score` / `distance` trace (plus `lexical_score` when
+  `[query] lexical-weight` is set; explain works with either on).
 
 ## When semantic returns nothing
 

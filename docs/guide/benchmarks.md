@@ -55,7 +55,7 @@ Tusk read more input tokens than grep on 24 of the 40 questions. Three things ac
 
 Tusk won when grep had to dig. On `move-note-name-links` (0.28×), `path-missing-severity` (0.34×) and `session-summary-concurrency` (0.35×), the question's words (move, rename, exit, doctor, queries) match lines all over the corpus. Grep ran three to seven searches and read several sections, while one query landed on the section.
 
-So the follow-ups to try are smaller query results (fewer fields per matched section, fewer sections by default), returning the matched section's text when it's short so the agent doesn't need a Read, and better ranking for long sections that cover several topics. This benchmark is how to tell whether they work.
+So the follow-ups to try are smaller query results (fewer fields per matched section, fewer sections by default), returning the matched section's text when it's short so the agent doesn't need a Read, and better ranking for long sections that cover several topics ([Lexical fusion](#lexical-fusion) covers that one). This benchmark is how to tell whether they work.
 
 ## A second corpus
 
@@ -102,6 +102,48 @@ The prefixes also raise every score. Over those queries and the 40 questions, 80
 This repo's `tusk.toml` sets both prefixes, as the model card says to, but tusk doesn't turn them on by default. Both vaults ranked better with them (here within the noise), an agent on this corpus gained nothing from it, and a default would re-embed every `nomic-embed-text` vault and change what `min_score` means for it. The runs are in [`eval/results/2026-10-15-nomic-prefixes/`](../../eval/results/2026-10-15-nomic-prefixes/) and [`eval/results/2026-10-15-nomic-no-prefixes/`](../../eval/results/2026-10-15-nomic-no-prefixes/).
 
 Both arms read more in these runs than on 10-14: tusk 21.2k and 22.6k tokens against 20.8k, grep 18.0k against 17.1k. The docs, the tusk binary and Claude Code (2.1.300) all changed in between, which is why the comparison above uses a same-day control rather than the 10-14 numbers.
+
+## Lexical fusion
+
+The largest losses in [Where tusk lost](#where-tusk-lost) came from first queries that ranked other pages above the answer ([#812](https://github.com/germanamz/tusk/issues/812)). In `slow-browser-tab` the answer is half a sentence at the end of a 1 KB bullet that also covers SSE event names, the payload producer and the poll loop, and its section ranked 73rd for the agent's first query. The vector of a long passage barely reflects one clause in it, and the identifier-heavy "Public surface" lists every package doc has score moderately against almost any query.
+
+Two fixes were tried offline first, by replaying the first `tusk_query` of every tusk run from the three earlier benchmark runs (350 queries over the 40 questions) and checking where the answering section ranked. That's `go run ./eval/agentbench probe` (see [`eval/README.md`](../../eval/README.md)). Each question's figure is the mean over its queries, so every question weighs the same.
+
+**Windows.** Passages over 400 bytes were split into overlapping windows of about 300 bytes, cut at sentences, each embedded on its own and scored as the best of its windows. `slow-browser-tab` rose from 73rd to 7th, but every other long passage also got several tries at a high score, and questions that had ranked first slipped. Section MRR@10 stayed at 0.65, the answer reached the result an agent sees no more often, and the vault would hold 46% more vectors. Windows weren't kept.
+
+**Words.** `[query] lexical-weight` scores each passage's words against the query with BM25, scaled so the best passage scores 1, and raises its cosine by that share of the gap to 1: `cosine + weight × lexical × (1 − cosine)`. At a weight of 0.5:
+
+| Replayed first queries | Prefixes, off | Prefixes, on | No prefixes, off | No prefixes, on |
+| --- | --- | --- | --- | --- |
+| Section MRR@10 | 0.653 | 0.738 (+0.017 to +0.158) | 0.598 | 0.703 (+0.032 to +0.184) |
+| Section ranked first | 55% | 66% | 49% | 61% |
+| Section in the top 10 | 81% | 91% | 81% | 90% |
+| Section in the agent's result | 86% | 93% | 85% | 94% |
+| File MRR@10 | 0.772 | 0.855 (+0.026 to +0.149) | 0.780 | 0.839 (−0.002 to +0.126) |
+
+The brackets are 95% intervals of the per-question difference. "The agent's result" is five files with three matched sections each: the five files the benchmark's agents asked for, and the three sections `tusk_query` returns per file by default. The four questions [Where tusk lost](#where-tusk-lost) names reached it on every replayed query, with or without the prefixes; before, `slow-browser-tab` never did. With the prefixes, `slow-browser-tab` moved from 73rd to 3rd and `second-condition-after-traversal` from 18th to 8th; without them, `link-case-reprocess` moved from 10th to 1st.
+
+Replaying each question's full text instead of the agent's query made no measurable difference: section MRR@10 moved by −0.008 (−0.099 to +0.086) with the prefixes and +0.036 (−0.043 to +0.117) without. The agent's first queries are short strings of keywords, which is where a word match helps. Weights from 0.5 to 1 scored within noise of each other; 0.5 was best with the prefixes and 0.75 without. Adding the word score to the cosine outright ranked about the same, but can push a score past 1.
+
+**What it did for an agent.** The tusk arm then ran twice on one day with one binary and one copy of the docs: once with this repo's `tusk.toml` (prefixes on, `lexical-weight = 0.5`) and once with the weight removed.
+
+| `tusk_query` and read | Lexical off | Lexical on | On against off, per question |
+| --- | --- | --- | --- |
+| Input tokens | 21,910 | 13,473 | 0.99× (0.98–1.00) |
+| Tool calls | 2 | 1 | 0 (0 to 0) |
+| Tool output | 11.1 KB | 10.6 KB | 0.96× (0.93–1.00) |
+| Time | 7.2 s | 6.2 s | 0.89× (0.82–1.03) |
+| Cost | $0.032 | $0.030 | 0.98× (0.96–1.01) |
+| Cited the right section | 100% | 100% | |
+| Judged correct | 98% | 99% | |
+
+The first two columns overstate the change. Most questions take either one query (about 13k tokens) or a query and a Read (about 22k), and the median question moved from the second group to the first. Question by question, 20 of the 40 stayed within 5% of the control, so the typical ratio is 0.99. The change is in the tail: 12 questions read 35% to 70% fewer tokens, among them `link-case-reprocess` (0.32×), `slow-browser-tab` (0.59×) and `second-condition-after-traversal` (0.65×), and the mean question read 19% fewer (22.0k against 17.7k). Over all 120 runs, input tokens fell 15% and cost 9%.
+
+One question's ratio is noisy. The earlier run with the same settings, made the same day before this change, differed from the control by more than 20% on 13 questions, 5 cheaper and 8 dearer. What lifts the result above that noise is where the savings fell. The 13 questions whose answer the probe ranked higher read 33% fewer tokens in total, the 22 it left alone 15% fewer, and the 5 it ranked lower 11% more.
+
+Three questions read about 70% more, each through one extra Read. In `short-claim-window` the query still ranked the right section first, but a different passage stood for it: the section's opening paragraph shares more of the query's words than the paragraph with the answer, so the agent got the opening as its snippet and went to read the file. Weighing words as well as meaning can pick, inside a section, the passage that names the topic over the one that answers it.
+
+Tusk leaves lexical fusion off by default. The weight was chosen on the same queries it was scored on, one corpus is all it was measured on, and full-sentence queries didn't gain. This repo's `tusk.toml` turns it on. The runs are in [`eval/results/2026-10-15-lexical-on/`](../../eval/results/2026-10-15-lexical-on/) and [`eval/results/2026-10-15-lexical-off/`](../../eval/results/2026-10-15-lexical-off/).
 
 ## How it was measured
 

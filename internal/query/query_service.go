@@ -73,7 +73,7 @@ type Request struct {
 	GraphExpansion *manifest.GraphExpansion
 
 	// Explain, when true, asks the query service to emit a structured
-	// trace of how each result row was scored (semantic + graph
+	// trace of how each result row was scored (cosine, lexical and graph
 	// contributions).
 	Explain bool
 }
@@ -143,15 +143,18 @@ type ScoredRow struct {
 	Paths []PathRef `json:"paths,omitempty"`
 
 	// Explain-only score-trace fields. Populated by the query service only
-	// when Request.Explain is true AND graph expansion ran for this row.
-	// `omitempty` keeps the JSON wire format byte-stable for callers that
-	// never opt into explain mode. When graph expansion is on, Score and
-	// FinalScore carry the same value; CosineScore exposes the bare
-	// (clipped) cosine and GraphScore the seed-neighbor contribution.
-	CosineScore float64 `json:"cosine_score,omitempty"`
-	GraphScore  float64 `json:"graph_score,omitempty"`
-	FinalScore  float64 `json:"final_score,omitempty"`
-	Distance    int     `json:"distance,omitempty"`
+	// when Request.Explain is true AND graph expansion or lexical fusion
+	// ran for this row. `omitempty` keeps the JSON wire format byte-stable
+	// for callers that never opt into explain mode. Score and FinalScore
+	// carry the same value. CosineScore exposes the bare cosine (clipped
+	// when graph expansion alone ran), LexicalScore the word-match score in
+	// [0, 1] when [query] lexical-weight is set, and GraphScore the
+	// seed-neighbor contribution.
+	CosineScore  float64 `json:"cosine_score,omitempty"`
+	LexicalScore float64 `json:"lexical_score,omitempty"`
+	GraphScore   float64 `json:"graph_score,omitempty"`
+	FinalScore   float64 `json:"final_score,omitempty"`
+	Distance     int     `json:"distance,omitempty"`
 }
 
 // Result is the typed payload returned by Run.
@@ -411,7 +414,10 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		})
 	}
 
-	ranked := filter.SemanticRank(candidates, queryVector)
+	lexWeight := lexicalWeight(deps)
+	scoreLexical(candidates, req.Semantic, lexWeight)
+
+	ranked := filter.SemanticRank(candidates, queryVector, lexWeight)
 
 	// graphExpansionActive is also read below to gate the lazy NodeRepo
 	// fallback for walked-in neighbors (spec §6.5), so keep it in scope here.
@@ -486,6 +492,17 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 				row.GraphScore = trace.Graph
 				row.FinalScore = trace.Final
 				row.Distance = trace.Distance
+			}
+		}
+
+		// A walked-in neighbor (distance > 0) has no cosine or lexical
+		// input of its own; its graph trace above is the whole story.
+		if req.Explain && lexWeight > 0 && row.Distance == 0 {
+			row.CosineScore = scoredCandidate.Cosine
+			row.LexicalScore = scoredCandidate.Lexical
+
+			if blendedByID == nil {
+				row.FinalScore = row.Score
 			}
 		}
 

@@ -10,60 +10,68 @@ import (
 
 // SemanticCandidate pairs a node's chunk vector with its ids for ranking.
 // Body carries the chunk's body text (no header prefix) so renderers can
-// produce a snippet of the highest-scoring chunk per node.
+// produce a snippet of the highest-scoring chunk per node. Lexical is the
+// chunk's word-match score against the query in [0, 1] (lexical.Scores), or 0
+// when lexical fusion is off.
 type SemanticCandidate struct {
-	NodeID string
-	Vector []float32
-	Body   string
+	NodeID  string
+	Vector  []float32
+	Body    string
+	Lexical float64
 }
 
-// ScoredResult is one ranked node. Score is the max cosine similarity across
-// the node's chunks. BestChunkBody carries the body of the chunk that produced
-// Score (used for snippets).
+// ScoredResult is one ranked node. Score is the best fused score across the
+// node's chunks (the max cosine similarity when lexical fusion is off).
+// BestChunkBody carries the body of the chunk that produced Score (used for
+// snippets), and Cosine and Lexical that chunk's two inputs.
 type ScoredResult struct {
 	NodeID        string
 	Score         float64
 	BestChunkBody string
+	Cosine        float64
+	Lexical       float64
 }
 
-// SemanticRank scores each candidate by cosine similarity to queryVector and
-// returns one row per node, with Score equal to the maximum chunk score for
-// that node. BestChunkBody comes from the chunk that produced the max. Results
-// are sorted by score descending, ties broken by NodeID ascending. Candidates
-// whose vectors mismatch queryVector's dimension are silently skipped.
-func SemanticRank(candidates []SemanticCandidate, queryVector []float32) []ScoredResult {
-	type bestEntry struct {
-		score float64
-		body  string
-	}
-
-	bestByNode := make(map[string]bestEntry, len(candidates))
+// SemanticRank scores each candidate by cosine similarity to queryVector,
+// raised by its lexical match when lexicalWeight > 0:
+//
+//	score = cosine + lexicalWeight * lexical * (1 - cosine)
+//
+// The lexical match closes that share of the gap between the cosine and 1, so
+// it never lowers a score or pushes one past 1: whatever cleared min_score on
+// cosine alone still clears it. It returns one row per node, with Score equal to
+// the maximum chunk score for that node. BestChunkBody comes from the chunk
+// that produced the max. Results are sorted by score descending, ties broken
+// by NodeID ascending. Candidates whose vectors mismatch queryVector's
+// dimension are silently skipped.
+func SemanticRank(candidates []SemanticCandidate, queryVector []float32, lexicalWeight float64) []ScoredResult {
+	bestByNode := make(map[string]ScoredResult, len(candidates))
 
 	for _, candidate := range candidates {
 		if len(candidate.Vector) != len(queryVector) {
 			continue
 		}
 
-		score := embed.CosineSimilarity(candidate.Vector, queryVector)
+		cosine := embed.CosineSimilarity(candidate.Vector, queryVector)
+		score := cosine + lexicalWeight*candidate.Lexical*(1-cosine)
 
 		prev, present := bestByNode[candidate.NodeID]
 
-		if !present || score > prev.score {
-			bestByNode[candidate.NodeID] = bestEntry{
-				score: score,
-				body:  candidate.Body,
+		if !present || score > prev.Score {
+			bestByNode[candidate.NodeID] = ScoredResult{
+				NodeID:        candidate.NodeID,
+				Score:         score,
+				BestChunkBody: candidate.Body,
+				Cosine:        cosine,
+				Lexical:       candidate.Lexical,
 			}
 		}
 	}
 
 	scored := make([]ScoredResult, 0, len(bestByNode))
 
-	for nodeID, entry := range bestByNode {
-		scored = append(scored, ScoredResult{
-			NodeID:        nodeID,
-			Score:         entry.score,
-			BestChunkBody: entry.body,
-		})
+	for _, entry := range bestByNode {
+		scored = append(scored, entry)
 	}
 
 	sort.Slice(scored, func(left, right int) bool {
