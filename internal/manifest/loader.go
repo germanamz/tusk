@@ -121,8 +121,8 @@ func Load(manifestPath string) (*Manifest, error) {
 }
 
 // decodeQuerySection performs a secondary decode of the top-level [query]
-// table so the loader can capture per-field toml.Primitive values for
-// [query.graph-expansion]. The primary Manifest decode already validates
+// table: it reads lexical-weight and captures per-field toml.Primitive values
+// for [query.graph-expansion]. The primary Manifest decode already validates
 // the overall TOML shape; this decode never fails on an absent block
 // (Go zero-values for missing primitives).
 func decodeQuerySection(body string, loaded *Manifest) error {
@@ -134,6 +134,7 @@ func decodeQuerySection(body string, loaded *Manifest) error {
 		return queryDecodeErr
 	}
 
+	loaded.LexicalWeight = wrapper.Query.LexicalWeight
 	loaded.queryGraphExpansion = wrapper.Query.GraphExpansion
 	// Stash the local meta because toml.Primitive values can only be
 	// PrimitiveDecode'd against the MetaData returned by the same Decode
@@ -851,6 +852,11 @@ func validate(loaded *Manifest) error {
 		if modelErr := validateEmbeddingsModelSettings(loaded.Embeddings); modelErr != nil {
 			return modelErr
 		}
+	}
+
+	// Written as a negated range check so NaN fails it too.
+	if !(loaded.LexicalWeight >= 0 && loaded.LexicalWeight <= 1) {
+		return fmt.Errorf("manifest: query.lexical-weight must be in [0, 1] (got %v); 0 or absent turns lexical fusion off", loaded.LexicalWeight)
 	}
 
 	// Workers is validated independently of the provider: the embed/reindex

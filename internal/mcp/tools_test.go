@@ -796,6 +796,75 @@ func TestTool_Query_KeepsExplainTraceOnAllZeroRow(test *testing.T) {
 	}
 }
 
+// TestTool_Query_ExplainCarriesLexicalScore covers [query] lexical-weight:
+// the word match lifts notes/b past the closer vector of notes/a, and
+// explain=true opens the trace without graph expansion, adding lexical_score.
+func TestTool_Query_ExplainCarriesLexicalScore(test *testing.T) {
+	rt := bootRuntime(test)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+	rt.Manifest.LexicalWeight = 0.75
+
+	notes := []struct {
+		id, body string
+		vector   []float32
+	}{
+		{id: "notes/a", body: "Lease expiry reclaims a claimed row.", vector: []float32{0.8, 0.6, 0}},
+		{id: "notes/b", body: "Broadcast drops the frame for a slow reader.", vector: []float32{0.6, 0.8, 0}},
+	}
+
+	for _, note := range notes {
+		rt.Nodes.Upsert(index.NodeRow{
+			ID: note.id, Type: "note", Path: note.id + ".md", Title: note.id,
+			PropertiesJSON: "{}", LastChecksum: "x",
+		})
+
+		if upsertErr := rt.Embeddings.Upsert(index.EmbeddingRow{
+			NodeID: note.id, ChunkIdx: 0, Model: "stub", ContentHash: "h_" + note.id,
+			Vector: note.vector, Dim: 3, Body: note.body,
+		}); upsertErr != nil {
+			test.Fatalf("Upsert: %v", upsertErr)
+		}
+	}
+
+	srv := mcp.NewServer(rt)
+
+	body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+		"filter":   "type=note",
+		"semantic": "slow reader",
+		"explain":  true,
+	})
+
+	if callErr != nil {
+		test.Fatalf("tusk_query: %v", callErr)
+	}
+
+	results, _ := body["results"].([]any)
+
+	if len(results) != 2 {
+		test.Fatalf("len(results) = %d, want 2: %v", len(results), body)
+	}
+
+	first := results[0].(map[string]any)
+
+	if first["id"] != "notes/b" {
+		test.Fatalf("first = %v, want notes/b lifted by its word match", first["id"])
+	}
+
+	if lexicalScore, _ := first["lexical_score"].(float64); lexicalScore != 1 {
+		test.Errorf("notes/b lexical_score = %v, want 1", first["lexical_score"])
+	}
+
+	second := results[1].(map[string]any)
+
+	for _, key := range []string{"cosine_score", "lexical_score", "final_score"} {
+		if _, present := second[key]; !present {
+			test.Errorf("explain field %q missing from notes/a: %v", key, second)
+		}
+	}
+}
+
 // TestTool_Query_RejectsInvalidHops asserts hops outside {1,2} surfaces a
 // tool error, mirroring the CLI behaviour.
 func TestTool_Query_RejectsInvalidHops(test *testing.T) {

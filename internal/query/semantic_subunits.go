@@ -181,7 +181,10 @@ func runSemanticSubUnits(
 		}
 	}
 
-	ranked := filter.SemanticRank(candidates, queryVector)
+	lexWeight := lexicalWeight(deps)
+	scoreLexical(candidates, req.Semantic, lexWeight)
+
+	ranked := filter.SemanticRank(candidates, queryVector, lexWeight)
 
 	// Graph expansion runs at the FILE level: user-declared edges (wikilink,
 	// ref-derived, direct frontmatter) join file ids, so seeding the walker
@@ -292,6 +295,10 @@ func runSemanticSubUnits(
 		hasFileLevel     bool
 		fileLevelSnippet string
 		fileLevelBody    string
+		// bestCosine and bestLexical are the inputs of the chunk behind
+		// maxScore, for the row's explain trace.
+		bestCosine  float64
+		bestLexical float64
 	}
 
 	hitsByFile := make(map[string]*fileHit, len(fileIDs))
@@ -320,6 +327,8 @@ func runSemanticSubUnits(
 
 			if scored.Score > bucket.maxScore {
 				bucket.maxScore = scored.Score
+				bucket.bestCosine = scored.Cosine
+				bucket.bestLexical = scored.Lexical
 			}
 
 			continue
@@ -377,6 +386,17 @@ func runSemanticSubUnits(
 			}
 		}
 
+		// A leaf of a walked-in file (distance > 0) ranks on graph merit
+		// alone, so its trace keeps the blend's zero cosine.
+		if req.Explain && lexWeight > 0 && unit.Distance == 0 {
+			unit.CosineScore = scored.Cosine
+			unit.LexicalScore = scored.Lexical
+
+			if blendedByID == nil {
+				unit.FinalScore = unit.Score
+			}
+		}
+
 		if position, seen := bucket.rowIndex[reported.ID]; seen {
 			bucket.matched[position] = unit
 		} else {
@@ -388,6 +408,8 @@ func runSemanticSubUnits(
 
 		if unit.Score > bucket.maxScore {
 			bucket.maxScore = unit.Score
+			bucket.bestCosine = scored.Cosine
+			bucket.bestLexical = scored.Lexical
 		}
 	}
 
@@ -535,6 +557,15 @@ func runSemanticSubUnits(
 				row.GraphScore = trace.Graph
 				row.FinalScore = trace.Final
 				row.Distance = trace.Distance
+			}
+		}
+
+		if req.Explain && lexWeight > 0 && row.Distance == 0 {
+			row.CosineScore = entry.hit.bestCosine
+			row.LexicalScore = entry.hit.bestLexical
+
+			if fileBlend == nil {
+				row.FinalScore = row.Score
 			}
 		}
 

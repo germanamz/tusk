@@ -31,6 +31,22 @@ An interrupted run resumes when you rerun the same command: runs already in `run
 
 Useful flags: `--arms grep,tusk,both` adds the arm that has both toolsets; `--only id1,id2` runs a few questions as a smoke test; `--model`, `--judge-model` (`""` skips judging), `--reps`, `--concurrency`, `--tusk`, `--max-budget` (per run, in USD).
 
+## Probe ranking without agents
+
+`probe` measures a ranking change for free before `run` spends money on it. It stages and indexes the corpus, replays queries through `tusk query` with the binary under test, and reports where each question's answering section ranked:
+
+```bash
+go run ./eval/agentbench probe --tasks eval/tasks/tusk-docs.jsonl --paths docs/packages \
+  --runs eval/results/2026-10-15-lexical-off --out /tmp/before.json
+# change the code or the manifest, then compare
+go run ./eval/agentbench probe --tasks eval/tasks/tusk-docs.jsonl --paths docs/packages \
+  --runs eval/results/2026-10-15-lexical-off --manifest /tmp/tusk-variant.toml --baseline /tmp/before.json
+```
+
+The queries are the first `tusk_query` each tusk run in `--runs` sent (several directories, comma-separated), or with `--queries question` each question's own text. A query's figures count toward its question, and each question weighs the same whatever its number of runs. The report gives section MRR@10, how often the section ranked first, in the top 3 and in the top 10, how often it was among the passages an agent sees (`--take` files of `--max-units` passages each: 5, which is what the benchmark's agents ask for, and 3, `tusk_query`'s default), and file MRR@10. A section counts when it's a target heading or one nested inside it. `--manifest` stages the vault with another `tusk.toml` (the default is the one in `--vault`), so a setting can be compared without touching the repo's. `--baseline` takes an earlier probe's `--out` file and adds the difference per question with a 95% bootstrap interval, then lists the questions whose section MRR@10 moved by 0.1 or more.
+
+The replayed queries were written by an agent working against an older ranking, so a probe measures how a change ranks the queries agents send, not how an agent would query with it. Confirm a change that looks good with `run`.
+
 ## Run it on a private vault
 
 Point `--vault` at the vault root (the folder with `tusk.toml`) and `--paths` at the folders to search. Keep the task file and `--out` outside this repo, and share numbers only:

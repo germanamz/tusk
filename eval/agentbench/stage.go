@@ -24,34 +24,45 @@ type Stage struct {
 }
 
 // BuildStage copies paths (files or directories, relative to vaultRoot)
-// into dir/vault and dir/corpus, then indexes dir/vault with tuskBin. It
-// fails if semantic search returns nothing afterwards, since a tusk arm
-// without embeddings would be measuring a broken setup.
+// into dir/vault and dir/corpus, then indexes dir/vault with tuskBin under
+// vaultRoot's tusk.toml (see StageVault).
 func BuildStage(ctx context.Context, dir string, vaultRoot string, paths []string, tuskBin string) (Stage, error) {
 	stage := Stage{Vault: filepath.Join(dir, "vault"), Corpus: filepath.Join(dir, "corpus")}
 
 	for _, rel := range paths {
-		for _, dest := range []string{stage.Vault, stage.Corpus} {
-			if copyErr := copyPath(filepath.Join(vaultRoot, rel), filepath.Join(dest, rel)); copyErr != nil {
-				return stage, copyErr
-			}
+		if copyErr := copyPath(filepath.Join(vaultRoot, rel), filepath.Join(stage.Corpus, rel)); copyErr != nil {
+			return stage, copyErr
 		}
 	}
 
-	manifestErr := copyPath(filepath.Join(vaultRoot, "tusk.toml"), filepath.Join(stage.Vault, "tusk.toml"))
+	vaultErr := StageVault(ctx, stage.Vault, vaultRoot, paths, filepath.Join(vaultRoot, "tusk.toml"), tuskBin)
 
-	if manifestErr != nil {
-		return stage, fmt.Errorf("the vault needs a tusk.toml: %w", manifestErr)
+	return stage, vaultErr
+}
+
+// StageVault copies paths (relative to vaultRoot) and the manifest at
+// manifestPath into dir, then indexes dir with tuskBin. It fails if semantic
+// search returns nothing afterwards, since a tusk arm without embeddings
+// would be measuring a broken setup.
+func StageVault(ctx context.Context, dir string, vaultRoot string, paths []string, manifestPath string, tuskBin string) error {
+	for _, rel := range paths {
+		if copyErr := copyPath(filepath.Join(vaultRoot, rel), filepath.Join(dir, rel)); copyErr != nil {
+			return copyErr
+		}
 	}
 
-	if _, reindexErr := runTusk(ctx, tuskBin, stage.Vault, "reindex"); reindexErr != nil {
-		return stage, reindexErr
+	if manifestErr := copyPath(manifestPath, filepath.Join(dir, "tusk.toml")); manifestErr != nil {
+		return fmt.Errorf("the vault needs a tusk.toml: %w", manifestErr)
 	}
 
-	output, queryErr := runTusk(ctx, tuskBin, stage.Vault, "query", "", "--semantic", "overview", "--take", "1", "--json")
+	if _, reindexErr := runTusk(ctx, tuskBin, dir, "reindex"); reindexErr != nil {
+		return reindexErr
+	}
+
+	output, queryErr := runTusk(ctx, tuskBin, dir, "query", "", "--semantic", "overview", "--take", "1", "--json")
 
 	if queryErr != nil {
-		return stage, queryErr
+		return queryErr
 	}
 
 	var hits []struct {
@@ -59,10 +70,10 @@ func BuildStage(ctx context.Context, dir string, vaultRoot string, paths []strin
 	}
 
 	if decodeErr := json.Unmarshal(output, &hits); decodeErr != nil || len(hits) == 0 || hits[0].Score == 0 {
-		return stage, errors.New("a semantic query on the staged vault returned no scored hits; is Ollama running with the vault's embedding model?")
+		return errors.New("a semantic query on the staged vault returned no scored hits; is Ollama running with the vault's embedding model?")
 	}
 
-	return stage, nil
+	return nil
 }
 
 // TuskVersion names the binary under test: its version string plus the

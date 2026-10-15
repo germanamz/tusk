@@ -39,6 +39,9 @@ dim      = 768
 query-prefix    = "search_query: "     # optional; see "Embedding model settings"
 document-prefix = "search_document: "  # optional; may contain {title}
 
+[query]
+lexical-weight = 0.5          # optional, [0, 1]; blend word matches into semantic scores
+
 [query.graph-expansion]       # default knobs for tusk_query
 enabled    = true
 hops       = 2                # 1 or 2

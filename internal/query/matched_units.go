@@ -48,12 +48,13 @@ type MatchedUnit struct {
 
 	// Explain-only score-trace fields, mirroring ScoredRow. Populated by
 	// the sub-unit semantic path only when Request.Explain is true and
-	// graph expansion ran. `omitempty` keeps the JSON shape byte-stable
-	// for callers that don't opt into explain mode.
-	CosineScore float64 `json:"cosine_score,omitempty"`
-	GraphScore  float64 `json:"graph_score,omitempty"`
-	FinalScore  float64 `json:"final_score,omitempty"`
-	Distance    int     `json:"distance,omitempty"`
+	// graph expansion or lexical fusion ran. `omitempty` keeps the JSON
+	// shape byte-stable for callers that don't opt into explain mode.
+	CosineScore  float64 `json:"cosine_score,omitempty"`
+	LexicalScore float64 `json:"lexical_score,omitempty"`
+	GraphScore   float64 `json:"graph_score,omitempty"`
+	FinalScore   float64 `json:"final_score,omitempty"`
+	Distance     int     `json:"distance,omitempty"`
 }
 
 // MarshalJSON emits the score/snippet fields only when HasScore is true so
@@ -71,6 +72,7 @@ func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 		Score        *float64 `json:"score,omitempty"`
 		Snippet      string   `json:"snippet,omitempty"`
 		CosineScore  float64  `json:"cosine_score,omitempty"`
+		LexicalScore float64  `json:"lexical_score,omitempty"`
 		GraphScore   float64  `json:"graph_score,omitempty"`
 		FinalScore   float64  `json:"final_score,omitempty"`
 		Distance     int      `json:"distance,omitempty"`
@@ -85,6 +87,7 @@ func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 		Ordinal:      unit.Ordinal,
 		Snippet:      unit.Snippet,
 		CosineScore:  unit.CosineScore,
+		LexicalScore: unit.LexicalScore,
 		GraphScore:   unit.GraphScore,
 		FinalScore:   unit.FinalScore,
 		Distance:     unit.Distance,

@@ -261,6 +261,30 @@ func TestCompactNodeRows_ExplainTail(test *testing.T) {
 			test.Errorf("explain tail missing %q in:\n%s", fragment, got)
 		}
 	}
+
+	if strings.Contains(got, "lexical=") {
+		test.Errorf("lexical= rendered without HasLexical:\n%s", got)
+	}
+}
+
+func TestCompactNodeRows_ExplainTailWithLexical(test *testing.T) {
+	rows := []CompactRow{
+		{
+			ID: "notes/x", Type: "note", Title: "X", Score: 0.9, HasScore: true,
+			CosineScore: 0.6, LexicalScore: 1, FinalScore: 0.9,
+			HasExplain: true, HasLexical: true,
+		},
+	}
+
+	var buf bytes.Buffer
+
+	if err := CompactNodeRows(&buf, rows, CompactOpts{}); err != nil {
+		test.Fatalf("render: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "cosine=0.6000 lexical=1.0000 graph=0.0000 final=0.9000 dist=0") {
+		test.Errorf("explain tail with lexical wrong:\n%s", buf.String())
+	}
 }
 
 func TestCompactNodeRows_ExplainOmittedWithoutFlag(test *testing.T) {

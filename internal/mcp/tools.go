@@ -676,7 +676,7 @@ func registerQueryTool(srv *Server) {
 		mcpgo.WithNumber("hops", mcpgo.Description("Graph-expansion BFS depth (1 or 2). Omit to inherit the manifest's [query.graph-expansion] hops.")),
 		mcpgo.WithNumber("graph_weight", mcpgo.Description("Per-hop weight applied to expanded candidates ([0,1]). Omit to inherit the manifest setting.")),
 		mcpgo.WithArray("graph_edge_types", mcpgo.Description("Edge-type names used by the graph expander. Omit to inherit the manifest setting."), mcpgo.Items(map[string]any{"type": "string"})),
-		mcpgo.WithBoolean("explain", mcpgo.Description("Include a per-row score-contribution trace (cosine_score/graph_score/final_score/distance) in the response when graph expansion is active.")),
+		mcpgo.WithBoolean("explain", mcpgo.Description("Include a per-row score-contribution trace (cosine_score/lexical_score/graph_score/final_score/distance) in the response when graph expansion or [query] lexical-weight is active.")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -697,6 +697,7 @@ func registerQueryTool(srv *Server) {
 		}
 
 		explain := argBoolOptional(request, "explain", false)
+		lexical := srv.runtime.Manifest.LexicalWeight > 0
 
 		take, takeErr := argIntOptionalStrict(request, "take", 0)
 
@@ -794,10 +795,12 @@ func registerQueryTool(srv *Server) {
 						MatchedUnits: scored.MatchedUnits,
 						UnitsTotal:   scored.UnitsTotal,
 						CosineScore:  scored.CosineScore,
+						LexicalScore: scored.LexicalScore,
 						GraphScore:   scored.GraphScore,
 						FinalScore:   scored.FinalScore,
 						Distance:     scored.Distance,
 						HasExplain:   explain,
+						HasLexical:   lexical,
 					})
 				}
 			}
@@ -891,19 +894,23 @@ func registerQueryTool(srv *Server) {
 			}
 
 			// Explain-trace fields are surfaced when the caller asked for
-			// them (Request.Explain) AND graph expansion actually ran — the
-			// only mode that populates a per-row breakdown. Gating on
-			// expansion-active (not on the scores being non-zero) keeps the
-			// trace, including `distance`, on all-zero rows such as a hop-2
-			// neighbor that blends toward zero — precisely the rows a caller
-			// most needs to explain (#688). When Explain is on without
-			// expansion the query service leaves the fields zero and this
-			// gate stays closed.
-			if explain && graphExpansion != nil && graphExpansion.Enabled {
+			// them (Request.Explain) AND graph expansion or lexical fusion
+			// actually ran — the modes that populate a per-row breakdown.
+			// Gating on the mode being active (not on the scores being
+			// non-zero) keeps the trace, including `distance`, on all-zero
+			// rows such as a hop-2 neighbor that blends toward zero —
+			// precisely the rows a caller most needs to explain (#688). When
+			// Explain is on with neither mode, the query service leaves the
+			// fields zero and this gate stays closed.
+			if explain && (lexical || (graphExpansion != nil && graphExpansion.Enabled)) {
 				entry["cosine_score"] = scored.CosineScore
 				entry["graph_score"] = scored.GraphScore
 				entry["final_score"] = scored.FinalScore
 				entry["distance"] = scored.Distance
+			}
+
+			if explain && lexical {
+				entry["lexical_score"] = scored.LexicalScore
 			}
 
 			ranking = append(ranking, entry)

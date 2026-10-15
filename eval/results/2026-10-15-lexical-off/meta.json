@@ -1,0 +1,20 @@
+{
+  "label": "#812 control: lexical off",
+  "tasks_sha256": "3896fdf384b17d6f066bdd22198b0a55f2cf4c4965450afe37f9259e454fb3fb",
+  "questions": 40,
+  "paths": [
+    "docs/packages"
+  ],
+  "corpus_files": 35,
+  "corpus_sections": 154,
+  "arms": [
+    "tusk"
+  ],
+  "reps": 3,
+  "model": "sonnet",
+  "judge_model": "haiku",
+  "concurrency": 4,
+  "tusk_version": "v1.0.0-dev (5f303b5, modified)",
+  "claude_version": "2.1.300",
+  "started_at": "2026-10-15T16:38:12.955934Z"
+}

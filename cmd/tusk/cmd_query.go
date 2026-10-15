@@ -224,7 +224,7 @@ the document is restructured.`,
 			}
 
 			if result.Semantic != nil {
-				return renderQuerySemantic(cmd, result.Semantic, format, fieldsFlag, explainFlag)
+				return renderQuerySemantic(cmd, result.Semantic, format, fieldsFlag, explainFlag, loaded.LexicalWeight > 0)
 			}
 
 			return renderQueryStructural(cmd, result.Rows, format, fieldsFlag)
@@ -249,7 +249,7 @@ the document is restructured.`,
 	// "inherit" so the help does not advertise a passable negative default.
 	queryCmd.Flags().Lookup("graph-weight").DefValue = "inherit"
 	queryCmd.Flags().StringSliceVar(&graphEdges, "graph-edges", nil, "comma-separated edge-type names used by the graph expander; omit to inherit manifest")
-	queryCmd.Flags().BoolVar(&explainFlag, "explain", false, "include a per-row score-contribution trace (cosine/graph/final/distance) in the response when graph expansion is active")
+	queryCmd.Flags().BoolVar(&explainFlag, "explain", false, "include a per-row score-contribution trace (cosine/lexical/graph/final/distance) in the response when graph expansion or [query] lexical-weight is active")
 
 	return queryCmd
 }
@@ -380,7 +380,7 @@ func renderStructuralCompact(out io.Writer, rows []query.Row, fields []string) e
 // queries. JSON output is a flat array of {id,score,type,path,title,snippet,
 // body?,properties?,edges?}; the table view shows id/score/snippet; the
 // compact view shows the full §4.4 form including expanded body/edges.
-func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, format outputFormat, fields []string, explain bool) error {
+func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, format outputFormat, fields []string, explain bool, lexical bool) error {
 	switch format {
 	case formatJSON:
 		encoder := json.NewEncoder(cmd.OutOrStdout())
@@ -403,10 +403,12 @@ func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, for
 				MatchedUnits: scored.MatchedUnits,
 				UnitsTotal:   scored.UnitsTotal,
 				CosineScore:  scored.CosineScore,
+				LexicalScore: scored.LexicalScore,
 				GraphScore:   scored.GraphScore,
 				FinalScore:   scored.FinalScore,
 				Distance:     scored.Distance,
 				HasExplain:   explain,
+				HasLexical:   lexical,
 			})
 		}
 
@@ -416,10 +418,22 @@ func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, for
 	// formatLegacy: tab-aligned id/score/snippet table.
 	tab := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 
-	// --explain widens the default table with the graph-expansion score
-	// breakdown so the trace the docs point at is visible at a TTY, not only
-	// in --format json / compact (where it previously hid). Columns read 0
-	// for rows graph expansion did not touch.
+	// --explain widens the default table with the score breakdown so the
+	// trace the docs point at is visible at a TTY, not only in --format json
+	// / compact (where it previously hid). Columns read 0 for rows graph
+	// expansion did not touch; LEXICAL appears when the workspace sets
+	// [query] lexical-weight.
+	if explain && lexical {
+		_, _ = fmt.Fprintln(tab, "ID\tSCORE\tCOSINE\tLEXICAL\tGRAPH\tFINAL\tDIST\tSNIPPET")
+
+		for _, scored := range semantic.Ranked {
+			_, _ = fmt.Fprintf(tab, "%s\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%d\t%s\n",
+				scored.ID, scored.Score, scored.CosineScore, scored.LexicalScore, scored.GraphScore, scored.FinalScore, scored.Distance, scored.Snippet)
+		}
+
+		return tab.Flush()
+	}
+
 	if explain {
 		_, _ = fmt.Fprintln(tab, "ID\tSCORE\tCOSINE\tGRAPH\tFINAL\tDIST\tSNIPPET")
 

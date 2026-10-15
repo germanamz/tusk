@@ -35,14 +35,18 @@ type CompactRow struct {
 
 	// Explain-trace fields. When HasExplain is true the renderer appends a
 	// space-separated `cosine=… graph=… final=… dist=N` tail to the row's
-	// record line. The format is intentionally machine-friendly (key=value
-	// tokens) so agents can parse it; the plan's `0.84 = 0.74×0.8 + …`
-	// math notation was illustrative only.
-	CosineScore float64
-	GraphScore  float64
-	FinalScore  float64
-	Distance    int
-	HasExplain  bool
+	// record line, with `lexical=…` after the cosine when HasLexical is set
+	// (the workspace sets [query] lexical-weight). The format is
+	// intentionally machine-friendly (key=value tokens) so agents can parse
+	// it; the plan's `0.84 = 0.74×0.8 + …` math notation was illustrative
+	// only.
+	CosineScore  float64
+	LexicalScore float64
+	GraphScore   float64
+	FinalScore   float64
+	Distance     int
+	HasExplain   bool
+	HasLexical   bool
 
 	// MatchedUnits, when non-empty, triggers the hierarchical render
 	// path: the file row is followed by indented `→ #<hash>` lines for
@@ -211,9 +215,15 @@ func writeRecordLine(builder *strings.Builder, row CompactRow, fieldSet map[stri
 	}
 
 	if row.HasExplain {
+		cosine := fmt.Sprintf("cosine=%.4f", row.CosineScore)
+
+		if row.HasLexical {
+			cosine += fmt.Sprintf(" lexical=%.4f", row.LexicalScore)
+		}
+
 		line = appendToken(line, fmt.Sprintf(
-			"cosine=%.4f graph=%.4f final=%.4f dist=%d",
-			row.CosineScore, row.GraphScore, row.FinalScore, row.Distance,
+			"%s graph=%.4f final=%.4f dist=%d",
+			cosine, row.GraphScore, row.FinalScore, row.Distance,
 		))
 	}
 

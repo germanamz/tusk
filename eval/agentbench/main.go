@@ -42,6 +42,8 @@ func main() {
 		err = checkCommand(os.Args[2:])
 	case "report":
 		err = reportCommand(os.Args[2:])
+	case "probe":
+		err = probeCommand(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -58,6 +60,7 @@ func usage() {
   agentbench check  --tasks FILE --paths DIR[,DIR] [--vault DIR]
   agentbench run    --tasks FILE --paths DIR[,DIR] --out DIR [flags]
   agentbench report --out DIR [--numbers-only]
+  agentbench probe  --tasks FILE --paths DIR[,DIR] --runs DIR[,DIR] [flags]
 
 Run "agentbench <command> -h" for flags.
 `)
@@ -640,6 +643,136 @@ func reportCommand(args []string) error {
 	}
 
 	fmt.Print(report)
+
+	return nil
+}
+
+// probeCommand replays queries against a staged vault and reports where each
+// question's answering section ranks; see probe.go.
+func probeCommand(args []string) error {
+	flags := flag.NewFlagSet("probe", flag.ExitOnError)
+	tasksPath := flags.String("tasks", "", "JSONL task file (required)")
+	vault := flags.String("vault", ".", "vault root the corpus paths are relative to")
+	paths := flags.String("paths", "", "comma-separated corpus paths, relative to --vault (required)")
+	manifestPath := flags.String("manifest", "", "tusk.toml to stage the vault with (default: the one in --vault)")
+	tusk := flags.String("tusk", "bin/tusk", "tusk binary under test")
+	queriesFrom := flags.String("queries", "first", `"first": the first tusk_query of every tusk run in --runs; "question": each question's text`)
+	runs := flags.String("runs", "", `comma-separated benchmark output directories (required with --queries first)`)
+	take := flags.Int("take", 5, "files in the result an agent sees (the benchmark's agents ask for 5)")
+	maxUnits := flags.Int("max-units", 3, "matched units per file in the result an agent sees (tusk_query's default is 3)")
+	out := flags.String("out", "", "write the probe's records here as JSON, for a later --baseline")
+	baselinePath := flags.String("baseline", "", "a previous probe's --out file to compare against, question by question")
+
+	if parseErr := flags.Parse(args); parseErr != nil {
+		return parseErr
+	}
+
+	if *tasksPath == "" || *paths == "" {
+		flags.Usage()
+
+		return errors.New("--tasks and --paths are required")
+	}
+
+	tasks, tasksErr := LoadTasks(*tasksPath)
+
+	if tasksErr != nil {
+		return tasksErr
+	}
+
+	var queries []ProbeQuery
+
+	switch *queriesFrom {
+	case "first":
+		if *runs == "" {
+			return errors.New("--runs is required with --queries first")
+		}
+
+		for dir := range strings.SplitSeq(*runs, ",") {
+			dirQueries, queriesErr := FirstQueries(dir)
+
+			if queriesErr != nil {
+				return queriesErr
+			}
+
+			queries = append(queries, dirQueries...)
+		}
+	case "question":
+		queries = QuestionQueries(tasks)
+	default:
+		return fmt.Errorf(`--queries must be "first" or "question" (got %q)`, *queriesFrom)
+	}
+
+	if len(queries) == 0 {
+		return errors.New("no queries to replay")
+	}
+
+	var baseline *ProbeResult
+
+	if *baselinePath != "" {
+		loaded, baselineErr := LoadProbeResult(*baselinePath)
+
+		if baselineErr != nil {
+			return baselineErr
+		}
+
+		baseline = loaded
+	}
+
+	tuskBin, tuskErr := resolveBinary(*tusk)
+
+	if tuskErr != nil {
+		return tuskErr
+	}
+
+	if *manifestPath == "" {
+		*manifestPath = filepath.Join(*vault, "tusk.toml")
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	stageDir, stageDirErr := os.MkdirTemp("", "agentbench-probe-")
+
+	if stageDirErr != nil {
+		return stageDirErr
+	}
+
+	defer func() { _ = os.RemoveAll(stageDir) }()
+
+	fmt.Fprintln(os.Stderr, "staging and indexing the corpus…")
+
+	if stageErr := StageVault(ctx, stageDir, *vault, strings.Split(*paths, ","), *manifestPath, tuskBin); stageErr != nil {
+		return stageErr
+	}
+
+	records, probeErr := Probe(ctx, tuskBin, stageDir, tasks, queries, *take, *maxUnits)
+
+	if probeErr != nil {
+		return probeErr
+	}
+
+	result := ProbeResult{
+		Tusk:     TuskVersion(ctx, tuskBin),
+		Manifest: *manifestPath,
+		Queries:  *queriesFrom,
+		Take:     *take,
+		MaxUnits: *maxUnits,
+		Records:  records,
+	}
+
+	if *out != "" {
+		encoded, encodeErr := json.MarshalIndent(result, "", "  ")
+
+		if encodeErr != nil {
+			return encodeErr
+		}
+
+		if writeErr := os.WriteFile(*out, append(encoded, '\n'), 0o644); writeErr != nil {
+			return writeErr
+		}
+	}
+
+	fmt.Print(WriteProbeReport(result, baseline))
 
 	return nil
 }
