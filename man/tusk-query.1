@@ -65,6 +65,10 @@ Matched units: semantic rows always carry matched_units, the passages that
 matched. Each scored passage folds into its innermost section, so one finding
 is one row: the section's id, heading, and line range, with the passage's
 score and snippet. A passage before the first heading is its own row.
+In JSON a semantic unit carries id, heading, lines, score and snippet; the
+row's own snippet appears only on a row with no units, --include body leaves
+the first unit's snippet to the body (its whole passage), and scores are
+rounded to three decimals.
 --include units lists every file's sub-unit outline on structural queries.
 Every unit carries lines start, end
 \[la]1\-based, inclusive, counted from the

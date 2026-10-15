@@ -653,23 +653,28 @@ func registerEdgeListTool(srv *Server) {
 	srv.register(tool, handler)
 }
 
+// semanticDefaultTake is the semantic page size when the caller sets no take.
+// The CLI returns every ranked row; MCP bounds the response, and 5 files is
+// the page agents asked for anyway (#813).
+const semanticDefaultTake = 5
+
 // semanticDefaultMaxUnits bounds the matched_units on each semantic row when
 // the caller sets no max_units. Semantic rows carry matched_units without
 // include=units, and an agent rarely needs more than the best few passages,
-// each of which costs context (#765).
-const semanticDefaultMaxUnits = 3
+// each of which it pays for again on every later turn (#765, #813).
+const semanticDefaultMaxUnits = 2
 
 func registerQueryTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_query",
-		mcpgo.WithDescription("Run a structural, semantic, or hybrid query — the MCP equivalent of `tusk query` (no shell needed). Filter grammar: property predicates key=value / key:value / key!=value / key<|<=|>|>=value and ranges key=lo..hi; glob patterns on path and id (path=docs/product/* for one folder, path=docs/** for the subtree; quote to match a literal *); compose with AND / OR / NOT and parentheses; edge traversal edge-type-> (outgoing) and edge-type<- (incoming), chainable multi-hop (mentions-> tagged-> type=tag); hierarchy shortcuts tree=id / parent=id / root=id; recency modified-since:7d (or an ISO date); names-path=<path|glob> for the pages that name a workspace path in inline code, a link or a paths-only frontmatter value (or a directory above it), when an edge type sets paths = true; names-path:<edge-type>=<path> for one edge type's refs. Add semantic=\"...\" to rank by cosine similarity. Results default to 50 rows (structural) or 10 (semantic) — raise take for more. Use include / fields to expand or project rows in one round-trip. Full grammar: tusk_help(topic: \"filter\")."),
+		mcpgo.WithDescription("Run a structural, semantic, or hybrid query — the MCP equivalent of `tusk query` (no shell needed). Filter grammar: property predicates key=value / key:value / key!=value / key<|<=|>|>=value and ranges key=lo..hi; glob patterns on path and id (path=docs/product/* for one folder, path=docs/** for the subtree; quote to match a literal *); compose with AND / OR / NOT and parentheses; edge traversal edge-type-> (outgoing) and edge-type<- (incoming), chainable multi-hop (mentions-> tagged-> type=tag); hierarchy shortcuts tree=id / parent=id / root=id; recency modified-since:7d (or an ISO date); names-path=<path|glob> for the pages that name a workspace path in inline code, a link or a paths-only frontmatter value (or a directory above it), when an edge type sets paths = true; names-path:<edge-type>=<path> for one edge type's refs. Add semantic=\"...\" to rank by cosine similarity. Results default to 50 rows (structural) or 5 (semantic) — raise take for more. Use include / fields to expand or project rows in one round-trip. Full grammar: tusk_help(topic: \"filter\")."),
 		mcpgo.WithString("filter", mcpgo.Required(), mcpgo.Description("Filter expression, e.g. 'type=ticket AND priority>=2 AND modified-since:7d'. Empty string matches everything (useful as a semantic pre-filter). See the tool description for the grammar.")),
 		mcpgo.WithString("sort", mcpgo.Description("Sort spec (e.g. '+priority,-due')")),
-		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows (default 50 structural, 10 semantic)")),
+		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows (default 50 structural, 5 semantic)")),
 		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
 		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
 		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum similarity score to include in semantic results (default 0.5). Lower this when an initial query misses. When graph expansion is active, this filters the blended final score, not the bare cosine.")),
 		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|units|paths (units = each file's sub-unit outline on structural queries; semantic rows always carry matched_units; semantic body = best-matching chunk; paths = the workspace paths each page names, with lines, section and a live exists check, narrowed to the ones a names-path filter matched)"), mcpgo.Items(map[string]any{"type": "string"})),
-		mcpgo.WithNumber("max_units", mcpgo.Description("Cap matched_units per file (default 3 on semantic rows; the include=units outline is uncapped unless set). Each unit carries lines [start, end] and, for sections, its heading; units_total reports the count before the cap.")),
+		mcpgo.WithNumber("max_units", mcpgo.Description("Cap matched_units per file (default 2 on semantic rows; the include=units outline is uncapped unless set). Each unit carries lines [start, end] and, for sections, its heading; units_total reports the count before the cap.")),
 		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 		mcpgo.WithBoolean("graph_expand", mcpgo.Description("Override the workspace's graph-expansion enabled flag for this call (tri-state: omit to inherit, true to force-on, false to force-off).")),
@@ -742,9 +747,9 @@ func registerQueryTool(srv *Server) {
 			Semantic: argStringOptional(request, "semantic"),
 			MinScore: minScore,
 			// MCP keeps tool responses bounded by defaulting semantic page
-			// size to 10 and structural reads to 50 when take is unset (the CLI
+			// size to 5 and structural reads to 50 when take is unset (the CLI
 			// leaves both uncapped and returns every matching row).
-			SemanticDefaultTake:     10,
+			SemanticDefaultTake:     semanticDefaultTake,
 			StructuralDefaultTake:   50,
 			MaxUnits:                maxUnits,
 			SemanticDefaultMaxUnits: semanticDefaultMaxUnits,
@@ -860,16 +865,19 @@ func registerQueryTool(srv *Server) {
 		ranking := make([]map[string]any, 0, len(semantic.Ranked))
 
 		for _, scored := range semantic.Ranked {
+			// The wire shape matches ScoredRow.MarshalJSON (#813): rounded
+			// scores, no row snippet beside matched units, and no first-unit
+			// snippet when body carries that passage.
 			entry := map[string]any{
 				"id":    scored.ID,
-				"score": scored.Score,
+				"score": query.RoundScore(scored.Score),
 				"type":  scored.Type,
 				"path":  scored.Path,
 				"title": scored.Title,
 			}
 
-			if scored.Snippet != "" {
-				entry["snippet"] = scored.Snippet
+			if snippet := scored.WireSnippet(); snippet != "" {
+				entry["snippet"] = snippet
 			}
 
 			if scored.Body != "" {
@@ -885,7 +893,7 @@ func registerQueryTool(srv *Server) {
 			}
 
 			if scored.MatchedUnits != nil {
-				entry["matched_units"] = scored.MatchedUnits
+				entry["matched_units"] = scored.WireUnits()
 				entry["units_total"] = scored.UnitsTotal
 			}
 
@@ -903,14 +911,14 @@ func registerQueryTool(srv *Server) {
 			// Explain is on with neither mode, the query service leaves the
 			// fields zero and this gate stays closed.
 			if explain && (lexical || (graphExpansion != nil && graphExpansion.Enabled)) {
-				entry["cosine_score"] = scored.CosineScore
-				entry["graph_score"] = scored.GraphScore
-				entry["final_score"] = scored.FinalScore
+				entry["cosine_score"] = query.RoundScore(scored.CosineScore)
+				entry["graph_score"] = query.RoundScore(scored.GraphScore)
+				entry["final_score"] = query.RoundScore(scored.FinalScore)
 				entry["distance"] = scored.Distance
 			}
 
 			if explain && lexical {
-				entry["lexical_score"] = scored.LexicalScore
+				entry["lexical_score"] = query.RoundScore(scored.LexicalScore)
 			}
 
 			ranking = append(ranking, entry)
@@ -1587,7 +1595,7 @@ func registerRunTool(srv *Server) {
 			FileStates:              srv.runtime.FileState,
 			Meta:                    srv.runtime.Meta,
 			Embedder:                srv.runtime.Embedder,
-			SemanticDefaultTake:     10,
+			SemanticDefaultTake:     semanticDefaultTake,
 			SemanticDefaultMaxUnits: semanticDefaultMaxUnits,
 		}
 
@@ -1641,7 +1649,7 @@ func registerContextTool(srv *Server) {
 			FileStates:              srv.runtime.FileState,
 			Meta:                    srv.runtime.Meta,
 			Embedder:                srv.runtime.Embedder,
-			SemanticDefaultTake:     10,
+			SemanticDefaultTake:     semanticDefaultTake,
 			SemanticDefaultMaxUnits: semanticDefaultMaxUnits,
 		}
 

@@ -48,6 +48,36 @@ func bootRuntimeWithAlias(test *testing.T, aliasBlock string) *mcp.Runtime {
 	return rt
 }
 
+// TestTool_Run_SemanticAliasDefaultsTake5 pins #813 on tusk_run: a semantic
+// query alias with no take gets the same 5-file page as tusk_query.
+func TestTool_Run_SemanticAliasDefaultsTake5(test *testing.T) {
+	rt := bootRuntimeWithAlias(test, `[alias.find]
+command = "query"
+args.filter = "type=note"
+args.semantic = "anything"
+`)
+	defer rt.Close()
+
+	rt.Embedder = snippetStubEmbedder{}
+
+	seedSemanticVault(test, rt, 8, func(offset int) []float32 {
+		return []float32{1, 0, 0}
+	})
+
+	srv := mcp.NewServer(rt)
+	body, callErr := callTool(test, srv, "tusk_run", map[string]any{"alias": "find"})
+
+	if callErr != nil {
+		test.Fatalf("tusk_run: %v", callErr)
+	}
+
+	result, _ := body["result"].(map[string]any)
+
+	if results, _ := result["results"].([]any); len(results) != 5 {
+		test.Errorf("results = %d, want 5 (default take): %v", len(results), body)
+	}
+}
+
 func TestTool_Run_StatusAlias(test *testing.T) {
 	rt := bootRuntimeWithAlias(test, `[alias.snap]
 command = "status"
