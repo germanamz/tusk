@@ -46,6 +46,16 @@ type MatchedUnit struct {
 	Snippet  string  `json:"snippet,omitempty"`
 	HasScore bool    `json:"-"`
 
+	// Text is the matched passage's markdown, read from the file so an agent
+	// can answer without a Read (#814): the reported section's own text, its
+	// heading line and subsections left out, capped around the leaf that
+	// scored. TextStartLine and TextEndLine are the lines it covers, emitted
+	// as `text_lines`. Set on the top row's best unit, and on every row's
+	// with include=body; empty when the file changed since indexing.
+	Text          string `json:"text,omitempty"`
+	TextStartLine int    `json:"-"`
+	TextEndLine   int    `json:"-"`
+
 	// Explain-only score-trace fields, mirroring ScoredRow. Populated by
 	// the sub-unit semantic path only when Request.Explain is true and
 	// graph expansion or lexical fusion ran. `omitempty` keeps the JSON
@@ -62,13 +72,22 @@ type MatchedUnit struct {
 // plus the explain trace when set, with every score rounded (RoundScore). Its
 // type, parent, heading level and ordinal stay off the wire: the id already
 // names the unit, and an agent pays for each byte again on every later turn
-// (#813). The structural include=units outline has no score per spec §5.7 and
-// keeps those fields, since a caller rebuilds the tree from them.
+// (#813). A hit with Text carries text and text_lines in place of the snippet,
+// a window of the same passage (#814). The structural include=units outline
+// has no score per spec §5.7 and keeps those fields, since a caller rebuilds
+// the tree from them.
 func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
-	var lines []int
+	var lines, textLines []int
 
 	if unit.StartLine > 0 && unit.EndLine > 0 {
 		lines = []int{unit.StartLine, unit.EndLine}
+	}
+
+	snippet := unit.Snippet
+
+	if unit.Text != "" {
+		textLines = []int{unit.TextStartLine, unit.TextEndLine}
+		snippet = ""
 	}
 
 	if !unit.HasScore {
@@ -99,6 +118,8 @@ func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 		Lines        []int   `json:"lines,omitempty"`
 		Score        float64 `json:"score"`
 		Snippet      string  `json:"snippet,omitempty"`
+		Text         string  `json:"text,omitempty"`
+		TextLines    []int   `json:"text_lines,omitempty"`
 		CosineScore  float64 `json:"cosine_score,omitempty"`
 		LexicalScore float64 `json:"lexical_score,omitempty"`
 		GraphScore   float64 `json:"graph_score,omitempty"`
@@ -109,7 +130,9 @@ func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 		Heading:      unit.Heading,
 		Lines:        lines,
 		Score:        RoundScore(unit.Score),
-		Snippet:      unit.Snippet,
+		Snippet:      snippet,
+		Text:         unit.Text,
+		TextLines:    textLines,
 		CosineScore:  RoundScore(unit.CosineScore),
 		LexicalScore: RoundScore(unit.LexicalScore),
 		GraphScore:   RoundScore(unit.GraphScore),

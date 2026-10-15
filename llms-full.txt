@@ -630,7 +630,9 @@ tusk query 'path=docs/**' --semantic "billing totals"   # scoped to docs/ and be
 
 Each result carries `matched_units`, the passages that matched, best first. A passage folds into its innermost section, so one finding is one row: the section's id, `heading`, and `lines: [start, end]`, plus the passage's score and snippet. Lines are 1-based and counted from the top of the file, frontmatter included, so an agent can open the file at the passage instead of reading all of it (HTML units carry no lines). `--max-units N` keeps the best N per file, MCP keeps 2 unless told otherwise, and `units_total` says how many there were. MCP also returns 5 files unless `take` says otherwise; the CLI returns every ranked file.
 
-The JSON stays small because an agent pays for every byte of a result again on each later turn. A unit carries only `id`, `heading`, `lines`, `score` and `snippet`. A result has no snippet of its own unless it has no units, and with `--include body` the first unit leaves its snippet to `body`, which is that passage in full. Scores are rounded to three decimals. The structural `--include units` outline is the one place units still carry `type`, `parent_id`, `heading_level` and `ordinal`. `[workspace] line-numbering` decides what ends a line: `lf` (the default, matching sed and grep -n), `universal` (adds a lone CR, like most editors), or `unicode` (adds the Unicode line separators).
+The JSON stays small because an agent pays for every byte of a result again on each later turn. A unit carries only `id`, `heading`, `lines`, `score` and `snippet`, and a result has no snippet of its own unless it has no units. Scores are rounded to three decimals.
+
+The top result's best unit carries more: its passage's markdown as `text`, in place of the snippet, with `text_lines` saying which lines of the file the text covers. The text is the section's own content, read from the file: its paragraphs, list items, tables and code, without the heading line or any subsections. A section over 2 KB comes as a window of whole paragraphs and items around the one that matched, so `text_lines` is where to read on. An agent can usually answer from the text and skip reading the file. `--include body` gives every result's best unit its text. A file edited since tusk last indexed it gets no text, because its lines may have moved. The structural `--include units` outline is the one place units still carry `type`, `parent_id`, `heading_level` and `ordinal`. `[workspace] line-numbering` decides what ends a line: `lf` (the default, matching sed and grep -n), `universal` (adds a lone CR, like most editors), or `unicode` (adds the Unicode line separators).
 
 ### Matching the embedding model
 
@@ -2963,7 +2965,8 @@ Three modes, all driven by the same command:
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
 results, --skip M to paginate. Use --include to expand each row with
 body, edges, properties, units or paths (comma-separated; for semantic
-results body is the best-matching chunk). Use --fields to project the rendered shape.
+results body gives every row's best unit its text). Use --fields to project
+the rendered shape.
 Use --format to pick compact or JSON output: with no --include/--fields
 the default is the tab-aligned table, and once a shape flag is set it is
 compact at a TTY and JSON when piped. --json (or --format json) forces
@@ -2974,9 +2977,12 @@ matched. Each scored passage folds into its innermost section, so one finding
 is one row: the section's id, heading, and line range, with the passage's
 score and snippet. A passage before the first heading is its own row.
 In JSON a semantic unit carries id, heading, lines, score and snippet; the
-row's own snippet appears only on a row with no units, --include body leaves
-the first unit's snippet to the body (its whole passage), and scores are
-rounded to three decimals.
+row's own snippet appears only on a row with no units, and scores are rounded
+to three decimals. The top row's best unit carries text, its section's own
+markdown read from the file (no heading line or subsections; a window of
+whole paragraphs and items around the match past 2 KB), and text_lines, the
+lines it covers, in place of the snippet. --include body gives every row's
+best unit its text. A file edited since it was indexed gets no text.
 --include units lists every file's sub-unit outline on structural queries.
 Every unit carries lines [start, end] (1-based, inclusive, counted from the
 top of the file; absent for HTML), numbered under [workspace] line-numbering.

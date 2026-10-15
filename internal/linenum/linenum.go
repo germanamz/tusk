@@ -51,12 +51,14 @@ type Table struct {
 	// lineStarts holds the byte offset where each line after the first
 	// begins, ascending.
 	lineStarts []int
+	// size is the source length, where a line past the last begins.
+	size int
 }
 
 // NewTable scans source once and records where each line begins under
 // scheme. An unknown scheme falls back to DefaultScheme.
 func NewTable(source []byte, scheme Scheme) *Table {
-	table := &Table{}
+	table := &Table{size: len(source)}
 
 	for offset := 0; offset < len(source); {
 		width := terminatorWidth(source[offset:], scheme)
@@ -78,6 +80,21 @@ func NewTable(source []byte, scheme Scheme) *Table {
 // bytes belong to the line they end.
 func (table *Table) Line(offset int) int {
 	return sort.SearchInts(table.lineStarts, offset+1) + 1
+}
+
+// Offset returns the byte offset where the 1-based line begins, the inverse
+// of Line: source[Offset(first):Offset(last+1)] is lines first..last with the
+// last one's terminator. A line before the first begins at 0 and a line past
+// the last at the end of the source.
+func (table *Table) Offset(line int) int {
+	switch {
+	case line <= 1:
+		return 0
+	case line-2 >= len(table.lineStarts):
+		return table.size
+	}
+
+	return table.lineStarts[line-2]
 }
 
 // terminatorWidth returns the byte length of the line terminator at the head

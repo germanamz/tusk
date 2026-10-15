@@ -39,19 +39,17 @@ func TestQueryCmd_SemanticErrorsWhenEmbeddingsAbsent(test *testing.T) {
 	}
 }
 
-// firstUnitSnippet returns the snippet of a semantic JSON row's first
-// matched unit.
-func firstUnitSnippet(row map[string]any) (string, bool) {
+// firstUnit returns a semantic JSON row's first matched unit.
+func firstUnit(row map[string]any) map[string]any {
 	units, _ := row["matched_units"].([]any)
 
 	if len(units) == 0 {
-		return "", false
+		return nil
 	}
 
 	unit, _ := units[0].(map[string]any)
-	snippet, ok := unit["snippet"].(string)
 
-	return snippet, ok
+	return unit
 }
 
 func TestQueryCmd_SemanticJSONIncludesSnippet(test *testing.T) {
@@ -119,14 +117,17 @@ dim = 3
 		test.Errorf("result[0] carries a row snippet beside its matched units: %v", results[0])
 	}
 
-	snippet, ok := firstUnitSnippet(results[0])
+	// The top row's best unit carries its passage read from the file, in
+	// place of the snippet (#814).
+	unit := firstUnit(results[0])
+	text, _ := unit["text"].(string)
 
-	if !ok || snippet == "" {
-		test.Errorf("result[0] first matched unit has no snippet: %v", results[0])
+	if !strings.Contains(text, "JSON snippet body") {
+		test.Errorf("result[0] first unit text = %q, want the passage: %v", text, results[0])
 	}
 
-	if !strings.Contains(snippet, "JSON snippet body") {
-		test.Errorf("snippet content unexpected: %q", snippet)
+	if _, present := unit["snippet"]; present {
+		test.Errorf("result[0] first unit carries a snippet beside its text: %v", unit)
 	}
 
 	for _, key := range []string{"id", "score", "type", "path", "title"} {

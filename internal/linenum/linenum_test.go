@@ -111,6 +111,31 @@ func TestTable_TerminatorBelongsToItsLine(test *testing.T) {
 	}
 }
 
+// TestTable_Offset pins the inverse of Line: where each line begins, so a
+// caller can slice a line range out of the source. A line before the first
+// starts at 0 and a line past the last starts at the end of the source.
+func TestTable_Offset(test *testing.T) {
+	source := "ab\r\ncd\ref\n"
+
+	cases := []struct {
+		scheme linenum.Scheme
+		want   []int
+	}{
+		{scheme: linenum.SchemeLF, want: []int{0, 0, 4, 10, 10}},
+		{scheme: linenum.SchemeUniversal, want: []int{0, 0, 4, 7, 10, 10}},
+	}
+
+	for _, testCase := range cases {
+		table := linenum.NewTable([]byte(source), testCase.scheme)
+
+		for line, want := range testCase.want {
+			if got := table.Offset(line); got != want {
+				test.Errorf("%s: Offset(%d) = %d, want %d", testCase.scheme, line, got, want)
+			}
+		}
+	}
+}
+
 func indexByte(source string, marker byte) int {
 	for index := range len(source) {
 		if source[index] == marker {

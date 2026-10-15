@@ -33,8 +33,9 @@ tusk_query(filter="type=note AND kind=design",
 - `skip` — paginate (requires `take`).
 - `sort` — sort spec, e.g. `"+priority,-due"`.
 - `include` — expand each row with `body` / `edges` / `properties` /
-  `units` / `paths` in one round-trip. For semantic results, `body` is
-  the best-matching chunk. `units` lists each file's sub-unit outline on
+  `units` / `paths` in one round-trip. On semantic results, `body`
+  gives every row's best unit its `text` (by default only the top row's
+  has it). `units` lists each file's sub-unit outline on
   a structural query; semantic rows carry matched units without it.
   `paths` lists the workspace paths each page names (see "Path refs").
 - `max_units` — keep at most N matched units per file. Defaults to 2
@@ -64,8 +65,13 @@ passage folds into its innermost section, so one finding is one row:
   item).
 - `units_total` on the file row is how many units there were before
   `max_units` cut the list.
-- With `include=["body"]`, `body` is the first unit's whole passage, so
-  that unit carries no `snippet`.
+- The top row's best unit carries `text`, its section's own markdown
+  read from the file (no heading line, no subsections), in place of the
+  `snippet`, and `text_lines`, the lines that text covers. Answer from
+  it before reading the file. A section over 2 KB comes as a window of
+  whole paragraphs and items around the passage that matched; read on
+  from `text_lines` for the rest. `include=["body"]` gives every row's
+  best unit its text. A file edited since it was indexed gets no text.
 - Scores are rounded to three decimals.
 
 ## Path refs

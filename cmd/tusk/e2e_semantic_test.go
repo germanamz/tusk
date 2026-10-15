@@ -122,8 +122,8 @@ dim = 3
 		test.Errorf("tabwriter missing SNIPPET column:\n%s", body)
 	}
 
-	// Re-run with --json and assert the first matched unit carries a
-	// non-empty snippet (the row's own copy is left out, #813).
+	// Re-run with --json and assert the first matched unit carries its
+	// passage text, read from the file (#814).
 	jsonOut := &bytes.Buffer{}
 
 	jsonCmd := newRootCmd()
@@ -145,14 +145,10 @@ dim = 3
 		test.Fatalf("empty json results:\n%s", jsonOut.String())
 	}
 
-	snippet, ok := firstUnitSnippet(results[0])
+	text, _ := firstUnit(results[0])["text"].(string)
 
-	if !ok {
-		test.Errorf("result[0] first matched unit has no snippet: %v", results[0])
-	} else if snippet == "" {
-		test.Errorf("result[0] snippet is empty; ensure fixture node bodies are non-empty")
-	} else if !strings.Contains(snippet, "Apples") && !strings.Contains(snippet, "varieties") {
-		test.Errorf("result[0] snippet content unexpected: %q", snippet)
+	if !strings.Contains(text, "Apples") && !strings.Contains(text, "varieties") {
+		test.Errorf("result[0] first unit text = %q, want the matched passage: %v", text, results[0])
 	}
 
 	if nodeType, typeOK := results[0]["type"].(string); !typeOK || nodeType == "" {

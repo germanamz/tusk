@@ -121,6 +121,7 @@ type ScoredRow struct {
 
 	// Body, when set, is the best-matching chunk body for the query (spec
 	// §4.1 — semantic include=body prefers the snippet over the full file).
+	// A sub-unit row whose top unit carries Text leaves it out (#814).
 	Body       string         `json:"body,omitempty"`
 	Properties map[string]any `json:"properties,omitempty"`
 	Edges      []EdgeRef      `json:"edges,omitempty"`
