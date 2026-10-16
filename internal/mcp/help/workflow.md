@@ -43,8 +43,16 @@ queue health.
 
 ## 5. Recover
 
-If `tusk_doctor` reports "off-schema node type X" or
-`tusk_node_create` rejects an unknown type/edge, the manifest doesn't
-declare it. Open `./tusk.toml` and add the declaration —
-`tusk_help(topic: "node-types")` and `tusk_help(topic: "edge-types")`
-show the shape. Then `tusk_reindex`.
+If `tusk_doctor` reports "off-schema node type X" or a write rejects
+an unknown type/edge, the manifest doesn't declare it. Call
+`tusk_pack_add` to merge a built-in pack's types, or add the
+declaration to the vault's `tusk.toml` in your editor (its absolute
+path is in the server instructions); `tusk_help(topic: "node-types")`
+and `tusk_help(topic: "edge-types")` show the shape. Then call
+`tusk_reload`, which validates and hot-swaps the schema and reindexes.
+`tusk_reindex` re-reads content, not the schema, so a write rejected
+as "not declared in manifest" right after an edit means the schema
+still needs a `tusk_reload`.
+
+If the index seems wedged or corrupt, `tusk_reset(confirm: true)`
+drops it and rebuilds it from your files. No content is lost.

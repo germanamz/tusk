@@ -1,0 +1,21 @@
+{
+  "label": "#815 first draft: bare include values (\"include\": body)",
+  "tasks_sha256": "3896fdf384b17d6f066bdd22198b0a55f2cf4c4965450afe37f9259e454fb3fb",
+  "questions": 40,
+  "paths": [
+    "docs/packages"
+  ],
+  "corpus_files": 35,
+  "corpus_sections": 154,
+  "arms": [
+    "grep",
+    "tusk"
+  ],
+  "reps": 3,
+  "model": "sonnet",
+  "judge_model": "haiku",
+  "concurrency": 4,
+  "tusk_version": "v1.0.0-dev (84ae654, modified)",
+  "claude_version": "2.1.301",
+  "started_at": "2026-10-16T12:13:59.263245Z"
+}

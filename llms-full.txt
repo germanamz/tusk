@@ -853,7 +853,7 @@ Does an agent spend less to answer a question with `tusk_query` than with grep a
 
 With tusk, the agent cited the right section on every run (91% with grep) and made one tool call fewer per question (2 against 3). It also read 11% more input tokens per question and cost 37% more, and took the same time. On this corpus tusk buys accuracy, not tokens. A query result runs about 8 KB, where a grep result runs under 1 KB, so tusk comes out ahead only on questions where grep has to dig.
 
-Three later changes shifted this. [Lexical fusion](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#lexical-fusion) ranks the answer higher, [Smaller results](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#smaller-results) halved the size of a query result, and [Passage text](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#passage-text) puts the matched section's text in the result, so the agent can often skip the Read. On the latest full run, on 10-15, tusk read 20% fewer input tokens than grep per question (0.80×, with an interval from 0.70 to 0.94), cost about the same, made one tool call fewer and cited the right section on every run (98% with grep).
+Four later changes shifted this. [Lexical fusion](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#lexical-fusion) ranks the answer higher, [Smaller results](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#smaller-results) halved the size of a query result, [Passage text](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#passage-text) puts the matched section's text in the result, so the agent can often skip the Read, and [Per-turn overhead](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#per-turn-overhead) trimmed what the tusk MCP server adds to every turn. On the latest full run, on 10-16, tusk read 30% fewer input tokens than grep per question (0.70×, with an interval from 0.58 to 0.83), cost 9% more, within the noise, made one tool call fewer and cited the right section on every run (97% with grep).
 
 A second, larger corpus came out the other way on tokens. On a private vault of 79 files, tusk read 17% fewer input tokens, made two tool calls fewer and finished 28% faster, and accuracy was about the same. See [A second corpus](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#a-second-corpus).
 
@@ -1052,6 +1052,32 @@ Of the 32 runs that still read a file, 22 read the second, third or fourth resul
 
 Against the grep arm of the same run, tusk read 0.80× the input tokens per question (0.70–0.94), less on 31 of the 40 questions, and cost 1.05× (0.90–1.29). The `main` binary, set against the same grep runs, read 0.91× (0.80–1.08). The runs are in [`eval/results/2026-10-15-passage-text/`](https://github.com/germanamz/tusk/tree/main/eval/results/2026-10-15-passage-text) (both arms) and [`eval/results/2026-10-15-passage-text-main/`](https://github.com/germanamz/tusk/tree/main/eval/results/2026-10-15-passage-text-main) (the control).
 
+## Per-turn overhead
+
+Every turn of an agent connected to `tusk mcp` carries the server's instructions and the definitions of the tools it may call ([#815](https://github.com/germanamz/tusk/issues/815)). On the 10-15 run the tusk arm's first turn came to 4,413 tokens and the grep arm's to 3,623, though the tusk arm has two tools fewer. The instructions ran to 1,810 characters, much of it for agents that write: how to declare a type, when to call `tusk_reload`, what to do about a wedged index. The `tusk_query` definition ran to 3.9 KB, most of it filter grammar.
+
+Both are now written for a model rather than a person, in terse shorthand. The instructions keep what every agent needs: where the vault is, that the tools beat the shell, and where `tusk_help` goes deeper. The writer guidance moved into the descriptions of `tusk_reload` and `tusk_reset` and into the `workflow` help topic, so it travels only with the tools it concerns. The `tusk_query` description keeps the common filter shapes and points to `tusk_help(topic: "filter")` for the rest. Together they went from 5.7 KB to 2.3 KB, and a test holds them under a budget. The tusk arm's first turn fell to 3,163 tokens, 460 below the grep arm's.
+
+The first draft cost more than it saved. It listed `include`'s values as `body|edges|properties|units|paths`, and agents copied the shape: 39 of 174 queries sent `"include": body`, which isn't JSON, so Claude Code rejected the call and the agent tried again. The values are now written as JSON (`["body","edges",…]`), and none of the 130 queries below failed. Earlier runs had up to three such failures each. The first draft's runs are in [`eval/results/2026-10-16-per-turn-overhead-bare-include/`](https://github.com/germanamz/tusk/tree/main/eval/results/2026-10-16-per-turn-overhead-bare-include).
+
+The tusk arm ran on one day with one copy of the docs, once with the binary from `main` and once with the change, alongside a fresh grep arm.
+
+| `tusk_query` and read | Before | After | After against before, per question |
+| --- | --- | --- | --- |
+| Input tokens | 12,690 | 10,698 | 0.88× (0.82–0.92) |
+| Tool calls | 1 | 1 | 0 (0 to 0) |
+| Tool output | 7.0 KB | 10.1 KB | 1.33× (1.02–1.63) |
+| Time | 7.3 s | 8.6 s | 1.11× (1.01–1.37) |
+| Cost | $0.025 | $0.026 | 1.06× (0.94–1.13) |
+| Cited the right section | 100% | 100% | |
+| Judged correct | 98% | 98% | |
+
+Input tokens fell on 32 of the 40 questions, and by 12% over all 120 runs. The shorter definition also changed what agents asked for. The old `include` description said, deep in a long parenthetical, that `body` gives every semantic row its best section's text. The new one says it in a line of its own, and agents passed `include: ["body"]` on all 130 queries, against 45 of 132 before. That took the median query result from 5.7 KB to 9.3 KB. It saved some Reads (30 against 39). It also accounts for most of the eight questions that got dearer, five of them by 1.5 to 2 times. On `fresh-clone-health` the agent now reads a 20 KB result and then the file, where the control answered from a 5 KB result. A bigger result is new text for the prompt cache, written at about 12 times the price of a cached read, and the tokens saved on every turn were cached reads. So cost rose 6%, within the noise.
+
+The docs corpus has no typed notes, and 3 of the 130 queries used a filter at all, so this benchmark can't tell whether the shorter filter grammar costs anything on a vault that leans on structural queries.
+
+Against the grep arm of the same run, tusk read 0.70× the input tokens per question (0.58–0.83), less on 30 of the 40 questions, and cost 1.09× (0.93–1.28). The `main` binary, set against the same grep runs, read 0.81× (0.68–0.94). The runs are in [`eval/results/2026-10-16-per-turn-overhead/`](https://github.com/germanamz/tusk/tree/main/eval/results/2026-10-16-per-turn-overhead) (both arms) and [`eval/results/2026-10-16-per-turn-overhead-main/`](https://github.com/germanamz/tusk/tree/main/eval/results/2026-10-16-per-turn-overhead-main) (the control).
+
 ## How it was measured
 
 The harness is [`eval/agentbench`](https://raw.githubusercontent.com/germanamz/tusk/main/eval/README.md), and every run's raw record is in [`eval/results/2026-10-14-tusk-docs/`](https://github.com/germanamz/tusk/tree/main/eval/results/2026-10-14-tusk-docs).
@@ -1069,7 +1095,7 @@ The harness is [`eval/agentbench`](https://raw.githubusercontent.com/germanamz/t
 
 Claude Code runs with `--restricted` and `--strict-mcp-config`, so no user settings, other MCP servers or code-running tools reach either arm, and the harness checks every run's tool list against its arm. Each question ran 3 times per arm, 240 runs in all, in shuffled order, 4 at a time.
 
-**What's recorded.** For every run: tool calls (not counting the final structured answer), input tokens, tool output in bytes, wall time and cost as Claude Code reports it. Input tokens are everything the model read across all turns, cached or not, so they measure context size independent of caching. They include Claude Code's own system prompt and tool definitions, about 3.6k tokens per turn for the grep arm and 4.1k for the tusk arm, whose MCP tool schema and server instructions add about 500.
+**What's recorded.** For every run: tool calls (not counting the final structured answer), input tokens, tool output in bytes, wall time and cost as Claude Code reports it. Input tokens are everything the model read across all turns, cached or not, so they measure context size independent of caching. They include Claude Code's own system prompt and tool definitions, about 3.6k tokens per turn for the grep arm and 4.1k for the tusk arm, whose MCP tool schema and server instructions add about 500. Since [Per-turn overhead](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#per-turn-overhead) the tusk arm's is 3.2k.
 
 **Scoring.** An answer cites the right section when one of its citations names a target heading in the target file, or a heading nested inside it. A judge model (Claude Haiku 5.5) then compares the answer with the text of the target section and marks it correct or not. A failed run counts as a miss on both.
 
