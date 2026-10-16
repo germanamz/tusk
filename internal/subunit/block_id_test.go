@@ -102,6 +102,16 @@ func TestParse_BlockIDs(test *testing.T) {
 			want: []string{`P1 paragraph "Para." ^own`},
 		},
 		{
+			name: "a list's first item keeps its own id over the list's",
+			body: "- one ^item-1\n- two\n\n^list-1\n",
+			want: []string{`L1 list-item "one" ^item-1`, `L2 list-item "two"`},
+		},
+		{
+			name: "CRLF line endings",
+			body: "Para. ^p1\r\n\r\n- one\r\n- two\r\n\r\n^list-1\r\n",
+			want: []string{`P1 paragraph "Para." ^p1`, `L1 list-item "one" ^list-1`, `L2 list-item "two"`},
+		},
+		{
 			name: "standalone marker with nothing before it names nothing",
 			body: "^orphan\n\n# Heading\n\n^after-heading\n\n---\n\n^after-rule\n\nText.\n",
 			want: []string{`S1 section "Heading\n^after-heading\n\n^after-rule\nText."`, `S1P1 paragraph "Text."`},

@@ -512,7 +512,7 @@ func checkDanglingEdges(config Config) ([]Issue, error) {
 		return nil, nil
 	}
 
-	return findDanglingEdges(config.Nodes, config.Edges, config.Manifest.LinkCase())
+	return findDanglingEdges(config.Nodes, config.Edges, config.Manifest.LinkCase(), config.Manifest.SubUnitsEnabled())
 }
 
 // checkDerivedEdgeTypes flags a derived edge whose target node exists but whose
@@ -1645,8 +1645,10 @@ type danglingKey struct {
 // matched under linkCase; one that names no file is a dangling edge. A link
 // whose #fragment named nothing in its note resolved to the note itself, so
 // its target exists, and is reported as missing-heading, or missing-block for
-// a block reference.
-func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wikilink.Case) ([]Issue, error) {
+// a block reference. With subUnits off no note has sections or blocks for a
+// fragment to name, so such a link resting on its note is no miss and is not
+// reported.
+func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wikilink.Case, subUnits bool) ([]Issue, error) {
 	allEdges, listErr := edges.ListAll()
 
 	if listErr != nil {
@@ -1701,7 +1703,7 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 		_, targetExists := exists[edge.TargetID]
 		missedFragment := fragmentMissed(edge, exists)
 
-		if targetExists && !missedFragment {
+		if (missedFragment && !subUnits) || (targetExists && !missedFragment) {
 			continue
 		}
 

@@ -12,8 +12,9 @@ import (
 
 // RefLookup is the I/O surface ResolveRefs needs. Production wires it
 // to *index.NodeRepo; tests pass synthetic fakes. Its wikilink.Lookup half
-// resolves a wikilink value that names a file by name ([[auth-rfc]], #791) or
-// a section by heading ([[auth-rfc#Some heading]], #808).
+// resolves a wikilink value that names a file by name ([[auth-rfc]], #791), a
+// section by heading ([[auth-rfc#Some heading]], #808) or a unit by block id
+// ([[auth-rfc#^quote-1]], #819).
 type RefLookup interface {
 	wikilink.Lookup
 	FindByID(nodeID string) (nodeType string, found bool)

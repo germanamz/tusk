@@ -186,8 +186,8 @@ type Target struct {
 	ID string
 	// Candidates lists the files a name matched when it matched several.
 	Candidates []string
-	// MissingFragment reports a fragment that names no sub-unit or heading of
-	// the file, which ID then names instead.
+	// MissingFragment reports a fragment that names no sub-unit, heading or
+	// block of the file, which ID then names instead.
 	MissingFragment bool
 }
 
@@ -223,16 +223,8 @@ func ResolveTarget(target string, source Source, lookup Lookup) (Target, error) 
 		return Target{ID: fileID}, nil
 	}
 
-	subUnitExists, subUnitErr := lookup.Exists(fileID + fragment)
-
-	if subUnitErr != nil {
-		return Target{}, subUnitErr
-	}
-
-	if subUnitExists {
-		return Target{ID: fileID + fragment}, nil
-	}
-
+	// No structural address starts with `^`, so a block reference is only
+	// ever a block id.
 	if IsBlockRef(fragment) {
 		blocks, blocksErr := lookup.Blocks(fileID)
 
@@ -245,6 +237,16 @@ func ResolveTarget(target string, source Source, lookup Lookup) (Target, error) 
 		}
 
 		return Target{ID: fileID, MissingFragment: true}, nil
+	}
+
+	subUnitExists, subUnitErr := lookup.Exists(fileID + fragment)
+
+	if subUnitErr != nil {
+		return Target{}, subUnitErr
+	}
+
+	if subUnitExists {
+		return Target{ID: fileID + fragment}, nil
 	}
 
 	sections, sectionsErr := lookup.Sections(fileID)
