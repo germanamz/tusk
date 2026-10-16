@@ -111,6 +111,25 @@ const defaultTypeKey = "default_type"
 // pass succeeds.
 const linkCaseKey = "link_case"
 
+// subUnitsKey stores whether the index was built with [workspace] sub-units
+// off. Turning them off has to drop the units of every file and turning them
+// back on has to fill them, yet no file changes on disk, so the incremental
+// skip would never re-read one (#827). When the setting differs, Run forces
+// one full re-process. On, the default, stores "", so an index from before
+// the key needs no pass, while one already built with sub-units off gets the
+// pass that drops whatever a pass with them on left behind. Stamped after the
+// pass succeeds.
+const subUnitsKey = "sub_units"
+
+// subUnitsSetting renders the setting subUnitsKey records.
+func subUnitsSetting(loaded *manifest.Manifest) string {
+	if loaded.SubUnitsEnabled() {
+		return ""
+	}
+
+	return "off"
+}
+
 // nodeIDForPath derives a node id from a workspace-relative path, delegating to
 // index.NodeIDForPath — the single id rule shared with the node parse dispatch.
 // Markdown keeps its historical bare-stem id (strips ".md"); every other
@@ -187,12 +206,13 @@ type Config struct {
 	Workers int
 
 	// Manifest carries the workspace manifest. Optional; when nil the
-	// reindex pass treats sub-units as disabled regardless of any other
-	// flag. When non-nil and Manifest.SubUnitsEnabled() is true, the
+	// reindex pass neither writes nor drops sub-units. When non-nil, the
 	// per-file loop diffs sub-units into the index alongside the file
-	// row (Plan 2 Task 3). Edges and EdgeTypes still source from the
-	// dedicated Config fields for back-compat with callers that build a
-	// reindex config without a manifest (the existing reindex tests).
+	// row (Plan 2 Task 3), or drops the file's sub-units when
+	// Manifest.SubUnitsEnabled() is false. Edges and EdgeTypes still
+	// source from the dedicated Config fields for back-compat with callers
+	// that build a reindex config without a manifest (the existing reindex
+	// tests).
 	Manifest *manifest.Manifest
 
 	// Async controls whether Run drains the reindex queue before returning.
@@ -214,8 +234,10 @@ type Config struct {
 
 // RebuildConfig fills the repo-and-manifest fields a from-scratch index
 // rebuild needs: the workspace root, the node/edge/meta/file-state/embed-queue
-// repos over idx, and the manifest's declared edge types. It is the shared
-// core of the indexopen ReindexFactory used by the CLI and the MCP runtime.
+// repos over idx, the manifest's declared edge types, and the manifest itself,
+// without which the rebuild would write no sub-units and record the settings
+// it skipped as applied (#827). It is the shared core of the indexopen
+// ReindexFactory used by the CLI and the MCP runtime.
 //
 // Per-caller divergences (Workers, Logger, Chunker, Embedder, …) are NOT set
 // here: callers override the returned config's fields explicitly so the
@@ -229,6 +251,7 @@ func RebuildConfig(root string, idx *index.Index, loaded *manifest.Manifest) Con
 		Meta:       index.NewMetaRepo(idx),
 		FileStates: index.NewFileStateRepo(idx),
 		EmbedQueue: index.NewEmbedQueueRepo(idx),
+		Manifest:   loaded,
 	}
 }
 
@@ -258,9 +281,10 @@ type Report struct {
 	// loudly to say so. Nil when embedding ran or no embedder was wired.
 	EmbedDeferred error
 
-	// Sub-unit pipeline counters (Plan 2 Task 3). All zero when the
-	// workspace's `sub-units` flag is false or when Config.Manifest is
-	// nil.
+	// Sub-unit pipeline counters (Plan 2 Task 3). All zero when
+	// Config.Manifest is nil. With the workspace's `sub-units` flag false,
+	// only SubUnitsDeleted moves: it counts the rows an earlier pass with
+	// sub-units on left behind.
 	SubUnitsInserted  int // sub-unit rows freshly written across all files
 	SubUnitsDeleted   int // sub-unit rows removed across all files
 	SubUnitsReordered int // sub-unit rows whose ordinal changed
@@ -422,6 +446,24 @@ func Run(config Config) (*Report, error) {
 			config.Logger.Info("reindex: link case changed; forcing full re-process",
 				"stored", linkCaseMarker,
 				"current", linkCase,
+			)
+		}
+	}
+
+	subUnits := subUnitsSetting(config.Manifest)
+	subUnitsMarker, subUnitsMarkerErr := config.Meta.Get(subUnitsKey)
+
+	if subUnitsMarkerErr != nil {
+		return nil, fmt.Errorf("reindex: read %s: %w", subUnitsKey, subUnitsMarkerErr)
+	}
+
+	if subUnitsMarker != subUnits {
+		config.Force = true
+
+		if config.Logger != nil {
+			config.Logger.Info("reindex: sub-units setting changed; forcing full re-process",
+				"stored", subUnitsMarker,
+				"current", subUnits,
 			)
 		}
 	}
@@ -864,6 +906,10 @@ func Run(config Config) (*Report, error) {
 
 	if setErr := config.Meta.Set(linkCaseKey, linkCase); setErr != nil {
 		return nil, fmt.Errorf("reindex: record %s: %w", linkCaseKey, setErr)
+	}
+
+	if setErr := config.Meta.Set(subUnitsKey, subUnits); setErr != nil {
+		return nil, fmt.Errorf("reindex: record %s: %w", subUnitsKey, setErr)
 	}
 
 	if config.Logger != nil {

@@ -87,8 +87,9 @@ const (
 	// IssueSubUnitsDisabledDirty surfaces the back-compat hazard where
 	// the manifest opts out of sub-units (`[workspace] sub-units =
 	// false`) but the index still contains sub-unit rows from a previous
-	// run with sub-units enabled. Doctor does NOT auto-clean; the user
-	// must run `tusk reindex --force` to drop the stale rows.
+	// run with sub-units enabled. Doctor does NOT auto-clean; the next
+	// `tusk reindex` drops the stale rows, since a changed setting forces
+	// a full pass (#827).
 	IssueSubUnitsDisabledDirty = "sub-units-disabled-dirty"
 
 	// IssueGraphExpansionUnknownEdge surfaces an entry in
@@ -1071,7 +1072,7 @@ func populateSubUnitPane(config Config, report *Report) error {
 	if config.Manifest != nil && !config.Manifest.SubUnitsEnabled() && pane.Total > 0 {
 		report.Issues = append(report.Issues, Issue{
 			Kind:    IssueSubUnitsDisabledDirty,
-			Message: fmt.Sprintf("sub-units disabled but index contains %d sub-unit rows; run `tusk reindex --force` to clean up.", pane.Total),
+			Message: fmt.Sprintf("sub-units disabled but index contains %d sub-unit rows; run `tusk reindex` to drop them.", pane.Total),
 		})
 	}
 
