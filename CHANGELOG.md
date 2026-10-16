@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.9.1](https://github.com/germanamz/tusk/compare/v2.9.0...v2.9.1) (2026-10-16)
+
+
+### Bug Fixes
+
+* **reindex:** drop sub-unit rows when sub-units are turned off ([#827](https://github.com/germanamz/tusk/issues/827)) ([#829](https://github.com/germanamz/tusk/issues/829)) ([674d759](https://github.com/germanamz/tusk/commit/674d7590e35fbcda0d1674221edda4cd480abe22))
+* **reindex:** re-process every file when tusk.toml's types change ([#831](https://github.com/germanamz/tusk/issues/831)) ([#832](https://github.com/germanamz/tusk/issues/832)) ([81946e1](https://github.com/germanamz/tusk/commit/81946e19d14060c027982bf85decc73942e2b88a))
+
 ## [2.9.0](https://github.com/germanamz/tusk/compare/v2.8.1...v2.9.0) (2026-10-16)
 
 
