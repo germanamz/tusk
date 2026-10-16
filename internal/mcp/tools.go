@@ -665,23 +665,30 @@ const semanticDefaultTake = 5
 const semanticDefaultMaxUnits = 2
 
 func registerQueryTool(srv *Server) {
+	// Every reader carries this definition on every turn (#815), so it is
+	// written for a model in terse shorthand and keeps only the common filter
+	// shapes; the full grammar and result shape live in tusk_help. The
+	// min_score and include hints stay because they steer what agents do.
+	// Argument values are spelled as JSON literals: a bare body|edges list
+	// had agents send "include": body, which fails to parse as JSON and
+	// costs a retry (22% of queries in the #815 benchmark).
 	tool := mcpgo.NewTool("tusk_query",
-		mcpgo.WithDescription("Run a structural, semantic, or hybrid query — the MCP equivalent of `tusk query` (no shell needed). Filter grammar: property predicates key=value / key:value / key!=value / key<|<=|>|>=value and ranges key=lo..hi; glob patterns on path and id (path=docs/product/* for one folder, path=docs/** for the subtree; quote to match a literal *); compose with AND / OR / NOT and parentheses; edge traversal edge-type-> (outgoing) and edge-type<- (incoming), chainable multi-hop (mentions-> tagged-> type=tag); hierarchy shortcuts tree=id / parent=id / root=id; recency modified-since:7d (or an ISO date); names-path=<path|glob> for the pages that name a workspace path in inline code, a link or a paths-only frontmatter value (or a directory above it), when an edge type sets paths = true; names-path:<edge-type>=<path> for one edge type's refs. Add semantic=\"...\" to rank by cosine similarity. Results default to 50 rows (structural) or 5 (semantic) — raise take for more. Use include / fields to expand or project rows in one round-trip. Full grammar: tusk_help(topic: \"filter\")."),
-		mcpgo.WithString("filter", mcpgo.Required(), mcpgo.Description("Filter expression, e.g. 'type=ticket AND priority>=2 AND modified-since:7d'. Empty string matches everything (useful as a semantic pre-filter). See the tool description for the grammar.")),
-		mcpgo.WithString("sort", mcpgo.Description("Sort spec (e.g. '+priority,-due')")),
-		mcpgo.WithNumber("take", mcpgo.Description("Limit results to N rows (default 50 structural, 5 semantic)")),
-		mcpgo.WithNumber("skip", mcpgo.Description("Skip the first M rows (requires take)")),
-		mcpgo.WithString("semantic", mcpgo.Description("Rank by cosine similarity to this query string")),
-		mcpgo.WithNumber("min_score", mcpgo.Description("Minimum similarity score to include in semantic results (default 0.5). Lower this when an initial query misses. When graph expansion is active, this filters the blended final score, not the bare cosine.")),
-		mcpgo.WithArray("include", mcpgo.Description("Expand rows: body|edges|properties|units|paths (units = each file's sub-unit outline on structural queries; semantic rows always carry matched_units and the top row's best unit carries text, its passage, with text_lines; semantic body = that text on every row; paths = the workspace paths each page names, with lines, section and a live exists check, narrowed to the ones a names-path filter matched)"), mcpgo.Items(map[string]any{"type": "string"})),
-		mcpgo.WithNumber("max_units", mcpgo.Description("Cap matched_units per file (default 2 on semantic rows; the include=units outline is uncapped unless set). Each unit carries lines [start, end] and, for sections, its heading; units_total reports the count before the cap.")),
-		mcpgo.WithArray("fields", mcpgo.Description("Project rows to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
-		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
-		mcpgo.WithBoolean("graph_expand", mcpgo.Description("Override the workspace's graph-expansion enabled flag for this call (tri-state: omit to inherit, true to force-on, false to force-off).")),
-		mcpgo.WithNumber("hops", mcpgo.Description("Graph-expansion BFS depth (1 or 2). Omit to inherit the manifest's [query.graph-expansion] hops.")),
-		mcpgo.WithNumber("graph_weight", mcpgo.Description("Per-hop weight applied to expanded candidates ([0,1]). Omit to inherit the manifest setting.")),
-		mcpgo.WithArray("graph_edge_types", mcpgo.Description("Edge-type names used by the graph expander. Omit to inherit the manifest setting."), mcpgo.Items(map[string]any{"type": "string"})),
-		mcpgo.WithBoolean("explain", mcpgo.Description("Include a per-row score-contribution trace (cosine_score/lexical_score/graph_score/final_score/distance) in the response when graph expansion or [query] lexical-weight is active.")),
+		mcpgo.WithDescription(`Structural filter, semantic kNN ranking, or both. Filter DSL: type=ticket AND priority>=2; status!=done OR NOT owner=me; path=docs/** (glob); blocks-> type=epic (out-edge; blocks<- in); tree=<id>; modified-since:7d. Semantic: top-5 files, each with its best sections (heading, line range); the top hit's best section includes its text. Structural: top-50. Grammar: tusk_help(topic:"filter"); output: tusk_help(topic:"query").`),
+		mcpgo.WithString("filter", mcpgo.Required(), mcpgo.Description(`Filter DSL; "" = all.`)),
+		mcpgo.WithString("sort", mcpgo.Description(`e.g. "+priority,-due"`)),
+		mcpgo.WithNumber("take", mcpgo.Description("Limit (default 50; semantic 5).")),
+		mcpgo.WithNumber("skip", mcpgo.Description("Offset (needs take).")),
+		mcpgo.WithString("semantic", mcpgo.Description("Embedding query text.")),
+		mcpgo.WithNumber("min_score", mcpgo.Description("Final-score floor (default 0.5); lower on a miss.")),
+		mcpgo.WithArray("include", mcpgo.Description(`Subset of ["body","edges","properties","units","paths"]. Semantic "body" = every row's best-section text.`), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithNumber("max_units", mcpgo.Description("Units per row (semantic default 2).")),
+		mcpgo.WithArray("fields", mcpgo.Description("Field projection."), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithString("format", mcpgo.Description(`"json" (default) or "compact".`)),
+		mcpgo.WithBoolean("graph_expand", mcpgo.Description("Graph expansion on/off (default: manifest).")),
+		mcpgo.WithNumber("hops", mcpgo.Description("Graph hops, 1|2.")),
+		mcpgo.WithNumber("graph_weight", mcpgo.Description("Per-hop weight, 0-1.")),
+		mcpgo.WithArray("graph_edge_types", mcpgo.Description("Edge types to expand along."), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithBoolean("explain", mcpgo.Description("Per-row score breakdown.")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -1449,7 +1456,7 @@ func registerReindexTool(srv *Server) {
 // write-lock window is only the brief structural swap.
 func registerResetTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_reset",
-		mcpgo.WithDescription("Drop the local index and rebuild it from source files. DESTRUCTIVE: deletes .tusk/index.db (and WAL/SHM) and the embed queue, then rebuilds from disk — every node is re-embedded. Markdown files are the source of truth, so no content is lost. Requires confirm=true."),
+		mcpgo.WithDescription("Drop the local index and rebuild it from source files, for an index that seems wedged or corrupt. DESTRUCTIVE: deletes .tusk/index.db (and WAL/SHM) and the embed queue, then rebuilds from disk — every node is re-embedded. Markdown files are the source of truth, so no content is lost. Requires confirm=true."),
 		mcpgo.WithBoolean("confirm", mcpgo.Description("Must be true to proceed.")),
 	)
 
@@ -1787,7 +1794,7 @@ func writeNodeRowsCompact(out *bytes.Buffer, rows []query.ListRow) error {
 // reloadToolHandler so unit tests can call it directly.
 func registerReloadTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_reload",
-		mcpgo.WithDescription("Hot reload the manifest: re-read tusk.toml, validate, swap the in-memory schema and behavior engine, bump .tusk/manifest-epoch to notify siblings, and kick a reindex pass. Returns the manifest-epoch, a diff (added/removed node-types, edge-types, behaviors), and the reindex report."),
+		mcpgo.WithDescription("Hot reload the manifest: re-read tusk.toml, validate, swap the in-memory schema and behavior engine, bump .tusk/manifest-epoch to notify siblings, and kick a reindex pass. Call it after editing tusk.toml: tusk_reindex re-reads content, not the schema, so a write rejected as \"not declared in manifest\" right after an edit means the schema needs this reload. Returns the manifest-epoch, a diff (added/removed node-types, edge-types, behaviors), and the reindex report."),
 		mcpgo.WithBoolean("no_reindex", mcpgo.Description("Skip the reindex pass (default false)")),
 		mcpgo.WithBoolean("no_embed", mcpgo.Description("Skip the embedding phase of the reindex (default false)")),
 	)

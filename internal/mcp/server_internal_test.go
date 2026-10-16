@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -76,11 +77,9 @@ func TestServerInstructions_NameTheVault(test *testing.T) {
 	instructions := serverInstructions(runtime)
 
 	for _, want := range []string{
-		"running over the vault at /vaults/notes.",
-		"markdown and HTML files under /vaults/notes\n",
-		"the schema declared in /vaults/notes/tusk.toml\n",
-		"the SQLite index at /vaults/notes/.tusk/index.db\n",
-		"edit /vaults/notes/tusk.toml in your editor",
+		"vault at /vaults/notes (",
+		"schema /vaults/notes/tusk.toml,",
+		"SQLite /vaults/notes/.tusk/index.db)",
 	} {
 		if !strings.Contains(instructions, want) {
 			test.Errorf("instructions missing %q:\n%s", want, instructions)
@@ -89,5 +88,41 @@ func TestServerInstructions_NameTheVault(test *testing.T) {
 
 	if strings.Contains(instructions, "./") || strings.Contains(instructions, "%!") {
 		test.Errorf("instructions still name ./ or carry a format error:\n%s", instructions)
+	}
+}
+
+// TestPerTurnBudget pins #815: every turn of an agent connected to tusk mcp
+// carries the server instructions and the definitions of the tools it may
+// call, and tusk_query is the one every reader has. Raise a budget on
+// purpose, with a benchmark run behind it, not as a side effect of one more
+// sentence.
+func TestPerTurnBudget(test *testing.T) {
+	const instructionsBudget = 360
+	const queryToolBudget = 1850
+
+	runtime := &Runtime{
+		Root:         "/vaults/notes",
+		ManifestPath: "/vaults/notes/tusk.toml",
+		IndexPath:    "/vaults/notes/.tusk/index.db",
+	}
+
+	if size := len(serverInstructions(runtime)); size > instructionsBudget {
+		test.Errorf("server instructions are %d bytes, over the %d budget", size, instructionsBudget)
+	}
+
+	queryTool := NewServer(runtime).mcp.GetTool("tusk_query")
+
+	if queryTool == nil {
+		test.Fatal("tusk_query is not registered")
+	}
+
+	schema, marshalErr := json.Marshal(queryTool.Tool.InputSchema)
+
+	if marshalErr != nil {
+		test.Fatalf("marshal tusk_query schema: %v", marshalErr)
+	}
+
+	if size := len(queryTool.Tool.Description) + len(schema); size > queryToolBudget {
+		test.Errorf("tusk_query description and schema are %d bytes, over the %d budget", size, queryToolBudget)
 	}
 }

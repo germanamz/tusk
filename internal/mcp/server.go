@@ -21,44 +21,16 @@ import (
 )
 
 // serverInstructionsTemplate is sent back in the MCP initialize response, with
-// the workspace root filled in. Clients surface this to the model at session
-// start, so it carries the load of telling agents that Tusk is local (not a
-// remote service) and where the vault is — the server may run outside it under
-// --workspace, so "./" would point the agent at the wrong folder — that these
-// tools, not the `tusk` shell binary, are the interface to reach for, and
-// pointing at the tusk_help tool for everything else. Keep it short — the deep
-// content lives in the tusk_help topics.
-const serverInstructionsTemplate = `Tusk is a LOCAL workspace indexer running over the vault at %[1]s.
-There is no remote service. Every tool operates on:
-  - markdown and HTML files under %[1]s
-  - the schema declared in %[2]s
-  - the SQLite index at %[3]s
-
-These tusk_* tools are the interface for agents — prefer them over the "tusk"
-shell binary (it may also be on PATH). They run in this already-warm process
-with the index open and return structured results; each "tusk ..." shell call
-cold-starts a process and reopens the database. Reach for the shell only for
-setup that has no tool yet: "tusk init" and "tusk pack add".
-
-Everyday work maps to tools, not shell verbs:
-  - read:   tusk_query, tusk_node_get, tusk_node_render, tusk_node_list,
-            tusk_edge_list, tusk_status, tusk_context
-  - write:  tusk_node_create, tusk_node_modify, tusk_node_move,
-            tusk_node_delete, tusk_edge_add, tusk_edge_remove
-  - upkeep: tusk_reindex, tusk_doctor, tusk_reload, tusk_reset
-
-To declare new node-types or edge-types, edit %[2]s in your editor (not
-the shell), then call tusk_reload to validate and hot-swap the schema (it also
-kicks a reindex and converges any sibling daemons). A write rejected with "not
-declared in manifest" right after editing tusk.toml means the daemon's cached
-schema is stale — call tusk_reload, then retry. tusk_reindex alone re-reads
-content, not the in-memory schema.
-
-If the index seems wedged or corrupt, call tusk_reset(confirm: true) to drop and
-rebuild it from your files.
-
-Call tusk_help() for an overview + topic index, or tusk_help(topic: "<name>")
-for deep dives on: workflow, node-types, edge-types, manifest, filter, query, packs.`
+// the workspace root filled in. Clients put it in the model's context on every
+// turn, for every agent, readers included (#815), so it holds only what all of
+// them need: Tusk is local (not a remote service), where the vault is — the
+// server may run outside it under --workspace, so "./" would point the agent
+// at the wrong folder — that these tools beat the `tusk` shell binary, and
+// where tusk_help goes deeper. Guidance for writers lives with the tools it
+// concerns (tusk_reload, tusk_reset) and in the workflow topic. It is written
+// for a model, not a person, so terse shorthand beats prose.
+const serverInstructionsTemplate = `Tusk: LOCAL index over the markdown/HTML vault at %[1]s (schema %[2]s, SQLite %[3]s). No remote service.
+Prefer these tusk_* tools over the tusk CLI: warm process, index open. Docs: tusk_help(), or tusk_help(topic) for workflow, node-types, edge-types, manifest, filter, query, packs.`
 
 // serverInstructions renders serverInstructionsTemplate for runtime's vault.
 func serverInstructions(runtime *Runtime) string {
