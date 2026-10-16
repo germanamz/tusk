@@ -199,7 +199,7 @@ A prompt you can paste into your agent:
 
 **grep and ripgrep** need no setup and are exact when you know the words. Tusk adds search by meaning, a schema, and links you can query. It costs an index, and Ollama for semantic search.
 
-**Obsidian** is a good editor for the same kind of vault, and the two can share a folder: Obsidian for writing, tusk for agents and checks. Tusk resolves the links Obsidian writes, short names and heading links included, and `tusk node move` keeps them pointing where they did.
+**Obsidian** is a good editor for the same kind of vault, and the two can share a folder: Obsidian for writing, tusk for agents and checks. Tusk resolves the links Obsidian writes, short names, heading links and block references included, and `tusk node move` keeps them pointing where they did.
 
 **A vector database or RAG pipeline** scales further, with more embedding models and hosted options. Tusk's index is derived from files you can read and review, and structure (types, edges, rules) is queryable in the same call as similarity. Tusk only talks to Ollama today.
 

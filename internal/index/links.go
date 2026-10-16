@@ -110,6 +110,11 @@ func (files FileNames) Sections(fileID string) ([]wikilink.Section, error) {
 	return loadSections(files.repo.db, fileID)
 }
 
+// Blocks implements wikilink.Anchors.
+func (files FileNames) Blocks(fileID string) (map[string]string, error) {
+	return loadBlocks(files.repo.db, fileID)
+}
+
 // nodeExists reports whether a node row has id.
 func nodeExists(db *sql.DB, id string) (bool, error) {
 	var count int
@@ -154,19 +159,62 @@ func loadSections(db *sql.DB, fileID string) ([]wikilink.Section, error) {
 	return sections, rows.Err()
 }
 
+// loadBlocks maps the block key of every sub-unit of fileID a `^block-id`
+// marker names (wikilink.BlockKey, stored in name_key) to the sub-unit's id,
+// keeping the first in document order when several share an id.
+func loadBlocks(db *sql.DB, fileID string) (map[string]string, error) {
+	lo, hi := subUnitIDRange(fileID)
+
+	rows, queryErr := db.Query(
+		`SELECT id, name_key FROM nodes
+		 WHERE id >= ? AND id < ? AND kind = 'subunit' AND substr(name_key, 1, 1) = '^'
+		 ORDER BY ordinal`,
+		lo, hi,
+	)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("index: blocks of %s: %w", fileID, queryErr)
+	}
+
+	defer rows.Close()
+
+	blocks := map[string]string{}
+
+	for rows.Next() {
+		var id, key string
+
+		if scanErr := rows.Scan(&id, &key); scanErr != nil {
+			return nil, fmt.Errorf("index: scan block of %s: %w", fileID, scanErr)
+		}
+
+		if _, taken := blocks[key]; !taken {
+			blocks[key] = id
+		}
+	}
+
+	return blocks, rows.Err()
+}
+
 // passLookup is the wikilink.Lookup one ResolveLinks pass resolves against:
-// files from the names snapshot, sub-units and sections from the index, each
-// read once per pass however many links name them.
+// files from the names snapshot, sub-units, sections and blocks from the
+// index, each read once per pass however many links name them.
 type passLookup struct {
 	*wikilink.Names
 
 	db       *sql.DB
 	subUnits map[string]bool
 	sections map[string][]wikilink.Section
+	blocks   map[string]map[string]string
 }
 
 func newPassLookup(db *sql.DB, names *wikilink.Names) *passLookup {
-	return &passLookup{Names: names, db: db, subUnits: map[string]bool{}, sections: map[string][]wikilink.Section{}}
+	return &passLookup{
+		Names:    names,
+		db:       db,
+		subUnits: map[string]bool{},
+		sections: map[string][]wikilink.Section{},
+		blocks:   map[string]map[string]string{},
+	}
 }
 
 // Exists implements wikilink.Anchors: the snapshot is the authority on files.
@@ -209,6 +257,23 @@ func (lookup *passLookup) Sections(fileID string) ([]wikilink.Section, error) {
 	return sections, nil
 }
 
+// Blocks implements wikilink.Anchors.
+func (lookup *passLookup) Blocks(fileID string) (map[string]string, error) {
+	if blocks, cached := lookup.blocks[fileID]; cached {
+		return blocks, nil
+	}
+
+	blocks, loadErr := loadBlocks(lookup.db, fileID)
+
+	if loadErr != nil {
+		return nil, loadErr
+	}
+
+	lookup.blocks[fileID] = blocks
+
+	return blocks, nil
+}
+
 // linkEdge is one looked-up edge row as ResolveLinks reads it.
 type linkEdge struct {
 	rowID      int64
@@ -223,14 +288,14 @@ type linkEdge struct {
 // ResolveLinks points every looked-up edge (link IS NOT NULL) at the node its
 // link names (wikilink.ResolveTarget): the file a name or path names, with
 // names matched in names, then the sub-unit its #fragment names there, by
-// structural address or by heading (#808). A link that names no file, or
-// several, keeps its own text as the target, so its edge dangles and doctor
-// tells the two apart. A fragment that names nothing in an existing file
-// leaves the edge on the file. Run it after anything that writes such edges
-// or changes the set of files or their headings: it is the one place a link
-// is looked up, so a vault indexed in any order, or a file added, removed,
-// renamed or edited out of band, converges in one pass without re-parsing any
-// file.
+// structural address, by heading (#808) or by block id (#819). A link that
+// names no file, or several, keeps its own text as the target, so its edge
+// dangles and doctor tells the two apart. A fragment that names nothing in an
+// existing file leaves the edge on the file. Run it after anything that
+// writes such edges or changes the set of files, their headings or their
+// block ids: it is the one place a link is looked up, so a vault indexed in
+// any order, or a file added, removed, renamed or edited out of band,
+// converges in one pass without re-parsing any file.
 //
 // A re-pointed edge that duplicates an edge its source already has (the same
 // note linked by name and by path) is deleted rather than kept twice, except

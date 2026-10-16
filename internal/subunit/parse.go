@@ -36,6 +36,12 @@ var markdownParser = goldmark.New(
 //
 // Every unit carries its byte span in source (StartOffset/EndOffset);
 // AssignLines turns spans into file line numbers.
+//
+// An Obsidian `^block-id` marker names a unit for block references (#819):
+// one ending a paragraph, list item or quote names that unit and is cut from
+// its text, and a paragraph that is nothing but a marker names the first unit
+// of the block before it (a list's first item, a table's first cell) and is no
+// unit itself. A marker after a heading, a rule or nothing names nothing.
 func Parse(source []byte) ([]Unit, error) {
 	source, crlfAt := normalizeLineEndings(source)
 	doc := markdownParser.Parser().Parse(text.NewReader(source))
@@ -59,11 +65,31 @@ func Parse(source []byte) ([]Unit, error) {
 		return unit.Ordinal
 	}
 
+	// previous is the index of the first unit the block before child emitted,
+	// which a marker on a line of its own names; -1 when there is none.
+	previous := -1
+
 	// Walk only top-level block children of the document; we
 	// dispatch on kind ourselves so we can flatten blockquotes,
 	// skip table containers, etc.
 	for child := doc.FirstChild(); child != nil; child = child.NextSibling() {
+		if id := finder.standaloneBlockID(child); id != "" {
+			if previous >= 0 && units[previous].BlockID == "" {
+				units[previous].BlockID = id
+			}
+
+			previous = -1
+
+			continue
+		}
+
+		first := len(units)
 		walkBlock(finder, child, ctx, &units, emit)
+		previous = -1
+
+		if _, isHeading := child.(*ast.Heading); !isHeading && len(units) > first {
+			previous = first
+		}
 	}
 
 	units = DisambiguateFallbackIDs(units)
@@ -121,7 +147,7 @@ func walkBlock(
 		ctx.Push(typed.Level, addr)
 
 	case *ast.Paragraph:
-		emit(spannedBlock(finder, typed, Unit{
+		emit(identifiedBlock(finder, typed, Unit{
 			Kind:       KindParagraph,
 			Text:       normalizedText(source, typed),
 			Properties: map[string]any{},
@@ -136,7 +162,7 @@ func walkBlock(
 		if strings.TrimSpace(txt) == "" {
 			return
 		}
-		emit(spannedBlock(finder, typed, Unit{
+		emit(identifiedBlock(finder, typed, Unit{
 			Kind:       KindParagraph,
 			Text:       txt,
 			Properties: map[string]any{},
@@ -173,7 +199,7 @@ func walkBlock(
 	case *ast.Blockquote:
 		// Flatten the entire blockquote (including any nested
 		// blockquotes) into a single unit per spec §5.1.
-		emit(spannedBlock(finder, typed, Unit{
+		emit(identifiedBlock(finder, typed, Unit{
 			Kind:       KindBlockquote,
 			Text:       flattenBlockquoteText(source, typed),
 			Properties: map[string]any{},
@@ -207,7 +233,8 @@ func walkListItem(
 	emit func(Unit) int,
 ) {
 	checked, hasCheckbox := extractCheckbox(item)
-	itemText := extractListItemText(finder.source, item)
+	start, end := item.Pos(), listItemEnd(finder, item)
+	itemText, blockID := finder.cutBlockID(extractListItemText(finder.source, item), start, end)
 
 	// A bare bullet ("- ") is pure authoring scaffolding: no queryable or
 	// embeddable content. Emitting a node for it would embed an empty payload
@@ -226,8 +253,9 @@ func walkListItem(
 			Kind:       KindListItem,
 			Text:       itemText,
 			Properties: props,
+			BlockID:    blockID,
 		}
-		finder.span(&listItem, item.Pos(), listItemEnd(finder, item))
+		finder.span(&listItem, start, end)
 		// The span can run over a sub-list nested between two of the item's
 		// paragraphs; that sub-list is a unit of its own, so the item links
 		// only from the blocks its text comes from.

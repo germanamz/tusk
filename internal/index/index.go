@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 	content_hash    TEXT NULL,                  -- sha256 of embed payload (leaves) / heading (sections); NULL for files
 	start_line      INTEGER NULL,               -- first file line a sub-unit covers (1-based); NULL for files and HTML sub-units
 	end_line        INTEGER NULL,               -- last file line a sub-unit covers (inclusive); NULL like start_line
-	name_key        TEXT NULL,                  -- what a wikilink matches the row by: a file's wikilink.NameKey, a section's wikilink.HeadingKey; NULL for other sub-units
+	name_key        TEXT NULL,                  -- what a wikilink matches the row by: a file's wikilink.NameKey, a section's wikilink.HeadingKey, a ^block-id unit's wikilink.BlockKey; NULL for other sub-units
 	kind            TEXT NOT NULL,              -- row-class: 'file' | 'subunit'
 	source          TEXT NULL,                  -- namespace identifier; NULL = user
 	CHECK (

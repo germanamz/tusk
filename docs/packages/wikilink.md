@@ -22,6 +22,7 @@ Finds `[[wikilinks]]` in markdown text and resolves their targets to node ids. I
 - `ResolveTarget(target, source, lookup) (Target, error)` — the whole lookup: the file the path part names (the linking file itself for `[[#Heading]]`), checked to exist, then the sub-unit the fragment names in it. `Target.MissingFragment` reports a fragment that named nothing, in which case `Target.ID` is the file. `lookup` is a `Lookup`, a `Files` that also answers `Anchors` (`Exists`, `Sections`); `index.FileNames` is one, and `index.ResolveLinks` builds a cached one per pass.
 - `HeadingKey(text)`, `MatchHeading(chain, sections)`, `Section` — the heading match: the folded key a heading is compared on (what `nodes.name_key` stores for a section row), and the walk that finds a heading or a `Parent#Child` chain among a file's sections.
 - `NeedsLookup(target)`, `IsBlockRef(fragment)` — whether an edge must keep a link's text to resolve it (a name, or any fragment), and whether a fragment is an Obsidian block reference (`#^id`).
+- `BlockKey(id)` — the key a block id is compared on: `^` and the id in lower case, what `nodes.name_key` stores for a sub-unit a `^block-id` marker names. No heading key starts with `^`, so the two never meet.
 - `Names` (`NewNames`, `Add`, `Remove`, `Clone`, `Path`, `ResolveName`) — an in-memory index of file nodes by name, which reindex and doctor load once per pass and a move compares before and after.
 - `FileName(relPath)`, `NameKey(name)`, `MatchName(...)` — a file's name (its base name without the extension), its case-folded key (what `nodes.name_key` stores for a file row), and the match decision both `Files` implementations share.
 - `Case` / `ParseCase` — the `[workspace] link-case` setting: `insensitive` (the default) or `sensitive`.
@@ -34,7 +35,9 @@ A target names its note in one of three forms, the three Obsidian's link format 
 
 A `#fragment` is cut off before the file is resolved and then looked up in that file (#808). A structural address (`#S1.2`, `#S1P3`) that the file has wins, so every link that resolved before heading lookup existed resolves the same way. Otherwise the fragment is heading text, Obsidian's heading link: it is folded by `HeadingKey` (letters and digits kept in lower case, everything else a word break) and matched against the keys of the file's sections. `Foo: Bar`, `foo bar` and the GitHub-style `foo-bar` are one key. A chain, `#Parent#Child`, looks for each heading below the one matched before it, at any depth, and a heading several sections share resolves to the first in document order, as in Obsidian.
 
-A fragment that names nothing in an existing file resolves to the file, with `MissingFragment` set, so the graph keeps the link to the note and doctor reports the miss as `missing-heading`. Block references (`#^block-id`) are not matched yet and always resolve to the file.
+A block reference, `#^block-id`, is Obsidian's link to the paragraph, list item or block a `^block-id` marker names (#819). It is matched by `BlockKey` against the ids `Anchors.Blocks` lists for the file, so it finds the marker in any case, and the first unit in document order wins an id several share. A block reference is never read as heading text, nor heading text as a block.
+
+A fragment that names nothing in an existing file resolves to the file, with `MissingFragment` set, so the graph keeps the link to the note and doctor reports the miss as `missing-heading`, or `missing-block` for a block reference.
 
 ## When lookups happen
 

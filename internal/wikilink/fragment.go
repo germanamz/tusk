@@ -6,7 +6,7 @@ import (
 )
 
 // A target's #fragment names a sub-unit of the file its path part names
-// (#808), in one of three forms:
+// (#808), in one of four forms:
 //
 //   - a structural address, `[[auth-rfc#S1.2]]`: the sub-unit id itself. It
 //     wins whenever the file has that sub-unit, so a link that resolved before
@@ -15,11 +15,13 @@ import (
 //     matched against the file's section headings by HeadingKey.
 //   - a heading chain, `[[auth-rfc#Parent#Child]]`: each heading is looked for
 //     inside the one before it.
+//   - a block reference, `[[auth-rfc#^block-id]]`: Obsidian's link to the
+//     paragraph, list item or block a `^block-id` marker names, matched by
+//     BlockKey (#819).
 //
 // An empty path part, `[[#Some heading]]`, names the linking file itself. A
 // fragment that names nothing in an existing file leaves the link on the file
-// and reports the fragment missing, which doctor surfaces. Block references
-// (`#^block-id`) are not matched yet: they always fall back to the file.
+// and reports the fragment missing, which doctor surfaces.
 
 // HeadingKey folds heading text for comparison, the way Obsidian matches a
 // heading link: letters and digits are kept in lower case, every other rune
@@ -53,6 +55,14 @@ func HeadingKey(text string) string {
 // block reference, `#^block-id`.
 func IsBlockRef(fragment string) bool {
 	return strings.HasPrefix(fragment, "#^")
+}
+
+// BlockKey is the key a block id is compared by: the id in lower case behind
+// a `^`, so a block reference matches whatever case either side is written
+// in, as a heading link does. It is what nodes.name_key stores for a sub-unit
+// a `^block-id` marker names, and no HeadingKey can start with `^`.
+func BlockKey(id string) string {
+	return "^" + strings.ToLower(id)
 }
 
 // NeedsLookup reports whether the node target names can only be found by
@@ -148,6 +158,9 @@ type Anchors interface {
 	Exists(id string) (bool, error)
 	// Sections returns fileID's sections in document order.
 	Sections(fileID string) ([]Section, error)
+	// Blocks maps the BlockKey of each block id in fileID to the sub-unit it
+	// names, the first in document order when several units share an id.
+	Blocks(fileID string) (map[string]string, error)
 }
 
 // Lookup is everything ResolveTarget consults: file names and the anchors
@@ -221,6 +234,16 @@ func ResolveTarget(target string, source Source, lookup Lookup) (Target, error) 
 	}
 
 	if IsBlockRef(fragment) {
+		blocks, blocksErr := lookup.Blocks(fileID)
+
+		if blocksErr != nil {
+			return Target{}, blocksErr
+		}
+
+		if blockID, found := blocks[BlockKey(fragment[2:])]; found {
+			return Target{ID: blockID}, nil
+		}
+
 		return Target{ID: fileID, MissingFragment: true}, nil
 	}
 

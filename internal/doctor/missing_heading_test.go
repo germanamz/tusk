@@ -11,8 +11,8 @@ import (
 // A heading link whose heading is gone lands on its note, or waits at its
 // fragment when the source links the note already; both are missing-heading
 // warnings, not dangling edges. A resolved section, a structural address and
-// a block reference (parked here) are not reported, and a heading link into a
-// missing note is still a dangling edge (#808).
+// a block reference (parked here, a missing-block) are not reported, and a
+// heading link into a missing note is still a dangling edge (#808).
 func TestRun_MissingHeadingWarnsForAHeadingLinkThatMissed(test *testing.T) {
 	fixture := newDoctorFixture(test)
 

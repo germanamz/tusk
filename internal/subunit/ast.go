@@ -117,6 +117,12 @@ type Unit struct {
 	// other kind. Its wikilink.HeadingKey is stored as the row's name_key,
 	// which a heading link ([[note#Some heading]]) is matched on (#808).
 	Heading string
+	// BlockID is the id an Obsidian `^block-id` marker gives the unit, as
+	// written: one ending a paragraph, list item or quote, or one on a line of
+	// its own after the block (see Parse). Its wikilink.BlockKey is stored as
+	// the row's name_key, which a block reference ([[note#^block-id]]) is
+	// matched on (#819). Empty when no marker names the unit.
+	BlockID string
 }
 
 // EdgeSpec is a pure-data description of an outbound edge from a

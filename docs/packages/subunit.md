@@ -14,7 +14,7 @@ Parses a markdown file body into sub-document units (sections, paragraphs, list 
 - `Parse(source []byte) ([]Unit, error)` — goldmark-backed walk producing a deterministic, depth-first `[]Unit`. Each unit carries its `Address`, `ContentHash`, `ParentAddress`, `Ordinal`, kind-specific `Properties`, the synthesized `EmbedPayload`, and its byte span in `source` (`StartOffset` / `EndOffset`).
 - `AssignLines(units, file, bodyOffset, scheme)` — turns each unit's byte span into `StartLine` / `EndLine`, counted over the whole file under an `internal/linenum` scheme. `bodyOffset` is where the parsed body starts in the file (`node.Node.BodyOffset`), so frontmatter lines count.
 - `FirstHeading(source []byte) string` — the title of the first top-level level-one heading (ATX or setext), cut the way a section title is; `""` when there is none. `node.ParseFileAs` titles a file adopted under the workspace default type with it (#790).
-- `Unit` — one sub-document node. `Address` is the id suffix; `ContentHash` is the embed-payload fingerprint; `Hash` is the fallback id for kinds with no address rule.
+- `Unit` — one sub-document node. `Address` is the id suffix; `ContentHash` is the embed-payload fingerprint; `Hash` is the fallback id for kinds with no address rule; `BlockID` is the id an Obsidian `^block-id` marker gives the unit (see Block ids).
 - `Sync.ApplyFile(ctx, fileRow, units)` — diffs the parsed units against existing rows **by address**, inserts/deletes/updates rows, rewrites `contains` edges, rewrites the outbound wikilink edges of every unit whose links differ from the stored ones, and enqueues embeds for new or content-changed leaves (sections are never enqueued). The reindex worker calls it for every page it re-parses, and `node.Service` calls it after `Create` and `Modify`, whose lease writes make the next reindex skip the page (#782).
 - `DeriveEdges` — one edge per `Unit.Links` target per wikilink edge type. The markdown walker fills `Links` from the unit's byte span in the source with code blanked (`wikilink.MaskCodeIn`), so a link inside a code span or code block never becomes an edge (#788). A list item reads only its own paragraphs, not a sub-list nested between them. The HTML walker fills `Links` from the unit's text. Both go through [`internal/wikilink`](wikilink.md), the scanner the file-level edges use too.
 
@@ -29,6 +29,15 @@ A sub-unit row id is `<fileID>#<address>`.
 - **Fallback to hash:** a kind with no registered address rule falls back to a 12-hex content hash; a defensive pass disambiguates any colliding fallback ids with `-N`. Structural addresses start with an uppercase letter (`S/P/B/Q/L/T`); hash fallbacks are lowercase hex, so the two never collide on the first character.
 
 Examples: `notes/standup#S1.2P3`, `notes/standup#S1.1T1R2C0`, `notes/note#P1`.
+
+## Block ids
+
+An Obsidian block reference, `[[note#^quote-1]]`, links to the unit a `^quote-1` marker names (#819). Ids are Latin letters, digits and dashes. `Parse` reads markers from the source with code blanked, so a marker inside code names nothing, and sets `Unit.BlockID`:
+
+- A marker ending a paragraph, list item or quote, after a space or alone on the block's last line (`A quote worth keeping. ^quote-1`), names that unit and is cut from its text. The embed payload, title and `content_hash` are the text's without it, so adding or renaming a marker costs no vector. A marker that is all of a unit's text names nothing and stays.
+- A top-level paragraph that is nothing but a marker, Obsidian's form for a list, quote, table or code block, names the first unit of the block before it (a list's first item, a table's header cell) and is not a unit itself. One after a heading, a rule or nothing names nothing and is dropped. A unit keeps the id it ends with over one on the line after it.
+
+Each such row's `name_key` holds `wikilink.BlockKey` of the id (`^` and the id in lower case), which `index.ResolveLinks` matches. A section's `name_key` holds its heading key, so a block reference never matches a section.
 
 ## Stability contract
 
@@ -58,7 +67,7 @@ Each sub-unit row stores `content_hash` = sha256 of the **embed payload** (for l
 
 - address only in the new set → insert the row; enqueue an embed (leaves only).
 - address in both, `content_hash` changed → update the row; re-enqueue the embed (leaves only).
-- address in both, only ordinal, properties, line range or heading key changed → update the row; the payload is byte-identical, so the vector still holds and nothing is re-enqueued. An edit above a passage shifts its lines this way, and rows written before line ranges existed (NULL lines) fill this way.
+- address in both, only ordinal, properties, line range or heading or block key changed → update the row; the payload is byte-identical, so the vector still holds and nothing is re-enqueued. An edit above a passage shifts its lines this way, and rows written before line ranges existed (NULL lines) fill this way.
 - address in both, unchanged → leave the row untouched.
 - address only in the old set → delete the row (its edges and embedding mapping cascade away).
 

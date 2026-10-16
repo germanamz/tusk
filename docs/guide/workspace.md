@@ -63,7 +63,13 @@ Paths always match exactly.
 
 A `#` after the note points the link at one of its sections. Write the heading's text, as Obsidian does: `[[auth-rfc#Open questions]]` links to the `## Open questions` section of `auth-rfc`. Case, punctuation and spacing don't matter, so `[[auth-rfc#open-questions]]` finds `## Open Questions:` too. When several headings share the text, the link goes to the first one in the note. To pick another, name the heading above it as well: `[[auth-rfc#Phase 2#Open questions]]` finds the `Open questions` inside `Phase 2`, however deep. `[[#Open questions]]`, with no note, links to a heading of the note it is written in. A structural address such as `[[auth-rfc#S1.2]]` still names that sub-unit, and wins over a heading with the same text.
 
-Heading links follow the headings. Rename, add or reorder headings in a note, and every link into it finds its heading again on the next reindex, without the linking notes being re-read. When the heading is gone, the link points at the note itself, which still exists, and `tusk doctor` reports a `missing-heading` warning naming the link. A block reference (`[[auth-rfc#^block-id]]`) points at the note for now.
+Heading links follow the headings. Rename, add or reorder headings in a note, and every link into it finds its heading again on the next reindex, without the linking notes being re-read. When the heading is gone, the link points at the note itself, which still exists, and `tusk doctor` reports a `missing-heading` warning naming the link.
+
+#### Links to a block
+
+`[[auth-rfc#^quote-1]]` is Obsidian's block reference: it links to the paragraph, list item or block that a `^quote-1` marker names. End a paragraph, list item or quote with the marker after a space (`A quote worth keeping. ^quote-1`). For a list, a table or a code block, put the marker on a line of its own after the block, with a blank line before it. Tusk indexes a list by its items and a table by its cells, so a marker after a list names its first item and one after a table names its first cell. Ids are Latin letters, digits and dashes, and they match in any case. The marker isn't part of the text tusk stores or searches, and a line holding only a marker isn't a passage of its own.
+
+Block references follow their markers the way heading links follow headings. Move a marker to another paragraph and the links into it move with it on the next reindex. When no part of the note carries the id, the link points at the note itself and `tusk doctor` reports a `missing-block` warning.
 
 The same rules apply to a frontmatter value written as a wikilink, under an edge type (`relates-to: "[[auth-rfc]]"`) or a `ref` property. Names resolve once the whole workspace is indexed, so the order files are read in never matters, and a note added, removed or renamed outside tusk changes what a name finds on the next reindex without the linking files being re-read.
 
