@@ -55,6 +55,7 @@ var severityByKind = map[string]string{
 	IssueMissingHeading:            SeverityWarning, // the edge still lands on the note
 	IssueMissingBlock:              SeverityWarning, // the edge still lands on the note
 	IssueIndexNotBuilt:             SeverityWarning, // a fresh checkout is not a broken vault
+	IssueIndexSchemaStale:          SeverityWarning, // the next reindex clears it
 
 	IssueEmbedLargeChunk:     SeverityAdvice,
 	IssueEmbeddingPrefixHint: SeverityAdvice,

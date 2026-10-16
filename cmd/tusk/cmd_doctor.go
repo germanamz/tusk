@@ -319,8 +319,9 @@ they are not flagged as missing embeddings.`,
 // lock; reindex.Run never takes it, so the pass runs under it.
 func doctorReindex(cmd *cobra.Command, root string, store *index.Index, loaded *manifest.Manifest) error {
 	verbose, _ := cmd.Flags().GetBool("verbose")
+	logger := newLogger(cmd.ErrOrStderr(), verbose)
 
-	config, configErr := cliReindexConfig(root, store, loaded, newLogger(cmd.ErrOrStderr(), verbose))
+	config, configErr := cliReindexConfig(root, store, loaded, logger)
 
 	if configErr != nil {
 		return configErr
@@ -333,6 +334,8 @@ func doctorReindex(cmd *cobra.Command, root string, store *index.Index, loaded *
 	if runErr != nil {
 		return fmt.Errorf("doctor --reindex: %w", runErr)
 	}
+
+	signalSchemaChange(root, report, logger)
 
 	// stderr, so stdout stays the report alone.
 	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Reindex done: %d indexed, %d removed, %s\n",

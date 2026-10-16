@@ -507,6 +507,8 @@ Conventions the schema can't express, like "product notes live under `docs/produ
 
 Edited `tusk.toml` while a daemon is running? `tusk reload` (or the `tusk_reload` MCP tool) re-reads and validates the manifest, hot-swaps the schema in place — no restart — and converges any sibling daemons via the `.tusk/manifest-epoch` sentinel. It then reindexes to re-validate your content against the new schema. Validation matches startup, so a reload lands the same state a restart would.
 
+With no daemon running, a plain `tusk reindex` does the same job. It notices when the node, edge or behavior declarations differ from the ones the index was built with, and re-processes every file once, even the ones that didn't change, so new edge types pick up existing links and drift follows the new declarations. Nothing re-embeds, and editing only a `description` doesn't trigger the pass. Until that pass runs, `tusk doctor` reports an `index-schema-stale` warning.
+
 ## Type packs (built-in templates)
 
 Instead of declaring everything by hand, `tusk pack add <name>` splices a curated TOML block into your manifest:
@@ -734,7 +736,7 @@ Every doctor finding has a severity, and the report lists errors first. An `erro
 - a `[[name]]` wikilink matches more than one file → an `ambiguous-wikilink` error lists the files
 - a `[[note#heading]]` wikilink names a heading the note doesn't have → a `missing-heading` warning names it (the link still points at the note)
 - a `[[note#^block-id]]` block reference names an id nothing in the note carries → a `missing-block` warning names it (the link still points at the note)
-- a manifest change just landed → re-validate every affected node
+- a manifest change just landed → an `index-schema-stale` warning means the index still follows the old node, edge or behavior declarations; `tusk reindex` re-processes every file once and re-validates them
 - a convention you declared as a `[rule.<name>]` is broken → each offending node is a `rule:<name>` issue
 
 ## Rules: conventions doctor checks
@@ -3138,7 +3140,11 @@ Walk the workspace and bring the SQLite index up to date with disk.
 
 Reindex skips any file whose mtime and size are unchanged since the last
 pass and re-parses only the rest. Pass --force to re-read, re-hash, and
-re-process every file regardless.
+re-process every file regardless. A changed [node-types], [edge-types] or
+[behaviors] section in tusk.toml forces that full pass once on its own, so
+unchanged files pick up the new edges and drift; editing only a description
+does not, and nothing re-embeds. A reindex that applies such a change also
+tells a running "tusk mcp serve" to reload tusk.toml.
 
 When [embeddings] is configured, reindex then embeds the nodes it queued. If
 the embedding backend can't be reached (Ollama stopped, or a CI runner without
@@ -3151,7 +3157,8 @@ after changing node/edge declarations in tusk.toml. For a schema change on a
 running daemon, prefer "tusk reload" (or the tusk_reload MCP tool): it swaps
 the in-memory schema and kicks a reindex that re-validates the index against
 the new node-types, edge-types, and behaviors, surfacing violation counts in
-the reindex output and "tusk doctor".
+the reindex output and "tusk doctor". "tusk watch" never reloads tusk.toml;
+restart it after a schema change.
 
 Worker pool: the embed/reindex pool size resolves from TUSK_EMBED_WORKERS,
 then [embeddings] workers in tusk.toml, then max(1, NumCPU/2). Setting
