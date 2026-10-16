@@ -44,10 +44,12 @@ import (
 // stamped, so nothing else would heal them. And bump it when a row gains a
 // field the pass fills, as with the link text of name-form wikilinks (#791),
 // and the heading key of a section plus the link text of every link with a
-// #fragment (#808).
+// #fragment (#808), and the block key a ^block-id marker gives a unit, whose
+// text loses the marker and whose standalone marker line stops being a unit
+// (#819).
 const (
 	edgeDerivationVersionKey = "edge_derivation_version"
-	edgeDerivationVersion    = "2026-10-14-heading-fragments"
+	edgeDerivationVersion    = "2026-10-16-block-references"
 )
 
 // lineNumberingKey stores the [workspace].line-numbering scheme the sub-unit

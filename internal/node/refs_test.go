@@ -15,6 +15,7 @@ type fakeRefLookup struct {
 	titles   map[string]map[string][]string // type → title → []nodeID
 	ids      map[string]string              // nodeID → type (presence indicates existence)
 	sections map[string][]wikilink.Section  // file id → its sections, for heading fragments
+	blocks   map[string]map[string]string   // file id → block key → sub-unit, for block references
 }
 
 func (lookup *fakeRefLookup) FindByID(nodeID string) (foundType string, found bool) {
@@ -44,6 +45,11 @@ func (lookup *fakeRefLookup) Exists(id string) (bool, error) {
 // Sections serves the sections map.
 func (lookup *fakeRefLookup) Sections(fileID string) ([]wikilink.Section, error) {
 	return lookup.sections[fileID], nil
+}
+
+// Blocks serves the blocks map.
+func (lookup *fakeRefLookup) Blocks(fileID string) (map[string]string, error) {
+	return lookup.blocks[fileID], nil
 }
 
 func (lookup *fakeRefLookup) FindByTitle(targetType, title string) ([]string, error) {
@@ -380,5 +386,32 @@ func TestResolveRefs_HeadingFragmentsResolveToTheirSection(test *testing.T) {
 		if len(result.HardErrors) > 0 || len(result.Edges) != 1 || result.Edges[0].TargetID != tc.wantTarget {
 			test.Errorf("%s: edges %+v, errors %+v; want %s", tc.value, result.Edges, result.HardErrors, tc.wantTarget)
 		}
+	}
+}
+
+// #819: a wikilink ref value with a block reference resolves to the unit its
+// ^id names; an id the note lacks is a dangling ref naming the block.
+func TestResolveRefs_BlockReferencesResolveToTheirUnit(test *testing.T) {
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "quote", Type: "ref", To: "paragraph"}}},
+	}
+
+	lookup := &fakeRefLookup{
+		ids:    map[string]string{"docs/rfc": "note", "docs/rfc#P2": "paragraph", "tickets/t1": "ticket"},
+		blocks: map[string]map[string]string{"docs/rfc": {"^quote-1": "docs/rfc#P2"}},
+	}
+
+	parsed := newParsedNode("tickets/t1", "ticket", map[string]any{"quote": "[[rfc#^Quote-1]]"})
+
+	if result := node.ResolveRefs(parsed, decls, lookup); len(result.HardErrors) > 0 || len(result.Edges) != 1 || result.Edges[0].TargetID != "docs/rfc#P2" {
+		test.Errorf("edges %+v, errors %+v; want docs/rfc#P2", result.Edges, result.HardErrors)
+	}
+
+	parsed = newParsedNode("tickets/t1", "ticket", map[string]any{"quote": "[[rfc#^gone]]"})
+	result := node.ResolveRefs(parsed, decls, lookup)
+
+	if len(result.HardErrors) != 1 || result.HardErrors[0].Kind != node.RefErrDangling ||
+		!strings.Contains(result.HardErrors[0].Reason, `docs/rfc has no block "#^gone"`) {
+		test.Errorf("errors %+v, want a dangling ref naming the missing block", result.HardErrors)
 	}
 }

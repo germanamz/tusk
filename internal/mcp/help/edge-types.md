@@ -60,9 +60,10 @@ blocks:
   to a section: a structural address (`[[x#S1.2]]`), or heading text
   (`[[x#Open questions]]`, case and punctuation ignored; the first
   matching heading, or `[[x#Parent#Child]]` for one inside another).
-  `[[#Heading]]` names a heading of the page itself. A heading the
-  note lacks leaves the edge on the note, and `tusk_doctor` reports
-  `missing-heading`.
+  `[[#Heading]]` names a heading of the page itself. `[[x#^id]]` links
+  to the paragraph, list item or block an Obsidian `^id` marker names
+  (any case). A heading or id the note lacks leaves the edge on the
+  note, and `tusk_doctor` reports `missing-heading` / `missing-block`.
 
 - **`paths = true`** records the workspace paths a page names as path
   refs of this type: inline code (`` `server/ledger/core/service.go` ``),

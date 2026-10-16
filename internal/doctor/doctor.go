@@ -37,9 +37,13 @@ const (
 	// heading or sub-unit of the note it links to ([[auth-rfc#Renamed]]): the
 	// heading was renamed or removed, or the link has a typo. The edge falls
 	// back to the note itself, so the graph keeps the relationship, and the
-	// finding names the link to fix (#808). Block references (#^id) are not
-	// resolved yet and are not reported.
+	// finding names the link to fix (#808).
 	IssueMissingHeading = "missing-heading"
+
+	// IssueMissingBlock is IssueMissingHeading for a block reference
+	// ([[auth-rfc#^quote-1]]) whose ^id no unit of the note carries: the
+	// marker was removed or renamed, or the link has a typo (#819).
+	IssueMissingBlock = "missing-block"
 
 	IssueUndeclaredProperty = "undeclared-property"
 	IssueTypeMismatch       = "type-mismatch"
@@ -508,7 +512,7 @@ func checkDanglingEdges(config Config) ([]Issue, error) {
 		return nil, nil
 	}
 
-	return findDanglingEdges(config.Nodes, config.Edges, config.Manifest.LinkCase())
+	return findDanglingEdges(config.Nodes, config.Edges, config.Manifest.LinkCase(), config.Manifest.SubUnitsEnabled())
 }
 
 // checkDerivedEdgeTypes flags a derived edge whose target node exists but whose
@@ -1621,8 +1625,8 @@ func LegacyDrift(config Config) ([]Issue, error) {
 
 // danglingKey groups dangling edges into one finding: the source file (a
 // sub-unit's file is the id before '#'), the edge type, and the missing target.
-// A missing-heading finding keys on the note and the link instead, since every
-// heading link that misses lands on the same note.
+// A missing-heading or missing-block finding keys on the note and the link
+// instead, since every fragment link that misses lands on the same note.
 type danglingKey struct {
 	fileID   string
 	edgeType string
@@ -1640,8 +1644,11 @@ type danglingKey struct {
 // files have that name is reported as ambiguous-wikilink, with the files,
 // matched under linkCase; one that names no file is a dangling edge. A link
 // whose #fragment named nothing in its note resolved to the note itself, so
-// its target exists, and is reported as missing-heading.
-func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wikilink.Case) ([]Issue, error) {
+// its target exists, and is reported as missing-heading, or missing-block for
+// a block reference. With subUnits off no note has sections or blocks for a
+// fragment to name, so such a link resting on its note is no miss and is not
+// reported.
+func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wikilink.Case, subUnits bool) ([]Issue, error) {
 	allEdges, listErr := edges.ListAll()
 
 	if listErr != nil {
@@ -1694,20 +1701,18 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 
 	for _, edge := range allEdges {
 		_, targetExists := exists[edge.TargetID]
-		missingHeading, blockRef := fragmentMissed(edge, exists)
+		missedFragment := fragmentMissed(edge, exists)
 
-		// A block reference lands on its note until block references resolve,
-		// which is no fault of the link.
-		if blockRef || (targetExists && !missingHeading) {
+		if (missedFragment && !subUnits) || (targetExists && !missedFragment) {
 			continue
 		}
 
 		fileID, _, isSubUnit := strings.Cut(edge.SourceID, index.SubUnitIDSeparator)
 		key := danglingKey{fileID: fileID, edgeType: edge.Type, targetID: edge.TargetID}
 
-		// A missed heading sits on its note in one row and parks beside a
+		// A missed fragment sits on its note in one row and parks beside a
 		// twin in another, so it groups by the note, not the stored target.
-		if missingHeading {
+		if missedFragment {
 			key.targetID, _ = wikilink.SplitFragment(edge.TargetID)
 			key.link = edge.Link
 		}
@@ -1724,10 +1729,15 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 				Message: fmt.Sprintf("edge %q -> %q (target missing)", edge.Type, edge.TargetID),
 			}
 
-			if missingHeading {
+			if missedFragment {
 				fileID, _ := wikilink.SplitFragment(edge.TargetID)
 				issue.Kind = IssueMissingHeading
 				issue.Message = fmt.Sprintf("edge %q -> [[%s]] names no heading in %s", edge.Type, edge.Link, fileID)
+
+				if _, fragment := wikilink.SplitFragment(edge.Link); wikilink.IsBlockRef(fragment) {
+					issue.Kind = IssueMissingBlock
+					issue.Message = fmt.Sprintf("edge %q -> [[%s]] names no block in %s", edge.Type, edge.Link, fileID)
+				}
 			} else if edge.Link != "" {
 				// Loaded once, and only for a vault with an unresolved name.
 				if names == nil {
@@ -1763,31 +1773,25 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 	return issues, nil
 }
 
-// fragmentMissed reports whether edge is a wikilink whose #fragment named
-// nothing in its note, which exists: ResolveLinks left the edge on the note,
-// or parked it at the note's id plus the fragment because the source links
-// the note already. blockRef reports that the fragment is a block reference
-// (#^id), which misses until block references resolve, and missed is false
-// for it. A bare `#` names the note itself.
-func fragmentMissed(edge index.EdgeRow, exists map[string]struct{}) (missed, blockRef bool) {
+// fragmentMissed reports whether edge is a wikilink whose #fragment, a
+// heading or a block reference, named nothing in its note, which exists:
+// ResolveLinks left the edge on the note, or parked it at the note's id plus
+// the fragment because the source links the note already. A bare `#` names
+// the note itself.
+func fragmentMissed(edge index.EdgeRow, exists map[string]struct{}) bool {
 	_, fragment := wikilink.SplitFragment(edge.Link)
 
 	if fragment == "" || fragment == "#" {
-		return false, false
+		return false
 	}
 
 	fileID, targetFragment := wikilink.SplitFragment(edge.TargetID)
 
 	if _, fileExists := exists[fileID]; !fileExists {
-		return false, false
+		return false
 	}
 
 	_, resolved := exists[edge.TargetID]
-	fellBack := targetFragment == "" || (!resolved && targetFragment == fragment)
 
-	if wikilink.IsBlockRef(fragment) {
-		return false, fellBack
-	}
-
-	return fellBack, false
+	return targetFragment == "" || (!resolved && targetFragment == fragment)
 }

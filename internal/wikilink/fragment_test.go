@@ -30,6 +30,20 @@ func TestHeadingKey(test *testing.T) {
 	}
 }
 
+// A block key holds the id in lower case behind a `^`, which no heading key
+// can start with (#819).
+func TestBlockKey(test *testing.T) {
+	for id, want := range map[string]string{
+		"quote-of-the-day": "^quote-of-the-day",
+		"3a8F2C":           "^3a8f2c",
+		"Intro-1":          "^intro-1",
+	} {
+		if got := wikilink.BlockKey(id); got != want {
+			test.Errorf("BlockKey(%q) = %q, want %q", id, got, want)
+		}
+	}
+}
+
 func TestNeedsLookup(test *testing.T) {
 	for target, want := range map[string]bool{
 		"auth-rfc":             true,
@@ -99,6 +113,7 @@ type fakeLookup struct {
 
 	subUnits map[string]bool
 	sections map[string][]wikilink.Section
+	blocks   map[string]map[string]string
 }
 
 func (lookup fakeLookup) Exists(id string) (bool, error) {
@@ -111,6 +126,10 @@ func (lookup fakeLookup) Exists(id string) (bool, error) {
 
 func (lookup fakeLookup) Sections(fileID string) ([]wikilink.Section, error) {
 	return lookup.sections[fileID], nil
+}
+
+func (lookup fakeLookup) Blocks(fileID string) (map[string]string, error) {
+	return lookup.blocks[fileID], nil
 }
 
 func TestResolveTarget(test *testing.T) {
@@ -137,6 +156,10 @@ func TestResolveTarget(test *testing.T) {
 				{ID: "inbox/today#S1", Parent: "inbox/today", Key: "agenda"},
 			},
 		},
+		blocks: map[string]map[string]string{
+			"notes/auth-rfc": {"^quote-1": "notes/auth-rfc#S1P1"},
+			"inbox/today":    {"^todo": "inbox/today#S1L1"},
+		},
 	}
 	source := wikilink.Source{ID: "inbox/today", Path: "inbox/today.md"}
 
@@ -156,7 +179,15 @@ func TestResolveTarget(test *testing.T) {
 		{"auth-rfc#s2", wikilink.Target{ID: "notes/auth-rfc#S1.1"}},
 		{"auth-rfc#Renamed heading", wikilink.Target{ID: "notes/auth-rfc", MissingFragment: true}},
 		{"auth-rfc#S9", wikilink.Target{ID: "notes/auth-rfc", MissingFragment: true}},
+		// A block reference finds the unit its ^id names, in any case (#819).
+		{"auth-rfc#^quote-1", wikilink.Target{ID: "notes/auth-rfc#S1P1"}},
+		{"notes/auth-rfc#^Quote-1", wikilink.Target{ID: "notes/auth-rfc#S1P1"}},
+		{"#^todo", wikilink.Target{ID: "inbox/today#S1L1"}},
 		{"auth-rfc#^block-id", wikilink.Target{ID: "notes/auth-rfc", MissingFragment: true}},
+		{"auth-rfc#^", wikilink.Target{ID: "notes/auth-rfc", MissingFragment: true}},
+		// A heading is never matched as a block, nor a block as a heading.
+		{"auth-rfc#^overview", wikilink.Target{ID: "notes/auth-rfc", MissingFragment: true}},
+		{"auth-rfc#quote-1", wikilink.Target{ID: "notes/auth-rfc", MissingFragment: true}},
 		{"auth-rfc#", wikilink.Target{ID: "notes/auth-rfc"}},
 		// No path part names the linking file.
 		{"#Agenda", wikilink.Target{ID: "inbox/today#S1"}},

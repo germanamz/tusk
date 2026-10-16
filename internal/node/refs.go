@@ -12,8 +12,9 @@ import (
 
 // RefLookup is the I/O surface ResolveRefs needs. Production wires it
 // to *index.NodeRepo; tests pass synthetic fakes. Its wikilink.Lookup half
-// resolves a wikilink value that names a file by name ([[auth-rfc]], #791) or
-// a section by heading ([[auth-rfc#Some heading]], #808).
+// resolves a wikilink value that names a file by name ([[auth-rfc]], #791), a
+// section by heading ([[auth-rfc#Some heading]], #808) or a unit by block id
+// ([[auth-rfc#^quote-1]], #819).
 type RefLookup interface {
 	wikilink.Lookup
 	FindByID(nodeID string) (nodeType string, found bool)
@@ -220,8 +221,9 @@ func resolveOneValue(propName, value, targetType string, source wikilink.Source,
 		// `|alias` display suffix so `[[id|Label]]` resolves to id exactly like
 		// a bare `[[id]]` (#690). A relative path resolves from the source's
 		// folder, a file name through the lookup (#791), and a #fragment to
-		// the sub-unit it addresses or the section whose heading it names
-		// (#808). The raw value is still reported in diagnostics below.
+		// the sub-unit it addresses, the section whose heading it names
+		// (#808) or the unit its ^block-id names (#819). The raw value is
+		// still reported in diagnostics below.
 		target, _ := wikilink.SplitAlias(matches[1])
 		resolved, resolveErr := wikilink.ResolveTarget(target, source, lookup)
 		candidates := resolved.Candidates
@@ -251,13 +253,18 @@ func resolveOneValue(propName, value, targetType string, source wikilink.Source,
 		// ref is typed: the note is not the section it was declared to name.
 		if resolved.MissingFragment {
 			_, fragment := wikilink.SplitFragment(target)
+			missing := "sub-unit or heading"
+
+			if wikilink.IsBlockRef(fragment) {
+				missing = "block"
+			}
 
 			return nil, &RefError{
 				Kind:     RefErrDangling,
 				Property: propName,
 				Value:    value,
 				To:       targetType,
-				Reason:   fmt.Sprintf("ref property %q — value %q: %s has no sub-unit or heading %q", propName, value, resolved.ID, fragment),
+				Reason:   fmt.Sprintf("ref property %q — value %q: %s has no %s %q", propName, value, resolved.ID, missing, fragment),
 			}
 		}
 

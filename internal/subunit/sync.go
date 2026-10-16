@@ -195,7 +195,8 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 		sameLines := prior.StartLine == row.StartLine && prior.EndLine == row.EndLine
 		// A section's heading key is new to rows written before heading links
 		// resolved (#808), and the forced pass that fills it changes nothing
-		// else about the row.
+		// else about the row. A block id is not part of the text a unit
+		// embeds, so renaming one changes the key alone (#819).
 		sameKey := prior.NameKey == row.NameKey
 
 		if sameOrdinal && sameContent && sameProps && sameLines && sameKey {
@@ -457,18 +458,23 @@ func buildSubUnitRow(fileRow index.NodeRow, unit Unit, subunitID string) (index.
 		ContentHash:    sql.NullString{String: unit.ContentHash, Valid: unit.ContentHash != ""},
 		StartLine:      sql.NullInt64{Int64: int64(unit.StartLine), Valid: unit.StartLine > 0},
 		EndLine:        sql.NullInt64{Int64: int64(unit.EndLine), Valid: unit.EndLine > 0},
-		NameKey:        sectionKey(unit),
+		NameKey:        nameKey(unit),
 	}, nil
 }
 
-// sectionKey is the name_key a section row is stored with: the HeadingKey of
-// its heading, which a heading link is matched on. NULL for every other kind.
-func sectionKey(unit Unit) sql.NullString {
-	if unit.Kind != KindSection {
+// nameKey is the name_key a sub-unit row is stored with: a section's
+// HeadingKey, which a heading link is matched on, or the BlockKey of the id a
+// `^block-id` marker gives a unit, which a block reference is matched on. NULL
+// for every other unit.
+func nameKey(unit Unit) sql.NullString {
+	switch {
+	case unit.Kind == KindSection:
+		return sql.NullString{String: wikilink.HeadingKey(unit.Heading), Valid: true}
+	case unit.BlockID != "":
+		return sql.NullString{String: wikilink.BlockKey(unit.BlockID), Valid: true}
+	default:
 		return sql.NullString{}
 	}
-
-	return sql.NullString{String: wikilink.HeadingKey(unit.Heading), Valid: true}
 }
 
 // parentRowID resolves a unit's parent row id. When parentAddress is empty the
