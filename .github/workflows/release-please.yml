@@ -140,11 +140,22 @@ jobs:
         with:
           name: homebrew-cask
 
-      # The workflow GITHUB_TOKEN can't write to another repo, so this uses a
-      # fine-grained PAT with contents write on germanamz/homebrew-tap only.
+      # The workflow GITHUB_TOKEN can't write to another repo. Rather than a
+      # long-lived PAT, mint a token from the release-please App (which must be
+      # installed on germanamz/homebrew-tap too), narrowed to that one repo and
+      # contents:write. It expires within the hour and is revoked when this job
+      # ends, and there's no second secret to rotate or let lapse.
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        id: tap-token
+        with:
+          client-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+          repositories: homebrew-tap
+          permission-contents: write
+
       - name: Commit the cask to germanamz/homebrew-tap
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
           TAG: ${{ needs.create-release.outputs.tag_name }}
         run: |
           set -euo pipefail
