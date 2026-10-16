@@ -1892,6 +1892,12 @@ func TestRun_SubUnitsDisabledDirtyEmitsWarning(test *testing.T) {
 			if !strings.Contains(issue.Message, "2") {
 				test.Errorf("dirty issue message = %q, want it to mention the count", issue.Message)
 			}
+
+			// A plain reindex drops the rows; --force once claimed to and
+			// didn't (#827).
+			if !strings.Contains(issue.Message, "`tusk reindex`") {
+				test.Errorf("dirty issue message = %q, want it to point at `tusk reindex`", issue.Message)
+			}
 		}
 	}
 

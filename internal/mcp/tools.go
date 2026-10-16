@@ -1536,6 +1536,7 @@ func registerResetTool(srv *Server) {
 			Meta:            fresh.Meta,
 			FileStates:      fresh.FileState,
 			PropertyDrift:   fresh.PropertyDrift,
+			Manifest:        fresh.Manifest, // meta records the settings the drainer applies
 			Workers:         fresh.Workers,
 			Async:           true,
 		})

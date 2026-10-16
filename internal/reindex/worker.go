@@ -607,27 +607,33 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 		}
 	}
 
-	if cfg.Manifest != nil && cfg.Manifest.SubUnitsEnabled() && cfg.Edges != nil {
+	if cfg.Manifest != nil && cfg.Edges != nil {
 		var (
 			units         []subunit.Unit
 			parseUnitsErr error
 			subSource     string
 		)
 
-		switch filepath.Ext(relPath) {
-		case ".html", ".htm":
-			// htmlunit.Parse needs the raw HTML to recover the heading
-			// outline and block structure; parsed.Body is the normalized
-			// plaintext (Phase 4), which has no markup left to address.
-			units, parseUnitsErr = htmlunit.Parse(content)
-			subSource = html.Source()
-		default:
-			units, parseUnitsErr = subunit.Parse(parsed.Body)
-			subSource = "markdown"
+		// With sub-units off the sync still runs, with no units, so it drops
+		// the rows a pass with them on left behind. Skipping it left those
+		// rows, their edges and their vectors in place for good: the sync is
+		// the only code that deletes them (#827).
+		if cfg.Manifest.SubUnitsEnabled() {
+			switch filepath.Ext(relPath) {
+			case ".html", ".htm":
+				// htmlunit.Parse needs the raw HTML to recover the heading
+				// outline and block structure; parsed.Body is the normalized
+				// plaintext (Phase 4), which has no markup left to address.
+				units, parseUnitsErr = htmlunit.Parse(content)
+				subSource = html.Source()
+			default:
+				units, parseUnitsErr = subunit.Parse(parsed.Body)
+				subSource = "markdown"
 
-			// Number the spans against the whole file so line ranges count
-			// the frontmatter above the body.
-			subunit.AssignLines(units, content, parsed.BodyOffset, cfg.Manifest.LineNumbering())
+				// Number the spans against the whole file so line ranges count
+				// the frontmatter above the body.
+				subunit.AssignLines(units, content, parsed.BodyOffset, cfg.Manifest.LineNumbering())
+			}
 		}
 
 		if parseUnitsErr != nil {
