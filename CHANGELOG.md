@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.9.0](https://github.com/germanamz/tusk/compare/v2.8.1...v2.9.0) (2026-10-16)
+
+
+### Features
+
+* **cli:** point tusk at a vault with --workspace and TUSK_WORKSPACE ([#794](https://github.com/germanamz/tusk/issues/794)) ([#817](https://github.com/germanamz/tusk/issues/817)) ([10d8011](https://github.com/germanamz/tusk/commit/10d801124597d6038be26231a678b0c5dee5b24a))
+* **query:** blend a word-match score into semantic ranking ([#812](https://github.com/germanamz/tusk/issues/812)) ([#822](https://github.com/germanamz/tusk/issues/822)) ([fa5e37f](https://github.com/germanamz/tusk/commit/fa5e37fa405819d60335f59a908564a7fa079cd0))
+* **query:** return the matched passage's text with semantic results ([#814](https://github.com/germanamz/tusk/issues/814)) ([#824](https://github.com/germanamz/tusk/issues/824)) ([84ae654](https://github.com/germanamz/tusk/commit/84ae6540242c0ba3de9a3ec70720c21e817ba9c6))
+* **query:** shrink semantic tusk_query results ([#813](https://github.com/germanamz/tusk/issues/813)) ([#823](https://github.com/germanamz/tusk/issues/823)) ([643557c](https://github.com/germanamz/tusk/commit/643557ce841ada7ac28d6902a26bce2701486b5e))
+* **reindex:** index an existing markdown folder under an opt-in default type ([#790](https://github.com/germanamz/tusk/issues/790)) ([#806](https://github.com/germanamz/tusk/issues/806)) ([e324bc4](https://github.com/germanamz/tusk/commit/e324bc4af99b8f605d7d6b70f73c36b41053a2d3))
+* **release:** publish a Homebrew cask to germanamz/homebrew-tap ([#795](https://github.com/germanamz/tusk/issues/795)) ([#818](https://github.com/germanamz/tusk/issues/818)) ([74dc2b6](https://github.com/germanamz/tusk/commit/74dc2b60e7c4ad53518b88b8bd1044d358087751))
+* **wikilink:** resolve heading fragments to their sections ([#808](https://github.com/germanamz/tusk/issues/808)) ([#820](https://github.com/germanamz/tusk/issues/820)) ([9e6e5b3](https://github.com/germanamz/tusk/commit/9e6e5b3457b80a79cb95eb93223afc484b669715))
+* **wikilink:** resolve Obsidian block references to the units they name ([#819](https://github.com/germanamz/tusk/issues/819)) ([#826](https://github.com/germanamz/tusk/issues/826)) ([021b895](https://github.com/germanamz/tusk/commit/021b895edd21cfc8cce3871adfc4667f17e6e5d2))
+* **wikilink:** resolve Obsidian name and relative wikilinks ([#791](https://github.com/germanamz/tusk/issues/791)) ([#809](https://github.com/germanamz/tusk/issues/809)) ([1ab211a](https://github.com/germanamz/tusk/commit/1ab211a37ddb9131a343a4dd3e51567ac5b93d5c))
+
+
+### Performance Improvements
+
+* **mcp:** trim what the server adds to every agent turn ([#815](https://github.com/germanamz/tusk/issues/815)) ([#825](https://github.com/germanamz/tusk/issues/825)) ([e8a0a22](https://github.com/germanamz/tusk/commit/e8a0a222a689b2b0198423b7a5d0b39082497c60))
+
 ## [2.8.1](https://github.com/germanamz/tusk/compare/v2.8.0...v2.8.1) (2026-10-12)
 
 
