@@ -18,7 +18,7 @@ Every doctor finding has a severity, and the report lists errors first. An `erro
 - a `[[name]]` wikilink matches more than one file → an `ambiguous-wikilink` error lists the files
 - a `[[note#heading]]` wikilink names a heading the note doesn't have → a `missing-heading` warning names it (the link still points at the note)
 - a `[[note#^block-id]]` block reference names an id nothing in the note carries → a `missing-block` warning names it (the link still points at the note)
-- a manifest change just landed → re-validate every affected node
+- a manifest change just landed → an `index-schema-stale` warning means the index still follows the old node, edge or behavior declarations; `tusk reindex` re-processes every file once and re-validates them
 - a convention you declared as a `[rule.<name>]` is broken → each offending node is a `rule:<name>` issue
 
 ## Rules: conventions doctor checks

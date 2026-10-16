@@ -281,6 +281,13 @@ type Report struct {
 	// loudly to say so. Nil when embedding ran or no embedder was wired.
 	EmbedDeferred error
 
+	// SchemaChanged reports that the manifest's node, edge or behavior
+	// declarations differ from the ones the index was last built under (or the
+	// index has no record of them), so this pass re-processed every file. A
+	// caller that loaded tusk.toml just now can tell running daemons to reload
+	// it; one holding an older manifest must not.
+	SchemaChanged bool
+
 	// Sub-unit pipeline counters (Plan 2 Task 3). All zero when
 	// Config.Manifest is nil. With the workspace's `sub-units` flag false,
 	// only SubUnitsDeleted moves: it counts the rows an earlier pass with
@@ -464,6 +471,29 @@ func Run(config Config) (*Report, error) {
 			config.Logger.Info("reindex: sub-units setting changed; forcing full re-process",
 				"stored", subUnitsMarker,
 				"current", subUnits,
+			)
+		}
+	}
+
+	// A file's edges and its property and workflow drift are derived from the
+	// declared types when the file is parsed, so an edit to [node-types],
+	// [edge-types] or [behaviors] reaches no file the incremental skip passes
+	// over (#831).
+	schema := config.Manifest.SchemaFingerprint()
+	schemaMarker, schemaMarkerErr := config.Meta.Get(index.ManifestSchemaKey)
+
+	if schemaMarkerErr != nil {
+		return nil, fmt.Errorf("reindex: read %s: %w", index.ManifestSchemaKey, schemaMarkerErr)
+	}
+
+	if schemaMarker != schema {
+		config.Force = true
+		report.SchemaChanged = true
+
+		if config.Logger != nil {
+			config.Logger.Info("reindex: node, edge or behavior declarations changed; forcing full re-process",
+				"stored", schemaMarker,
+				"current", schema,
 			)
 		}
 	}
@@ -910,6 +940,10 @@ func Run(config Config) (*Report, error) {
 
 	if setErr := config.Meta.Set(subUnitsKey, subUnits); setErr != nil {
 		return nil, fmt.Errorf("reindex: record %s: %w", subUnitsKey, setErr)
+	}
+
+	if setErr := config.Meta.Set(index.ManifestSchemaKey, schema); setErr != nil {
+		return nil, fmt.Errorf("reindex: record %s: %w", index.ManifestSchemaKey, setErr)
 	}
 
 	if config.Logger != nil {

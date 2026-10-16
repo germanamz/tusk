@@ -60,14 +60,19 @@ func TestGoldenMCP_Doctor(test *testing.T) {
 	})
 }
 
-// markIndexBuilt stamps the meta key a reindex pass writes, standing in for the
-// boot reindex a real daemon runs, so doctor doesn't report the seeded index as
-// never built.
+// markIndexBuilt stamps the meta keys a reindex pass writes, standing in for
+// the boot reindex a real daemon runs, so doctor doesn't report the seeded
+// index as never built or as built under another schema.
 func markIndexBuilt(test *testing.T, rt *mcp.Runtime) {
 	test.Helper()
 
-	if setErr := rt.Meta.Set(index.LastReindexAtKey, "1"); setErr != nil {
-		test.Fatalf("stamp %s: %v", index.LastReindexAtKey, setErr)
+	for key, value := range map[string]string{
+		index.LastReindexAtKey:  "1",
+		index.ManifestSchemaKey: rt.Manifest.SchemaFingerprint(),
+	} {
+		if setErr := rt.Meta.Set(key, value); setErr != nil {
+			test.Fatalf("stamp %s: %v", key, setErr)
+		}
 	}
 }
 

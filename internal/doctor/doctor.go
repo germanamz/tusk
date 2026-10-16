@@ -157,6 +157,14 @@ const (
 	// may never have been checked and a clean report proves nothing. A warning,
 	// not an error: `tusk doctor --reindex` builds the index first.
 	IssueIndexNotBuilt = "index-not-built"
+
+	// IssueIndexSchemaStale surfaces an index whose last reindex ran under
+	// other node, edge or behavior declarations than tusk.toml's (meta's
+	// index.ManifestSchemaKey differs from manifest.SchemaFingerprint). Edges
+	// and drift are derived when a file is parsed, so they still follow the
+	// old declarations, and the drift checks report against them. A warning:
+	// the next `tusk reindex` re-processes every file and clears it (#831).
+	IssueIndexSchemaStale = "index-schema-stale"
 )
 
 // Issue is a single problem the doctor surfaced. Severity is stamped from the
@@ -284,6 +292,7 @@ func Run(config Config) (*Report, error) {
 	// severity).
 	for _, check := range []func(Config) ([]Issue, error){
 		checkIndexBuilt,
+		checkIndexSchema,
 		checkSkippedFiles,
 		checkDanglingEdges,
 		checkPathRefs,
@@ -382,6 +391,41 @@ func checkIndexBuilt(config Config) ([]Issue, error) {
 	return []Issue{{
 		Kind:    IssueIndexNotBuilt,
 		Message: "no reindex pass has built this index, so files on disk may be unchecked; run `tusk doctor --reindex` or `tusk reindex` (tusk_reindex over MCP)",
+	}}, nil
+}
+
+// checkIndexSchema reports an index last built under other node, edge or
+// behavior declarations than the manifest's. An index no pass has built is
+// index-not-built's finding, not this one. No-op without the meta repo or the
+// manifest.
+func checkIndexSchema(config Config) ([]Issue, error) {
+	if config.Meta == nil || config.Manifest == nil {
+		return nil, nil
+	}
+
+	lastReindexAt, lastErr := config.Meta.Get(index.LastReindexAtKey)
+
+	if lastErr != nil {
+		return nil, fmt.Errorf("doctor: read %s: %w", index.LastReindexAtKey, lastErr)
+	}
+
+	if lastReindexAt == "" {
+		return nil, nil
+	}
+
+	recorded, schemaErr := config.Meta.Get(index.ManifestSchemaKey)
+
+	if schemaErr != nil {
+		return nil, fmt.Errorf("doctor: read %s: %w", index.ManifestSchemaKey, schemaErr)
+	}
+
+	if recorded == config.Manifest.SchemaFingerprint() {
+		return nil, nil
+	}
+
+	return []Issue{{
+		Kind:    IssueIndexSchemaStale,
+		Message: "the index was built under other [node-types], [edge-types] or [behaviors] than tusk.toml declares, so edges and drift may follow the old ones; run `tusk reindex` (tusk_reindex over MCP) or `tusk doctor --reindex`",
 	}}, nil
 }
 

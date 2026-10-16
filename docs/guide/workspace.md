@@ -166,6 +166,8 @@ Conventions the schema can't express, like "product notes live under `docs/produ
 
 Edited `tusk.toml` while a daemon is running? `tusk reload` (or the `tusk_reload` MCP tool) re-reads and validates the manifest, hot-swaps the schema in place — no restart — and converges any sibling daemons via the `.tusk/manifest-epoch` sentinel. It then reindexes to re-validate your content against the new schema. Validation matches startup, so a reload lands the same state a restart would.
 
+With no daemon running, a plain `tusk reindex` does the same job. It notices when the node, edge or behavior declarations differ from the ones the index was built with, and re-processes every file once, even the ones that didn't change, so new edge types pick up existing links and drift follows the new declarations. Nothing re-embeds, and editing only a `description` doesn't trigger the pass. Until that pass runs, `tusk doctor` reports an `index-schema-stale` warning.
+
 ## Type packs (built-in templates)
 
 Instead of declaring everything by hand, `tusk pack add <name>` splices a curated TOML block into your manifest:

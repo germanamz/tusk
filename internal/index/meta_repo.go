@@ -12,6 +12,12 @@ import (
 // pass has ever run on this index: node writes add rows without setting it.
 const LastReindexAtKey = "last_reindex_at"
 
+// ManifestSchemaKey is the meta key a completed reindex pass stamps with
+// manifest.SchemaFingerprint: the node, edge and behavior declarations the
+// index's edges and drift were derived under. Reindex re-processes every file
+// when it differs from tusk.toml's, and doctor warns while it does (#831).
+const ManifestSchemaKey = "manifest_schema"
+
 // MetaRepo persists workspace-scoped key/value pairs in the `meta` table.
 type MetaRepo struct {
 	db *sql.DB

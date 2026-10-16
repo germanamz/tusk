@@ -12,7 +12,11 @@ Walk the workspace and bring the SQLite index up to date with disk.
 
 Reindex skips any file whose mtime and size are unchanged since the last
 pass and re-parses only the rest. Pass --force to re-read, re-hash, and
-re-process every file regardless.
+re-process every file regardless. A changed [node-types], [edge-types] or
+[behaviors] section in tusk.toml forces that full pass once on its own, so
+unchanged files pick up the new edges and drift; editing only a description
+does not, and nothing re-embeds. A reindex that applies such a change also
+tells a running "tusk mcp serve" to reload tusk.toml.
 
 When [embeddings] is configured, reindex then embeds the nodes it queued. If
 the embedding backend can't be reached (Ollama stopped, or a CI runner without
@@ -25,7 +29,8 @@ after changing node/edge declarations in tusk.toml. For a schema change on a
 running daemon, prefer "tusk reload" (or the tusk_reload MCP tool): it swaps
 the in-memory schema and kicks a reindex that re-validates the index against
 the new node-types, edge-types, and behaviors, surfacing violation counts in
-the reindex output and "tusk doctor".
+the reindex output and "tusk doctor". "tusk watch" never reloads tusk.toml;
+restart it after a schema change.
 
 Worker pool: the embed/reindex pool size resolves from TUSK_EMBED_WORKERS,
 then [embeddings] workers in tusk.toml, then max(1, NumCPU/2). Setting
