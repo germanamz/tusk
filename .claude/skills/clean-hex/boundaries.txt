@@ -1,0 +1,72 @@
+# Boundary table for check_boundaries.go. See SKILL.md before editing.
+#
+#   role <root|driving|driven> <package>   a package not listed here is core
+#   debt <package> <item> <count|*>        violation frozen when the ratchet began
+#
+# Items: import:<path> counts files importing a technology package, or (as *)
+# a core package's import of an adapter package; clock, env and fs count call
+# sites. A debt line may only go down or be deleted. Adding or raising one
+# needs the maintainer's explicit approval in the conversation.
+
+# Composition roots: build the concrete adapters and hand them to the core.
+role root     cmd/tusk
+role root     internal/workspace/indexopen
+
+# Driving adapters: actors call tusk through these.
+role driving  internal/mcp
+role driving  internal/aliasdispatch
+role driving  internal/webapp
+role driving  internal/webui
+role driving  internal/bookview
+role driving  internal/graphview
+role driving  internal/watcher
+
+# Driven adapters: tusk calls the outside world through these.
+role driven   internal/index
+role driven   internal/lock
+role driven   internal/selfupdate
+role driven   internal/claudeplugin
+role driven   internal/workspace
+
+# Frozen debt, 2026-10-19. Core packages that already reach SQLite, HTTP, the
+# file system, the clock or the environment directly.
+debt internal/behavior                import:internal/index              *
+debt internal/contextcompose          import:database/sql                1
+debt internal/contextcompose          import:internal/aliasdispatch      *
+debt internal/doctor                  fs                                 1
+debt internal/doctor                  import:database/sql                2
+debt internal/doctor                  import:internal/index              *
+debt internal/embed                   clock                              4
+debt internal/embed                   fs                                 1
+debt internal/embed                   import:internal/index              *
+debt internal/embed                   import:net/http                    1
+debt internal/embedconfig             env                                1
+debt internal/epoch                   fs                                 7
+debt internal/filter                  clock                              1
+debt internal/graphexpand             import:internal/index              *
+debt internal/ignore                  fs                                 1
+debt internal/leaseconfig             env                                1
+debt internal/manifest                fs                                 1
+debt internal/node                    clock                              5
+debt internal/node                    fs                                 34
+debt internal/node                    import:github.com/google/uuid      1
+debt internal/node                    import:internal/index              *
+debt internal/pathref                 fs                                 2
+debt internal/query                   fs                                 2
+debt internal/query                   import:database/sql                4
+debt internal/query                   import:internal/index              *
+debt internal/reindex                 clock                              6
+debt internal/reindex                 fs                                 7
+debt internal/reindex                 import:internal/index              *
+debt internal/reindex                 import:internal/workspace          *
+debt internal/reset                   fs                                 1
+debt internal/reset                   import:internal/index              *
+debt internal/reset                   import:internal/lock               *
+debt internal/status                  import:internal/index              *
+debt internal/subunit                 import:database/sql                1
+debt internal/subunit                 import:internal/index              *
+debt internal/typepacks               clock                              1
+debt internal/typepacks               fs                                 8
+debt internal/typepacks               import:internal/lock               *
+debt internal/typepacks               import:internal/workspace          *
+debt internal/typepacks               import:net/http                    1
