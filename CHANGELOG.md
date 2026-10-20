@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.9.2](https://github.com/germanamz/tusk/compare/v2.9.1...v2.9.2) (2026-10-20)
+
+
+### Bug Fixes
+
+* **index:** retry the WAL switch and empty the index in place on reset ([#839](https://github.com/germanamz/tusk/issues/839)) ([#842](https://github.com/germanamz/tusk/issues/842)) ([5af0b7f](https://github.com/germanamz/tusk/commit/5af0b7f9740e98b16cb1bd8e689652af40c627d1))
+* **index:** stop edge lookups probing through few-valued indexes ([#838](https://github.com/germanamz/tusk/issues/838)) ([#840](https://github.com/germanamz/tusk/issues/840)) ([7dbf170](https://github.com/germanamz/tusk/commit/7dbf170511b1408291b70668ef0025244589c763))
+
 ## [2.9.1](https://github.com/germanamz/tusk/compare/v2.9.0...v2.9.1) (2026-10-16)
 
 
