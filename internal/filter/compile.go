@@ -667,15 +667,23 @@ func (state *compileState) compileEdgePredicate(predicate *EdgePredicate, depth 
 	nodeAlias := fmt.Sprintf("n%d", depth)
 	parentRef := rowRef(depth)
 
-	var sourceColumn, joinColumn string
+	// The edges are read through the index of the row they hang off. With no
+	// sqlite_stat1 the planner would probe by the edge type instead, through
+	// the (source, type) prefix of the edges UNIQUE index for a namespaced
+	// type: a few values, so every outer row walked most of the table (#838).
+	var sourceColumn, joinColumn, anchorIndex string
 
 	if predicate.Direction == DirectionOutgoing {
 		sourceColumn = fmt.Sprintf("%s.source_id = %s.id", edgeAlias, parentRef)
 		joinColumn = fmt.Sprintf("%s.id = %s.target_id", nodeAlias, edgeAlias)
+		anchorIndex = "edges_source_target_idx"
 	} else {
 		sourceColumn = fmt.Sprintf("%s.target_id = %s.id", edgeAlias, parentRef)
 		joinColumn = fmt.Sprintf("%s.id = %s.source_id", nodeAlias, edgeAlias)
+		anchorIndex = "edges_target_idx"
 	}
+
+	edgeTable := fmt.Sprintf("edges %s INDEXED BY %s", edgeAlias, anchorIndex)
 
 	edgeClause, edgeParams, edgeErr := compileTypeRef(predicate.EdgeType, edgeAlias+".", OpEQ)
 
@@ -684,7 +692,7 @@ func (state *compileState) compileEdgePredicate(predicate *EdgePredicate, depth 
 	}
 
 	if predicate.Inner == nil {
-		sql := fmt.Sprintf("EXISTS (SELECT 1 FROM edges %s WHERE %s AND %s)", edgeAlias, sourceColumn, edgeClause)
+		sql := fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s AND %s)", edgeTable, sourceColumn, edgeClause)
 
 		return sql, edgeParams, nil
 	}
@@ -697,8 +705,8 @@ func (state *compileState) compileEdgePredicate(predicate *EdgePredicate, depth 
 
 	// The inner term is parenthesized because it can be a disjunction, and
 	// `… AND type = ? AND (a) OR (b)` would let the OR escape the edge join.
-	sql := fmt.Sprintf("EXISTS (SELECT 1 FROM edges %s JOIN nodes %s ON %s WHERE %s AND %s AND (%s))",
-		edgeAlias, nodeAlias, joinColumn, sourceColumn, edgeClause, innerSQL)
+	sql := fmt.Sprintf("EXISTS (SELECT 1 FROM %s JOIN nodes %s ON %s WHERE %s AND %s AND (%s))",
+		edgeTable, nodeAlias, joinColumn, sourceColumn, edgeClause, innerSQL)
 
 	params := append(edgeParams, innerParams...)
 

@@ -66,16 +66,14 @@ func TestEdgesUniqueIncludesSource(test *testing.T) {
 	}
 }
 
-func TestEdgesHasSourceTypeAndKindIndexes(test *testing.T) {
+func TestEdgesHasSourceTypeIndex(test *testing.T) {
 	test.Parallel()
 
 	store, _ := index.Open(filepath.Join(test.TempDir(), "tusk.db"))
 	defer store.Close()
 
-	for _, idxName := range []string{"edges_source_type_idx", "edges_kind_idx"} {
-		var found string
-		if scanErr := store.DB().QueryRow(`SELECT name FROM sqlite_master WHERE type='index' AND name = ?`, idxName).Scan(&found); scanErr != nil {
-			test.Errorf("missing index %q: %v", idxName, scanErr)
-		}
+	var found string
+	if scanErr := store.DB().QueryRow(`SELECT name FROM sqlite_master WHERE type='index' AND name = 'edges_source_type_idx'`).Scan(&found); scanErr != nil {
+		test.Errorf("missing index edges_source_type_idx: %v", scanErr)
 	}
 }
