@@ -104,7 +104,7 @@ func rebuildAtomically(cfg Config) (*index.Index, error) {
 		return nil, fmt.Errorf("indexopen: close rebuild temp: %w", closeErr)
 	}
 
-	if swapErr := index.SwapInPlace(tmpPath, cfg.IndexPath); swapErr != nil {
+	if _, swapErr := index.SwapInPlace(tmpPath, cfg.IndexPath); swapErr != nil {
 		_, _ = index.RemoveArtifacts(tmpPath)
 
 		return nil, fmt.Errorf("indexopen: swap rebuilt index into place: %w", swapErr)

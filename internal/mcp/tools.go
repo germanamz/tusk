@@ -1483,7 +1483,7 @@ func registerResetTool(srv *Server) {
 
 		defer func() { _ = lockHandle.Release() }()
 
-		// Brief write-lock: close → delete → reap → reopen → bump → install. No
+		// Brief write-lock: close → recreate → reap → reopen → bump → install. No
 		// Ollama/embed work happens under it.
 		srv.mu.Lock()
 		old := srv.runtime

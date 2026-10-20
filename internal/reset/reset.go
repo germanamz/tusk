@@ -1,7 +1,7 @@
 // Package reset performs the destructive "drop the index and rebuild" core,
 // independent of the CLI or MCP surface. Perform runs under the workspace lock
-// and guarantees the ordering: acquire lock → quiesce caller's handle → delete
-// the SQLite artifacts → reap staging → reopen a fresh handle (caller hook) →
+// and guarantees the ordering: acquire lock → quiesce caller's handle → empty
+// the index in place → reap staging → reopen a fresh handle (caller hook) →
 // bump the epoch → release. The reindex that repopulates the index is the
 // caller's responsibility (the Async choice is surface-specific), keeping the
 // lock hold short.
@@ -32,7 +32,7 @@ type Config struct {
 // Result reports the outcome of a successful reset.
 type Result struct {
 	Epoch            int64        // the bumped epoch value
-	DeletedArtifacts []string     // artifact paths actually removed
+	DeletedArtifacts []string     // old artifact paths replaced or removed
 	Store            *index.Index // the freshly reopened handle; caller owns its lifecycle
 }
 
@@ -66,9 +66,13 @@ func AcquireLock(ctx context.Context, root string, ttl time.Duration) (*lock.Wor
 
 // PerformLocked runs the destructive reset core assuming the workspace flock is
 // ALREADY held by the caller (via AcquireLock). It does NOT acquire or release
-// the flock. Order: quiesce caller's handle → delete artifacts → reap staging →
-// reopen fresh → bump epoch. On any error before the epoch bump, the epoch is
-// left untouched so siblings are not signaled toward a half-built index.
+// the flock. Order: quiesce caller's handle → empty the index in place → reap
+// staging → reopen fresh → bump epoch. index.Recreate copies an empty index
+// into the existing file rather than deleting it, so a tusk process that does
+// not take the flock, such as tusk status, reads the old index or the empty
+// one instead of racing the reset to create the file (#839). On any error
+// before the epoch bump, the epoch is left untouched so siblings are not
+// signaled toward a half-built index.
 func PerformLocked(cfg Config) (*Result, error) {
 	if cfg.Root == "" || cfg.IndexPath == "" {
 		return nil, errors.New("reset: Root and IndexPath are required")
@@ -84,10 +88,10 @@ func PerformLocked(cfg Config) (*Result, error) {
 		}
 	}
 
-	deleted, removeErr := index.RemoveArtifacts(cfg.IndexPath)
+	deleted, recreateErr := index.Recreate(cfg.IndexPath)
 
-	if removeErr != nil {
-		return nil, fmt.Errorf("reset: remove artifacts: %w", removeErr)
+	if recreateErr != nil {
+		return nil, fmt.Errorf("reset: recreate index: %w", recreateErr)
 	}
 
 	stagingDir := filepath.Join(cfg.Root, ".tusk", "staging")

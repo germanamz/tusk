@@ -185,12 +185,14 @@ func (srv *Server) reopenInPlace() error {
 // siblingReopen reacts to another process having reset the shared index. It
 // serializes on resetMu (against the local tusk_reset tool), awaits the resetter
 // by acquiring the cross-process flock (which the resetter holds across
-// delete→recreate→epoch-bump), then swaps to a fresh handle under the write-lock.
+// recreate→reopen→epoch-bump), then swaps to a fresh handle under the write-lock.
 //
-// If the index file is absent when the flock is acquired, the resetter crashed
-// mid-reset; this daemon becomes the recreator: it reopens (which recreates the
-// file), bumps the epoch, and kicks an Async rebuild. Otherwise it joins the
-// already-recreated file and lets the lease-coordinated drainers rebuild.
+// If the index file is absent when the flock is acquired, it was deleted by
+// hand, or a reset from a tusk older than #839 (which deleted the file before
+// recreating it) crashed mid-reset. This daemon then becomes the recreator: it
+// reopens (which recreates the file), bumps the epoch, and kicks an Async
+// rebuild. Otherwise it joins the already-recreated file and lets the
+// lease-coordinated drainers rebuild.
 //
 // On flock-acquire timeout (a hung-but-alive resetter) it returns lock.ErrBusy
 // WITHOUT closing the current handle, so the daemon keeps serving (stale) and

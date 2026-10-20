@@ -23,7 +23,7 @@ The `Runtime` (its open DB handle especially) is held behind an `RWMutex`. Read 
 
 - `reopenInPlace` — the non-destructive swap: open the new handle, swap, then close the old one (a failed open leaves the live handle installed, so the server keeps serving).
 - `tusk_reset` — drops and rebuilds the index via `internal/reset`: `AcquireLock` (readers stay served during the flock-await), then the brief write-lock around `PerformLocked` + the swap, then an Async rebuild.
-- `siblingReopen` / `maybeReopenForEpoch` — react to another process resetting the shared index. They await the resetter via the flock, swap to a fresh handle, and (if the resetter crashed mid-reset, leaving the file absent) become the recreator.
+- `siblingReopen` / `maybeReopenForEpoch` — react to another process resetting the shared index. They await the resetter via the flock, swap to a fresh handle, and become the recreator if the index file is absent (deleted by hand, or left missing by a reset from a tusk older than #839 that crashed mid-reset).
 
 ## Epoch watchers
 
