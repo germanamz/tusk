@@ -536,3 +536,56 @@ func TestOpen_AddsSkippedFilesToExistingIndex(test *testing.T) {
 		test.Errorf("missing table %q in %v", "skipped_files", tables)
 	}
 }
+
+// TestOpen_ReplacesTheLegacyEdgesIndexes pins that an index built before #838
+// gains edges_source_target_idx(source_id, target_id), which ResolveLinks and
+// the filter compiler name with INDEXED BY, and drops edges_source_idx, which
+// it covers, and the few-valued edges_type_idx and edges_kind_idx on its next
+// Open, with no SchemaVersion bump or rebuild.
+func TestOpen_ReplacesTheLegacyEdgesIndexes(test *testing.T) {
+	dbPath := filepath.Join(test.TempDir(), "index.db")
+
+	store, openErr := index.Open(dbPath)
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	if _, execErr := store.DB().Exec(`
+		DROP INDEX edges_source_target_idx;
+		CREATE INDEX edges_source_idx ON edges(source_id);
+		CREATE INDEX edges_type_idx   ON edges(type);
+		CREATE INDEX edges_kind_idx   ON edges(kind);
+	`); execErr != nil {
+		test.Fatalf("restore the legacy indexes: %v", execErr)
+	}
+
+	store.Close()
+
+	reopened, reopenErr := index.Open(dbPath)
+
+	if reopenErr != nil {
+		test.Fatalf("reopen: %v", reopenErr)
+	}
+
+	defer reopened.Close()
+
+	for name, want := range map[string]bool{
+		"edges_source_target_idx": true,
+		"edges_source_idx":        false,
+		"edges_type_idx":          false,
+		"edges_kind_idx":          false,
+	} {
+		var count int
+
+		if scanErr := reopened.DB().QueryRow(
+			`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?`, name,
+		).Scan(&count); scanErr != nil {
+			test.Fatalf("look up %s: %v", name, scanErr)
+		}
+
+		if got := count > 0; got != want {
+			test.Errorf("index %s present = %v, want %v", name, got, want)
+		}
+	}
+}

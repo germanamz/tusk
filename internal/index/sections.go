@@ -13,18 +13,20 @@ type SectionSpan struct {
 	EndLine   int
 }
 
+// sectionSpanRows reads the section rows with a known line range of the file
+// whose sub-unit id range (subUnitIDRange) it is given. The unary + is
+// sectionRows': it keeps the planner on the id range.
+const sectionSpanRows = `SELECT id, COALESCE(title, ''), start_line, end_line FROM nodes
+	WHERE id >= ? AND id < ? AND +kind = 'subunit' AND +type = 'section'
+	  AND start_line IS NOT NULL AND end_line IS NOT NULL`
+
 // SectionSpans returns the numbered section rows of fileID: the sub-units of
 // type section whose line range is known (markdown; HTML sections carry none).
 // It takes the raw handle so read paths holding only a *sql.DB can use it.
 func SectionSpans(db *sql.DB, fileID string) ([]SectionSpan, error) {
 	lo, hi := subUnitIDRange(fileID)
 
-	rows, queryErr := db.Query(
-		`SELECT id, COALESCE(title, ''), start_line, end_line FROM nodes
-		 WHERE id >= ? AND id < ? AND kind = 'subunit' AND type = 'section'
-		   AND start_line IS NOT NULL AND end_line IS NOT NULL`,
-		lo, hi,
-	)
+	rows, queryErr := db.Query(sectionSpanRows, lo, hi)
 
 	if queryErr != nil {
 		return nil, fmt.Errorf("index: sections of %s: %w", fileID, queryErr)

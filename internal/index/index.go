@@ -70,12 +70,22 @@ CREATE TABLE IF NOT EXISTS edges (
 	)
 );
 
-CREATE INDEX IF NOT EXISTS edges_source_idx      ON edges(source_id);
+-- No edges index leads with type or kind. The index never has sqlite_stat1,
+-- so the planner rates a probe on one of those two- or three-value columns
+-- like one on source_id, and breaks the tie for the index created last: a
+-- lookup by source_id or target_id that also named a type or kind walked
+-- most of the table per probe (#838). A read by type or kind alone scans.
+-- The UNIQUE index above leads with (source, type), the same trap for a
+-- lookup that names a namespace beside a node, and it has to stay, so such a
+-- lookup says INDEXED BY.
+--
+-- edges_source_target_idx is an edge's identity up to its type, source path
+-- and kind, what EdgeRepo.ResolveLinks finds an edge's twin by; source_id
+-- leads, so it serves every source_id lookup too.
+CREATE INDEX IF NOT EXISTS edges_source_target_idx ON edges(source_id, target_id);
 CREATE INDEX IF NOT EXISTS edges_target_idx      ON edges(target_id);
-CREATE INDEX IF NOT EXISTS edges_type_idx        ON edges(type);
 CREATE INDEX IF NOT EXISTS edges_source_path_idx ON edges(source_path);
 CREATE INDEX IF NOT EXISTS edges_source_type_idx ON edges(source, type);
-CREATE INDEX IF NOT EXISTS edges_kind_idx        ON edges(kind);
 
 -- path_refs holds the workspace paths a page names (in inline code, a link, or
 -- a paths-only frontmatter value), one row per
@@ -213,6 +223,12 @@ DROP TABLE IF EXISTS warnings;
 -- so the index only cost write maintenance. Its bootstrap CREATE is gone too;
 -- this drop reclaims it from databases created before that removal.
 DROP INDEX IF EXISTS idx_file_state_lease;
+-- Retire the edges indexes #838 replaced: edges_source_idx(source_id), which
+-- edges_source_target_idx(source_id, target_id) covers, and the few-valued
+-- edges_type_idx and edges_kind_idx the planner probed by in their place.
+DROP INDEX IF EXISTS edges_source_idx;
+DROP INDEX IF EXISTS edges_type_idx;
+DROP INDEX IF EXISTS edges_kind_idx;
 `
 
 // Open opens (and bootstraps if needed) the index at dbPath. The parent

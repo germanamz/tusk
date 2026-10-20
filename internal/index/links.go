@@ -126,17 +126,28 @@ func nodeExists(db *sql.DB, id string) (bool, error) {
 	return count > 0, nil
 }
 
+// sectionRows reads the section rows of the file whose sub-unit id range
+// (subUnitIDRange) it is given, in document order. The unary + keeps kind and
+// type from choosing the index: with no sqlite_stat1 the planner took
+// nodes_kind_type_idx over the id range and read every section in the vault
+// (#838).
+const sectionRows = `SELECT id, COALESCE(parent_id, ''), COALESCE(name_key, '') FROM nodes
+	WHERE id >= ? AND id < ? AND +kind = 'subunit' AND +type = 'section'
+	ORDER BY ordinal`
+
+// blockRows reads the sub-units a ^block-id marker names in the file whose
+// sub-unit id range it is given, in document order. The unary + is
+// sectionRows': nodes_kind_type_idx on kind alone read every sub-unit.
+const blockRows = `SELECT id, name_key FROM nodes
+	WHERE id >= ? AND id < ? AND +kind = 'subunit' AND substr(name_key, 1, 1) = '^'
+	ORDER BY ordinal`
+
 // loadSections returns fileID's section rows in document order, with the
 // heading key a wikilink fragment is matched on.
 func loadSections(db *sql.DB, fileID string) ([]wikilink.Section, error) {
 	lo, hi := subUnitIDRange(fileID)
 
-	rows, queryErr := db.Query(
-		`SELECT id, COALESCE(parent_id, ''), COALESCE(name_key, '') FROM nodes
-		 WHERE id >= ? AND id < ? AND kind = 'subunit' AND type = 'section'
-		 ORDER BY ordinal`,
-		lo, hi,
-	)
+	rows, queryErr := db.Query(sectionRows, lo, hi)
 
 	if queryErr != nil {
 		return nil, fmt.Errorf("index: sections of %s: %w", fileID, queryErr)
@@ -165,12 +176,7 @@ func loadSections(db *sql.DB, fileID string) ([]wikilink.Section, error) {
 func loadBlocks(db *sql.DB, fileID string) (map[string]string, error) {
 	lo, hi := subUnitIDRange(fileID)
 
-	rows, queryErr := db.Query(
-		`SELECT id, name_key FROM nodes
-		 WHERE id >= ? AND id < ? AND kind = 'subunit' AND substr(name_key, 1, 1) = '^'
-		 ORDER BY ordinal`,
-		lo, hi,
-	)
+	rows, queryErr := db.Query(blockRows, lo, hi)
 
 	if queryErr != nil {
 		return nil, fmt.Errorf("index: blocks of %s: %w", fileID, queryErr)
@@ -418,25 +424,13 @@ func (repo *EdgeRepo) ResolveLinks(names *wikilink.Names) (int, error) {
 	// be there when it does. It parks at the fragment it names instead
 	// (`notes/auth-rfc#Renamed`, dangling) whenever its source already links
 	// the note, so the note is linked once and doctor still sees the miss.
-	if _, execErr := tx.Exec(`
-		DELETE FROM edges WHERE link IS NOT NULL AND NOT ` + fallbackRow("edges") + ` AND EXISTS (
-			SELECT 1 FROM edges AS other
-			WHERE ` + sameEdge + `
-			  AND NOT ` + fallbackRow("other") + `
-			  AND (other.link IS NULL OR other.id < edges.id)
-		)`); execErr != nil {
+	if _, execErr := tx.Exec(dedupeLinks); execErr != nil {
 		_ = tx.Rollback()
 
 		return 0, fmt.Errorf("edgeRepo: resolve links: dedupe: %w", execErr)
 	}
 
-	if _, execErr := tx.Exec(`
-		UPDATE edges SET target_id = target_id || substr(link, instr(link, '#'))
-		WHERE ` + fallbackRow("edges") + ` AND EXISTS (
-			SELECT 1 FROM edges AS other
-			WHERE ` + sameEdge + `
-			  AND (NOT ` + fallbackRow("other") + ` OR other.id < edges.id)
-		)`); execErr != nil {
+	if _, execErr := tx.Exec(parkLinks); execErr != nil {
 		_ = tx.Rollback()
 
 		return 0, fmt.Errorf("edgeRepo: resolve links: park: %w", execErr)
@@ -449,12 +443,47 @@ func (repo *EdgeRepo) ResolveLinks(names *wikilink.Names) (int, error) {
 	return len(stale), nil
 }
 
+// twinIndex is the index every twin lookup below names with INDEXED BY. With
+// no sqlite_stat1 the planner rates a probe through it on (source_id,
+// target_id) about like one on a single column, and picked edges_kind_idx
+// until #838 dropped it: each probe walked nearly every edge, so a pass was
+// quadratic in link edges. edges_target_idx could win the same tie, and a
+// probe through it walks every link to a popular note.
+const twinIndex = `INDEXED BY edges_source_target_idx`
+
 // sameEdge matches an `other` row that is the same edge as the `edges` row:
 // the identity the edges table would be unique over if its NULL source did
 // not exempt direct and derived rows.
 const sameEdge = `other.type = edges.type AND other.source_id = edges.source_id
 	AND other.target_id = edges.target_id AND other.source_path = edges.source_path
 	AND other.kind = edges.kind AND other.id != edges.id`
+
+// dedupeLinks deletes every looked-up row that is not a fallback row and has
+// a twin that outranks it: a path-written row, or an older looked-up row that
+// is not a fallback either.
+var dedupeLinks = `
+	DELETE FROM edges WHERE link IS NOT NULL AND NOT ` + fallbackRow("edges") + ` AND EXISTS (
+		SELECT 1 FROM edges AS other ` + twinIndex + `
+		WHERE ` + sameEdge + `
+		  AND NOT ` + fallbackRow("other") + `
+		  AND (other.link IS NULL OR other.id < edges.id)
+	)`
+
+// parkLinks moves every fallback row with a twin that outranks it (any row
+// that is not a fallback, or an older fallback row) to its file id plus the
+// fragment its link names.
+var parkLinks = `
+	UPDATE edges SET target_id = target_id || substr(link, instr(link, '#'))
+	WHERE ` + fallbackRow("edges") + ` AND EXISTS (
+		SELECT 1 FROM edges AS other ` + twinIndex + `
+		WHERE ` + sameEdge + `
+		  AND (NOT ` + fallbackRow("other") + ` OR other.id < edges.id)
+	)`
+
+// countPathTwins counts the path-written rows of an edge: its type, source
+// id, target id, source path and kind, in that order.
+const countPathTwins = `SELECT COUNT(*) FROM edges ` + twinIndex + `
+	WHERE type = ? AND source_id = ? AND target_id = ? AND source_path = ? AND kind = ? AND link IS NULL`
 
 // fallbackRow is the SQL test for a fallback row in table: a link with a
 // #fragment whose target is a file, because the fragment named nothing there.
@@ -503,9 +532,7 @@ func (repo *EdgeRepo) twinLands(plan linkPlan, plans []linkPlan, landed []int) (
 	var count int
 
 	if scanErr := repo.db.QueryRow(
-		`SELECT COUNT(*) FROM edges
-		 WHERE type = ? AND source_id = ? AND target_id = ? AND source_path = ? AND kind = ? AND link IS NULL`,
-		plan.edge.edgeType, plan.edge.sourceID, plan.target, plan.edge.sourcePath, plan.edge.kind,
+		countPathTwins, plan.edge.edgeType, plan.edge.sourceID, plan.target, plan.edge.sourcePath, plan.edge.kind,
 	).Scan(&count); scanErr != nil {
 		return false, fmt.Errorf("edgeRepo: twin of %q from %s: %w", plan.edge.link, plan.edge.sourceID, scanErr)
 	}

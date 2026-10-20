@@ -67,7 +67,7 @@ A literal value is cleaned with `pathref.Clean` and matches a page whose refs na
 
 The arrow takes the single next term (`parseNot`), the same way `AND` binds: a predicate of any kind, `NOT <term>`, or a parenthesized group. `a-> x=1 y=2` is `(a-> x=1) AND y=2`; `a-> (x=1 y=2)` puts both on the target. `MaxTraversalDepth` counts hops nested in groups as well as bare chains.
 
-`compileWhere` takes a depth: 0 is the outer `nodes` table (bare column names), and depth `d` is the target alias `n<d-1>` of the enclosing edge predicate. Every expression kind compiles at any depth, and the edge predicate parenthesizes its inner SQL so a disjunction stays inside the edge join. A shortcut inside an edge predicate never sets the default `ORDER BY`, since its ordering property belongs to the traversal target.
+`compileWhere` takes a depth: 0 is the outer `nodes` table (bare column names), and depth `d` is the target alias `n<d-1>` of the enclosing edge predicate. Every expression kind compiles at any depth, and the edge predicate parenthesizes its inner SQL so a disjunction stays inside the edge join. A shortcut inside an edge predicate never sets the default `ORDER BY`, since its ordering property belongs to the traversal target. The edge predicate reads `edges INDEXED BY` the index of the row it hangs off, `edges_source_target_idx` going out and `edges_target_idx` coming in: left to itself the planner probed by the edge type, a few values, and a filter arrow walked most of the edges table per row (#838).
 
 ### Traversal-shortcut hierarchy resolution
 
