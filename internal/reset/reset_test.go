@@ -5,6 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -59,6 +61,121 @@ func TestPerform_DeletesReopensAndBumps(test *testing.T) {
 	if _, listErr := result.Store.ListTables(); listErr != nil {
 		test.Errorf("fresh store unusable: %v", listErr)
 	}
+}
+
+// TestPerform_ConcurrentReadersNeverFail pins #839: another process reading
+// the index while a reset runs (tusk status beside tusk reset) neither fails
+// nor makes the reset fail, and reads the old index or the empty one, never a
+// mix of the two. Reset used to delete index.db and reopen it, so the two raced
+// to create the file and lost on the WAL switch with SQLITE_BUSY, or the reader
+// found the file gone halfway through its open (SQLITE_IOERR_FSTAT). Swapping a
+// new file in by name instead let a reader pair the old file with the new
+// file's -wal and -shm and read a malformed image.
+func TestPerform_ConcurrentReadersNeverFail(test *testing.T) {
+	root := test.TempDir()
+	indexPath := filepath.Join(root, ".tusk", "index.db")
+
+	seed, openErr := index.Open(indexPath)
+	if openErr != nil {
+		test.Fatalf("seed open: %v", openErr)
+	}
+	fillIndex(test, seed)
+	seed.Close()
+
+	stop := make(chan struct{})
+	readErrs := make(chan error, 1024)
+
+	var readers sync.WaitGroup
+
+	for range 4 {
+		readers.Add(1)
+
+		go func() {
+			defer readers.Done()
+
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+
+				if readErr := readIndex(indexPath); readErr != nil {
+					select {
+					case readErrs <- readErr:
+					default:
+					}
+				}
+			}
+		}()
+	}
+
+	for round := range 20 {
+		result, err := Perform(context.Background(), Config{
+			Root:      root,
+			IndexPath: indexPath,
+			LockTTL:   time.Second,
+			Reopen:    func() (*index.Index, error) { return index.Open(indexPath) },
+		})
+		if err != nil {
+			test.Errorf("reset %d: %v", round, err)
+
+			continue
+		}
+
+		fillIndex(test, result.Store)
+		result.Store.Close()
+	}
+
+	close(stop)
+	readers.Wait()
+	close(readErrs)
+
+	for readErr := range readErrs {
+		test.Errorf("concurrent read: %v", readErr)
+	}
+}
+
+// fillIndex writes enough rows that the index spans many pages, standing in
+// for the reindex that follows a reset.
+func fillIndex(test *testing.T, store *index.Index) {
+	test.Helper()
+
+	nodes := index.NewNodeRepo(store)
+
+	for row := range 300 {
+		id := "notes/n" + strconv.Itoa(row)
+
+		if upsertErr := nodes.Upsert(index.NodeRow{ID: id, Type: "note", Path: id + ".md", Title: strings.Repeat("title ", 20), PropertiesJSON: "{}", LastChecksum: "x"}); upsertErr != nil {
+			test.Fatalf("fill: %v", upsertErr)
+		}
+	}
+}
+
+// readIndex opens the index as tusk status does, reads it, and checks it reads
+// as a well-formed database.
+func readIndex(indexPath string) error {
+	store, openErr := index.Open(indexPath)
+	if openErr != nil {
+		return openErr
+	}
+	defer store.Close()
+
+	var nodes int
+	if countErr := store.DB().QueryRow(`SELECT COUNT(*) FROM nodes`).Scan(&nodes); countErr != nil {
+		return countErr
+	}
+
+	var verdict string
+	if checkErr := store.DB().QueryRow(`PRAGMA quick_check`).Scan(&verdict); checkErr != nil {
+		return checkErr
+	}
+
+	if verdict != "ok" {
+		return errors.New("quick_check: " + verdict)
+	}
+
+	return nil
 }
 
 func TestPerform_ReapsStaging(test *testing.T) {

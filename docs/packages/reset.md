@@ -7,7 +7,7 @@ status: stable
 
 # internal/reset
 
-Destructive "drop the index and rebuild" core, independent of the CLI or MCP surface. Both `tusk reset` and the `tusk_reset` MCP tool delegate the dangerous part — deleting and recreating the SQLite index — to this package so the ordering guarantee lives in one place. The markdown files are the source of truth, so the only thing destroyed is the cache.
+Destructive "drop the index and rebuild" core, independent of the CLI or MCP surface. Both `tusk reset` and the `tusk_reset` MCP tool delegate the dangerous part — emptying the SQLite index — to this package so the ordering guarantee lives in one place. The markdown files are the source of truth, so the only thing destroyed is the cache.
 
 ## Public surface
 
@@ -21,7 +21,7 @@ Destructive "drop the index and rebuild" core, independent of the CLI or MCP sur
 `PerformLocked` runs under the workspace lock and guarantees:
 
 1. **Quiesce** the caller's handle (`Config.Quiesce`; nil = no-op) — stop/close anything holding the old DB.
-2. **Delete** the SQLite artifacts via `index.RemoveArtifacts` (DB + `-wal`/`-shm` sidecars).
+2. **Empty** the index in place via `index.Recreate`: it bootstraps an empty DB beside the old one and copies it into the existing file through SQLite's backup API, falling back to renaming it over the old file when the old one can't be opened. A tusk process that doesn't take the flock (`tusk status`, say) reads the old index or the empty one instead of racing the reset to create the file (#839).
 3. **Reap** the `.tusk/staging` directory.
 4. **Reopen** a fresh handle (`Config.Reopen`, caller hook) and rebuild the caller's repos.
 5. **Bump** the `.tusk/epoch` sentinel so sibling daemons converge onto the fresh DB.

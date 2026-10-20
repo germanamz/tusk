@@ -26,10 +26,10 @@ do not require a bump.
 (wrapped `ErrSchemaIncompatible`).
 
 `internal/workspace/indexopen.OpenOrRebuild` catches the sentinel,
-deletes the on-disk file, re-opens (writing the current
-`SchemaVersion` into a fresh database), and runs `reindex.Run` to
-repopulate from source. Every CLI command and the MCP runtime go
-through this helper.
+builds a fresh database (writing the current `SchemaVersion`) at a
+sibling temp path, runs `reindex.Run` to repopulate it from source,
+and renames it over the live file with `index.SwapInPlace`. Every
+CLI command and the MCP runtime go through this helper.
 
 ## User experience
 

@@ -29,7 +29,7 @@ The two sentinel filenames and the on-disk format (a single decimal integer + ne
 
 ## Why it lives outside the DB / schema
 
-A process that resets the index deletes and recreates the SQLite file. Any sibling holding the old handle is now pointed at a ghost inode and cannot tell from its handle alone that anything changed. Likewise, a process that reloads the manifest validates and swaps a fresh schema in memory; a sibling cannot tell from its own in-memory schema that anything changed. Each epoch sentinel is a tiny side-channel that survives the swap: siblings poll it (the tick watcher) or react to an fsnotify event (the fast-path) and converge when it advances beyond the value they last saw. Detection needs neither the DB handle nor the schema pointer, so it works across the orphaning that motivates it.
+A process that resets the index empties the SQLite file, or swaps a new file over it when the old one is unreadable. A sibling holding a handle opened before the reset cannot tell from that handle alone that anything changed. Likewise, a process that reloads the manifest validates and swaps a fresh schema in memory; a sibling cannot tell from its own in-memory schema that anything changed. Each epoch sentinel is a tiny side-channel that survives the swap: siblings poll it (the tick watcher) or react to an fsnotify event (the fast-path) and converge when it advances beyond the value they last saw. Detection needs neither the DB handle nor the schema pointer, so it works across the orphaning that motivates it.
 
 ## How it drives convergence
 

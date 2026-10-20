@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // Index is the SQLite-backed local cache of the workspace.
@@ -245,14 +247,22 @@ func Open(dbPath string) (*Index, error) {
 	// buys nothing the pipelines' thousands of tiny commits can't regenerate.
 	// In WAL mode NORMAL stays corruption-safe and fsyncs only at checkpoint;
 	// at worst the last few commits are lost on power loss, which reindex
-	// recomputes from disk.
-	db, openErr := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)")
+	// recomputes from disk. journal_mode is not in the DSN: enableWAL sets it.
+	db, openErr := sql.Open("sqlite", fmt.Sprintf(
+		"%s?_pragma=busy_timeout(%d)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)",
+		dbPath, busyTimeout.Milliseconds(),
+	))
 
 	if openErr != nil {
 		return nil, fmt.Errorf("index: open sqlite: %w", openErr)
 	}
 
 	ctx := context.Background()
+
+	if walErr := enableWAL(ctx, db); walErr != nil {
+		db.Close()
+		return nil, walErr
+	}
 
 	if _, execErr := db.ExecContext(ctx, schema); execErr != nil {
 		db.Close()
@@ -305,6 +315,46 @@ func Open(dbPath string) (*Index, error) {
 	}
 
 	return idx, nil
+}
+
+// busyTimeout is how long a statement waits on another connection's lock (the
+// busy_timeout pragma), and how long enableWAL keeps retrying the WAL switch.
+const busyTimeout = 5 * time.Second
+
+// enableWAL switches the database to WAL. The mode is stored in the file, so
+// the switch writes only when the file is not in WAL yet, which in practice
+// means a new one. That write upgrades the switch's read lock to a write lock,
+// and when another connection is switching the same new file at the same time
+// SQLite fails the loser at once with SQLITE_BUSY instead of calling the busy
+// handler: two readers each waiting for the other to let go would deadlock
+// (#839). By the time a retry runs the winner has switched the file, so the
+// retry finds WAL and writes nothing. Retries give up after busyTimeout.
+func enableWAL(ctx context.Context, db *sql.DB) error {
+	deadline := time.Now().Add(busyTimeout)
+	backoff := 5 * time.Millisecond
+
+	for {
+		_, execErr := db.ExecContext(ctx, `PRAGMA journal_mode=WAL`)
+
+		if execErr == nil {
+			return nil
+		}
+
+		if !isBusy(execErr) || time.Now().Add(backoff).After(deadline) {
+			return fmt.Errorf("index: enable WAL: %w", execErr)
+		}
+
+		time.Sleep(backoff)
+
+		backoff = min(backoff*2, 100*time.Millisecond)
+	}
+}
+
+// isBusy reports whether err is SQLITE_BUSY or one of its extended codes.
+func isBusy(err error) bool {
+	var sqliteErr *sqlite.Error
+
+	return errors.As(err, &sqliteErr) && sqliteErr.Code()&0xff == sqlite3.SQLITE_BUSY
 }
 
 // migratePropertyDriftValue recreates a pre-#689 property_drift table that

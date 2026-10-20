@@ -3,6 +3,7 @@ package index_test
 import (
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
@@ -368,6 +369,71 @@ func TestOpen_SynchronousIsNormal(test *testing.T) {
 
 	if synchronous != 1 {
 		test.Errorf("PRAGMA synchronous = %d, want 1 (NORMAL)", synchronous)
+	}
+}
+
+func TestOpen_JournalModeIsWAL(test *testing.T) {
+	store, openErr := index.Open(filepath.Join(test.TempDir(), "index.db"))
+
+	if openErr != nil {
+		test.Fatalf("Open: %v", openErr)
+	}
+
+	defer store.Close()
+
+	var mode string
+
+	if queryErr := store.DB().QueryRow("PRAGMA journal_mode").Scan(&mode); queryErr != nil {
+		test.Fatalf("PRAGMA journal_mode: %v", queryErr)
+	}
+
+	if mode != "wal" {
+		test.Errorf("PRAGMA journal_mode = %q, want wal", mode)
+	}
+}
+
+// TestOpen_ConcurrentOpensOfANewFile pins #839: several handles opening an
+// index file that does not exist yet all succeed. Switching a new file to WAL
+// upgrades a read lock to a write lock, and SQLite fails the loser of that race
+// at once with SQLITE_BUSY instead of calling the busy handler, so Open has to
+// retry the switch itself.
+func TestOpen_ConcurrentOpensOfANewFile(test *testing.T) {
+	const rounds, openers = 30, 8
+
+	for round := 0; round < rounds; round++ {
+		dbPath := filepath.Join(test.TempDir(), "index.db")
+		start := make(chan struct{})
+		openErrs := make(chan error, openers)
+
+		var group sync.WaitGroup
+
+		for range openers {
+			group.Add(1)
+
+			go func() {
+				defer group.Done()
+
+				<-start
+
+				store, openErr := index.Open(dbPath)
+
+				if openErr != nil {
+					openErrs <- openErr
+
+					return
+				}
+
+				store.Close()
+			}()
+		}
+
+		close(start)
+		group.Wait()
+		close(openErrs)
+
+		for openErr := range openErrs {
+			test.Errorf("round %d: Open: %v", round, openErr)
+		}
 	}
 }
 
