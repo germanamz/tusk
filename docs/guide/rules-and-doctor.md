@@ -65,4 +65,4 @@ The filter is the same grammar `tusk query` takes, so you can try it there first
 
 Without `--reindex`, doctor on a fresh checkout reports an `index-not-built` warning rather than a clean vault. A warning exits 0, so add `--fail-on=warning` if you want a forgotten flag, or any other warning, to fail the job.
 
-`tusk reindex` also works on a runner. When it can't reach Ollama it still builds the index, says how many nodes are left to embed, and exits 0. Pass `--no-embed` to skip embedding, or `--strict-embed` to make an unreachable embedder fail the run.
+`tusk reindex` also works on a runner. When it can't reach Ollama it still builds the index, says how many nodes are left to embed, and exits 0. Pass `--no-embed` to skip embedding, or `--strict-embed` to fail the run when the embedder is unavailable or any node failed to embed.

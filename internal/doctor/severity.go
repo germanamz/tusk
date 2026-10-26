@@ -43,6 +43,7 @@ var severityByKind = map[string]string{
 	IssueUndeclaredProperty:        SeverityWarning,
 	IssueUndeclaredType:            SeverityWarning,
 	IssueEmbedRetry:                SeverityWarning,
+	IssueEmbedFailed:               SeverityWarning, // the node drops out of semantic results
 	IssueEmbedNoChunks:             SeverityWarning, // the node drops out of semantic results
 	IssueEmbeddingDrift:            SeverityWarning,
 	IssueSubUnitsDisabledDirty:     SeverityWarning,

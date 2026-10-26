@@ -18,18 +18,34 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 )
 
+// drainStubEmbedder returns a constant vector. failure fails every call,
+// the drain's backend probe included: the backend is down. refuse fails every
+// call but the probe: a healthy backend refusing those inputs. calls counts
+// the embed calls and probes the probe calls.
 type drainStubEmbedder struct {
 	calls   int
+	probes  int
 	dim     int
 	model   string
 	failure error
+	refuse  error
 }
 
 func (stub *drainStubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
-	stub.calls++
+	isProbe := string(payload) == embed.ProbeInput
+
+	if isProbe {
+		stub.probes++
+	} else {
+		stub.calls++
+	}
 
 	if stub.failure != nil {
 		return nil, stub.failure
+	}
+
+	if stub.refuse != nil && !isProbe {
+		return nil, stub.refuse
 	}
 
 	out := make([]float32, stub.dim)
@@ -237,9 +253,9 @@ func TestDrainQueue_LogsWarnOnEmbedError(test *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	failing := &drainStubEmbedder{
-		dim:     3,
-		model:   "fake",
-		failure: fmt.Errorf("input length exceeds the context length"),
+		dim:    3,
+		model:  "fake",
+		refuse: fmt.Errorf("input length exceeds the context length"),
 	}
 
 	_, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
@@ -296,9 +312,9 @@ func TestDrainQueue_GivesUpAfterMaxAttempts(test *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	failing := &drainStubEmbedder{
-		dim:     3,
-		model:   "fake",
-		failure: fmt.Errorf("forced failure"),
+		dim:    3,
+		model:  "fake",
+		refuse: fmt.Errorf("forced failure"),
 	}
 
 	drained, drainErr := embed.DrainQueue(context.Background(), embed.DrainConfig{
@@ -355,6 +371,18 @@ func TestDrainQueue_GivesUpAfterMaxAttempts(test *testing.T) {
 
 	if depth != 0 {
 		test.Errorf("queue depth after give-up = %d, want 0", depth)
+	}
+
+	// Giving up parks the row rather than dropping it, so doctor can say what
+	// failed (#845).
+	parked, listErr := queueRepo.ListParked()
+
+	if listErr != nil {
+		test.Fatalf("ListParked: %v", listErr)
+	}
+
+	if len(parked) != 1 || parked[0].NodeID != "doomed" || parked[0].Attempts != embed.MaxEmbedAttempts || parked[0].LastError != "forced failure" {
+		test.Errorf("parked = %+v, want doomed at %d attempts with its last error", parked, embed.MaxEmbedAttempts)
 	}
 }
 
@@ -1075,9 +1103,10 @@ func TestDrainQueue_WorkerErrorAtomicity(test *testing.T) {
 	nodeRepo.Upsert(index.NodeRow{ID: "notes/big", Type: "note", Path: "notes/big.md", Title: "x", PropertiesJSON: "{}", LastChecksum: "x"})
 	queueRepo.Enqueue("notes/big")
 
-	// Permanent failure: every embed call errors. Across MaxEmbedAttempts
-	// retries, no chunk should ever be persisted (per-node atomicity), and
-	// the queue eventually drops the node after the give-up.
+	// Permanent failure: every embed call for the node errors while the
+	// backend stays healthy. Across MaxEmbedAttempts retries, no chunk should
+	// ever be persisted (per-node atomicity), and the queue eventually parks
+	// the node after the give-up.
 	stub := &alwaysFailingSleepStubEmbedder{dim: 3, model: "stub", sleep: 1 * time.Millisecond}
 
 	var buf bytes.Buffer
@@ -1117,6 +1146,10 @@ type alwaysFailingSleepStubEmbedder struct {
 }
 
 func (stub *alwaysFailingSleepStubEmbedder) Embed(ctx context.Context, payload []byte) ([]float32, error) {
+	if string(payload) == embed.ProbeInput {
+		return make([]float32, stub.dim), nil
+	}
+
 	stub.mu.Lock()
 	stub.calls++
 	stub.mu.Unlock()
@@ -1975,8 +2008,9 @@ func TestDrainQueue_ReclaimsCrashedLeaseExactlyOnce(test *testing.T) {
 
 // TestDrainQueue_CtxCancelMidEmbedReclaimsThenDrainsOnce cancels a drain while a
 // lease is in-flight (the embedder is blocked mid-Embed). The cancelled pass
-// must nack the row — clearing the lease and bumping attempts — WITHOUT writing
-// a vector; a fresh pass then reclaims the row and produces exactly one vector.
+// must hand the row back — clearing the lease without charging an attempt,
+// since neither the node nor the backend failed — WITHOUT writing a vector; a
+// fresh pass then reclaims the row and produces exactly one vector.
 // This proves a mid-flight crash leaves no partial state and no duplicate. The
 // gate channel (not time.Sleep) makes the ordering deterministic.
 func TestDrainQueue_CtxCancelMidEmbedReclaimsThenDrainsOnce(test *testing.T) {
@@ -2047,12 +2081,16 @@ func TestDrainQueue_CtxCancelMidEmbedReclaimsThenDrainsOnce(test *testing.T) {
 		test.Errorf("drained on cancel = %d, want 0 (no vector written)", outcome.drained)
 	}
 
-	// The cancelled pass nacked the row: it is back in the queue, and nothing
-	// was written to the embeddings store.
+	// The cancelled pass handed the row back: it is in the queue, uncharged,
+	// and nothing was written to the embeddings store.
 	depth, _ := queueRepo.Depth()
 
 	if depth != 1 {
 		test.Errorf("queue depth after cancel = %d, want 1 (row re-enqueued)", depth)
+	}
+
+	if retrying, _ := queueRepo.ListRetrying(); len(retrying) != 0 {
+		test.Errorf("rows charged an attempt by the cancel = %+v, want none", retrying)
 	}
 
 	rowsAfterCancel, _ := embeddingRepo.GetByNodeID("notes/a")

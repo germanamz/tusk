@@ -17,12 +17,23 @@ import (
 	"github.com/germanamz/tusk/internal/node"
 )
 
-// MaxEmbedAttempts caps how many retries DrainQueue accepts for a failing
-// node. When attempts+1 would reach the cap, the row is dropped from the
-// queue (EmbedQueueRepo.Drop) and a Warn `embed gave up` line is emitted.
-// Fresh reindex runs re-enqueue every indexed node with attempts=0, so the
-// cap is per-drain, not per-node-lifetime.
+// MaxEmbedAttempts caps how many times DrainQueue tries a node that keeps
+// failing on its own. When attempts+1 would reach the cap, the row is parked
+// (EmbedQueueRepo.Park) and a Warn `embed gave up` line is emitted: the drain
+// stops claiming it, doctor reports it as embed-failed, and re-enqueueing the
+// node (it changed, `reindex --force`, an [embeddings] change) re-arms it. A
+// backend failure never counts toward the cap (see probeInput).
 const MaxEmbedAttempts = 3
+
+// probeInput is the text the drain embeds to tell a bad input from a bad
+// backend after an embed call fails. When the probe embeds, the backend is
+// serving and the failure belongs to the input, which fails alone (retried,
+// then parked). When the probe fails too, the backend can't serve at all
+// (down, overloaded, model missing) and the drain stops without charging any
+// node an attempt. Asking the backend, rather than reading status codes or
+// error text, also catches an input that crashes the model runner with a 5xx
+// every time (#845).
+const probeInput = "ping"
 
 // defaultEmbedLeaseTTL is the defensive fallback DrainQueue applies when
 // DrainConfig.TTL is zero or negative. Production callers resolve the TTL
@@ -103,21 +114,22 @@ func embeddingsMatch(existing []index.EmbeddingRow, newHashes []string, vectorKe
 	return true
 }
 
-// retryOrDrop applies the single per-node retry policy after any non-retryable
-// failure — a read/parse error, a content-hash map error, or an embed-call
-// failure. It drops the node from the queue once it has exhausted
-// MaxEmbedAttempts (logging "embed gave up"), otherwise re-enqueues it with the
-// error attached (logging "embed re-enqueued"). Queue errors are surfaced to
-// the log but otherwise ignored — the next drain pass re-converges. logger may
-// be nil, which silences all output.
-func retryOrDrop(queue *index.EmbedQueueRepo, logger *slog.Logger, nodeID, workerID string, attempts int, err error) {
+// retryOrPark applies the single per-node retry policy after a failure that
+// belongs to the node — a read/parse error, a content-hash map error, or an
+// embed call the backend refused while still answering the probe. It parks
+// the row once it has exhausted MaxEmbedAttempts (logging "embed gave up"),
+// otherwise re-enqueues it with the error attached (logging "embed
+// re-enqueued"). Queue errors are surfaced to the log but otherwise ignored —
+// the next drain pass re-converges. logger may be nil, which silences all
+// output.
+func retryOrPark(queue *index.EmbedQueueRepo, logger *slog.Logger, nodeID, workerID string, attempts int, err error) {
 	nextAttempts := attempts + 1
 
 	if nextAttempts >= MaxEmbedAttempts {
-		if dropErr := queue.Drop(nodeID, workerID); dropErr != nil && logger != nil {
-			logger.Warn("embed drop failed",
+		if parkErr := queue.Park(nodeID, workerID, err); parkErr != nil && logger != nil {
+			logger.Warn("embed park failed",
 				"node_id", nodeID,
-				"err", dropErr.Error(),
+				"err", parkErr.Error(),
 			)
 		}
 
@@ -148,10 +160,11 @@ func retryOrDrop(queue *index.EmbedQueueRepo, logger *slog.Logger, nodeID, worke
 }
 
 // DrainQueue pops every pending row from embed_queue and embeds it. Returns the
-// number of nodes successfully embedded. Failed rows are re-enqueued (with an
-// incremented attempts counter) until MaxEmbedAttempts is reached, at which
-// point the row is dropped from the queue. When DrainConfig.Embedder is nil,
-// DrainQueue is a no-op.
+// number of nodes successfully embedded. A row whose own input fails is
+// re-enqueued (with an incremented attempts counter) until MaxEmbedAttempts is
+// reached, at which point it is parked. A failure the backend probe shows is
+// the backend's stops the drain with a TransportError and charges nothing.
+// When DrainConfig.Embedder is nil, DrainQueue is a no-op.
 //
 // ctx cancellation aborts before the next batch; in-flight batches finish.
 func DrainQueue(ctx context.Context, config DrainConfig) (int, error) {
@@ -308,10 +321,10 @@ func drainBatchSerial(ctx context.Context, config DrainConfig, workerID string, 
 // workers, each running the unchanged per-node embedNode state machine (its
 // node id is unique, so its repo writes never collide with a sibling's). On the
 // first fatal error it stops feeding new rows but lets in-flight nodes finish —
-// a transport outage makes each of them abort cleanly on its own (leased, not
-// retried), and an upsert failure is per-node — so no node's retry budget is
-// burned by a sibling's failure. embedNode receives the original ctx; only a
-// genuine parent cancellation stops in-flight work.
+// a backend outage makes each of them fail its own probe and abort cleanly
+// (leased, not retried), and an upsert failure is per-node — so no node's
+// retry budget is burned by a sibling's failure. embedNode receives the
+// original ctx; only a genuine parent cancellation stops in-flight work.
 func drainBatchConcurrent(ctx context.Context, config DrainConfig, workerID string, batch []index.QueueRow, concurrency int) (int, int, error) {
 	type nodeResult struct {
 		outcome nodeOutcome
@@ -425,12 +438,12 @@ type nodeOutcome int
 const (
 	// outcomeSucceeded: the node was embedded (or reused/unchanged) and acked.
 	outcomeSucceeded nodeOutcome = iota
-	// outcomeFailed: the node failed and was nacked or dropped via the retry
+	// outcomeFailed: the node failed and was nacked or parked via the retry
 	// policy; the drain continues with the next row.
 	outcomeFailed
 	// outcomeSkipped: the node was dropped without retry (missing row, empty
-	// sub-unit payload, or zero chunks) and counts as neither success nor
-	// failure.
+	// sub-unit payload, or zero chunks) or handed back uncharged (a cancelled
+	// pass, superseded settings) and counts as neither success nor failure.
 	outcomeSkipped
 )
 
@@ -547,7 +560,7 @@ func pruneStaleTail(config DrainConfig, workerID string, queued index.QueueRow, 
 			)
 		}
 
-		retryOrDrop(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, delErr)
+		retryOrPark(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, delErr)
 
 		return false
 	}
@@ -573,9 +586,9 @@ type chunkSource struct {
 func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueRow, row *index.NodeRow) (chunkSource, nodeOutcome) {
 	// Sub-unit rows carry their own pre-synthesized embed payload (set by the
 	// sub-unit sync in Task 3) — including the `<column-header>: <cell-text>`
-	// synthesis for table cells per spec §5.6. They are embedded as a single
-	// vector with no file header context; the AST already chose the semantic
-	// boundary so we must not chunk further.
+	// synthesis for table cells per spec §5.6. They are embedded with no file
+	// header context, as a single vector unless the payload is too long for one
+	// (see chunkSubUnit).
 	//
 	// File-level rows fall through to the legacy read+parse+chunk path. That
 	// path is now the back-compat default for workspaces that disable sub-unit
@@ -598,13 +611,13 @@ func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueR
 			return chunkSource{}, outcomeSkipped
 		}
 
-		return chunkSource{bodies: ASTChunking{}.Chunk([]byte(payload))}, outcomeSucceeded
+		return chunkSource{bodies: chunkSubUnit(config.Chunker, []byte(payload))}, outcomeSucceeded
 	}
 
 	content, readErr := os.ReadFile(filepath.Join(config.Root, row.Path))
 
 	if readErr != nil {
-		retryOrDrop(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, readErr)
+		retryOrPark(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, readErr)
 
 		return chunkSource{}, outcomeFailed
 	}
@@ -615,7 +628,7 @@ func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueR
 	parsed, parseErr := node.ParseContentFileAs(row.Path, content, row.Type)
 
 	if parseErr != nil {
-		retryOrDrop(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, parseErr)
+		retryOrPark(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, parseErr)
 
 		return chunkSource{}, outcomeFailed
 	}
@@ -625,6 +638,22 @@ func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueR
 		title:  parsed.Title,
 		bodies: config.Chunker.Chunk(BuildBody(parsed)),
 	}, outcomeSucceeded
+}
+
+// chunkSubUnit returns the chunks a sub-unit's payload embeds as. The AST
+// already chose the unit's boundary (spec §5.6), so a payload within the
+// chunker's hard cap is one chunk, unchanged. A longer one (a big code block
+// or table) can't fit one vector, so it is split the way a file body is, and
+// the best of its chunks ranks the unit (#845). A chunker with no hard cap
+// leaves every payload whole.
+func chunkSubUnit(chunker ChunkingStrategy, payload []byte) [][]byte {
+	capped, hasCap := chunker.(interface{ MaxChunkBytes() int })
+
+	if !hasCap || len(payload) <= capped.MaxChunkBytes() {
+		return ASTChunking{}.Chunk(payload)
+	}
+
+	return chunker.Chunk(payload)
 }
 
 // tryReuse attaches the node to already-stored vectors by content hash when
@@ -658,7 +687,7 @@ func tryReuse(config DrainConfig, workerID string, queued index.QueueRow, chunkH
 
 	for chunkIdx, hash := range chunkHashes {
 		if mapErr := config.Embeddings.MapNodeChunk(queued.NodeID, chunkIdx, hash, config.Embedder.VectorKey()); mapErr != nil {
-			retryOrDrop(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, mapErr)
+			retryOrPark(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, mapErr)
 
 			return outcomeFailed
 		}
@@ -793,17 +822,28 @@ func embedChunks(ctx context.Context, config DrainConfig, workerID string, queue
 			)
 		}
 
-		// A transport failure (Ollama down / 5xx / connection refused) is not this
-		// node's fault: abort the whole drain pass and return without acking,
-		// nacking, or dropping. The row stays leased and is retried on a later
-		// tick once the lease expires — by which point the backend may be back —
-		// instead of burning the retry budget and silently evicting the node from
-		// semantic results over a transient blip.
-		if IsTransportError(firstErr) {
-			return outcomeFailed, fmt.Errorf("embed: aborting drain on transport error: %w", firstErr)
+		// A pass cancelled mid-embed (shutdown, reset) failed for neither the
+		// node nor the backend, and a probe would fail on the cancellation
+		// alone: hand the row back uncharged for the next pass.
+		if ctx.Err() != nil {
+			_ = config.Queue.Release(queued.NodeID, workerID)
+
+			return outcomeSkipped, nil
 		}
 
-		retryOrDrop(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, firstErr)
+		// Ask the backend whether it is the problem. If it can't embed the probe
+		// either (Ollama down, overloaded, model missing) the failure is not
+		// this node's: abort the whole drain pass and return without acking,
+		// nacking, or parking. The row stays leased and is retried on a later
+		// tick once the lease expires — by which point the backend may be back —
+		// instead of burning the retry budget over an outage. If the probe
+		// embeds, the backend refused this input and the node fails alone, so
+		// the drain moves on to the next row (#845).
+		if _, probeErr := config.Embedder.Embed(ctx, []byte(probeInput)); probeErr != nil {
+			return outcomeFailed, &TransportError{Err: fmt.Errorf("embed: aborting drain: the embedding backend failed a probe: %w", probeErr)}
+		}
+
+		retryOrPark(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, firstErr)
 
 		return outcomeFailed, nil
 	}

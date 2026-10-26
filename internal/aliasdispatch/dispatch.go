@@ -431,6 +431,7 @@ func buildStatusRequest(_ map[string]any, deps Deps) (any, error) {
 		Edges:      deps.Edges,
 		EmbedQueue: deps.EmbedQueue,
 		Meta:       deps.Meta,
+		Manifest:   deps.Manifest,
 	}, nil
 }
 

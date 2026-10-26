@@ -37,15 +37,27 @@ func NewEmbedQueueRepo(idx *Index) *EmbedQueueRepo {
 	return &EmbedQueueRepo{db: idx.DB()}
 }
 
-// Enqueue inserts a row for nodeID. Idempotent — if the row exists, no-op.
-// The kind column defaults to 'embed' via the table default; Phase 6 adds
-// a separate EnqueueReindex helper that sets kind = 'reindex' explicitly.
+// enqueueEmbedSQL queues an embed job for a node. A row already pending is
+// left alone, so a retrying row keeps its attempt count and any lease. A
+// parked row is re-armed with a fresh retry budget: callers enqueue a node
+// when it changed or when `reindex --force` re-queues it, and either is a
+// reason to try a node that stopped retrying again (#845).
+const enqueueEmbedSQL = `
+	INSERT INTO embed_queue (node_id, enqueued_at, attempts)
+	VALUES (?, ?, 0)
+	ON CONFLICT(node_id) DO UPDATE SET
+		attempts   = 0,
+		last_error = NULL,
+		parked_at  = NULL
+	WHERE embed_queue.parked_at IS NOT NULL
+`
+
+// Enqueue inserts a row for nodeID. Idempotent: a pending row is left as it
+// is, and a parked row is re-armed (see enqueueEmbedSQL). The kind column
+// defaults to 'embed' via the table default; EnqueueReindex sets
+// kind = 'reindex' explicitly.
 func (repo *EmbedQueueRepo) Enqueue(nodeID string) error {
-	_, execErr := repo.db.Exec(`
-		INSERT INTO embed_queue (node_id, enqueued_at, attempts)
-		VALUES (?, ?, 0)
-		ON CONFLICT(node_id) DO NOTHING
-	`, nodeID, time.Now().UnixNano())
+	_, execErr := repo.db.Exec(enqueueEmbedSQL, nodeID, time.Now().UnixNano())
 
 	if execErr != nil {
 		return fmt.Errorf("embedQueueRepo: enqueue %s: %w", nodeID, execErr)
@@ -55,8 +67,8 @@ func (repo *EmbedQueueRepo) Enqueue(nodeID string) error {
 }
 
 // EnqueueMany enqueues every nodeID in a single transaction, sharing one
-// enqueued_at timestamp. Like Enqueue it is idempotent (ON CONFLICT DO
-// NOTHING), so already-queued ids and in-batch duplicates are skipped. Callers
+// enqueued_at timestamp. Like Enqueue it is idempotent, so already-queued ids
+// and in-batch duplicates are skipped and parked ids are re-armed. Callers
 // that enqueue a whole file's sub-units use this to collapse O(sub-units)
 // commits into one. An empty slice is a no-op.
 func (repo *EmbedQueueRepo) EnqueueMany(nodeIDs []string) error {
@@ -73,11 +85,7 @@ func (repo *EmbedQueueRepo) EnqueueMany(nodeIDs []string) error {
 	now := time.Now().UnixNano()
 
 	for _, nodeID := range nodeIDs {
-		if _, execErr := tx.Exec(`
-			INSERT INTO embed_queue (node_id, enqueued_at, attempts)
-			VALUES (?, ?, 0)
-			ON CONFLICT(node_id) DO NOTHING
-		`, nodeID, now); execErr != nil {
+		if _, execErr := tx.Exec(enqueueEmbedSQL, nodeID, now); execErr != nil {
 			_ = tx.Rollback()
 
 			return fmt.Errorf("embedQueueRepo: enqueue-many %s: %w", nodeID, execErr)
@@ -94,7 +102,8 @@ func (repo *EmbedQueueRepo) EnqueueMany(nodeIDs []string) error {
 // EnqueueAllEmbeddable queues an embed job for every node the drain embeds:
 // each file row, and each sub-unit leaf with a non-empty payload (sections
 // are never embedded, and an empty-payload leaf is dropped by the drain). A
-// row already queued is reset to a fresh, unleased job: whichever drainer held
+// row already queued, parked or not, is reset to a fresh, unleased job:
+// whichever drainer held
 // it may be embedding under the settings that just changed, and clearing the
 // lease turns that drainer's Ack into a no-op so the row stays queued for an
 // up-to-date drainer. Returns how many rows it queued or reset.
@@ -113,7 +122,8 @@ func (repo *EmbedQueueRepo) EnqueueAllEmbeddable() (int, error) {
 			leased_until_ns     = NULL,
 			lease_started_at_ns = NULL,
 			attempts            = 0,
-			last_error          = NULL
+			last_error          = NULL,
+			parked_at           = NULL
 	`, time.Now().UnixNano())
 
 	if execErr != nil {
@@ -173,13 +183,13 @@ func (repo *EmbedQueueRepo) EnqueueReindex(path string) error {
 }
 
 // DrainEmbed atomically claims up to batchSize unleased (or expired-lease)
-// kind='embed' rows for workerID, setting leased_by / leased_until_ns /
+// kind='embed' rows that are not parked for workerID, setting leased_by / leased_until_ns /
 // lease_started_at_ns to now and now+ttl. Returns the claimed rows
 // oldest-first.
 //
 // On success the caller embeds each row and calls Ack to delete it; on
 // failure the caller calls Nack to release the lease and bump attempts,
-// or Drop to remove the row when the attempts cap is hit. On crash the
+// or Park to stop retrying it when the attempts cap is hit. On crash the
 // lease expires after ttl and another worker's DrainEmbed reclaims it.
 func (repo *EmbedQueueRepo) DrainEmbed(workerID string, batchSize int, ttl time.Duration) ([]QueueRow, error) {
 	return repo.drainByKind(workerID, batchSize, ttl, "embed")
@@ -206,6 +216,7 @@ func (repo *EmbedQueueRepo) drainByKind(workerID string, batchSize int, ttl time
 		WHERE  node_id IN (
 		         SELECT node_id FROM embed_queue
 		         WHERE  kind = ?
+		           AND  parked_at IS NULL
 		           AND  (leased_by IS NULL OR leased_until_ns < ?)
 		         ORDER BY enqueued_at ASC
 		         LIMIT ?
@@ -287,8 +298,8 @@ func (repo *EmbedQueueRepo) Nack(nodeID, workerID string, embedErr error) error 
 	return nil
 }
 
-// Drop removes a row permanently — used when the attempts cap is hit
-// and the row should not be retried. Same lease-guard semantics as
+// Drop removes a row permanently, for a job with nothing left to do: its
+// node is gone, or it has no text to embed. Same lease-guard semantics as
 // Ack / Nack: if the lease has moved on, this is a silent no-op.
 func (repo *EmbedQueueRepo) Drop(nodeID, workerID string) error {
 	if _, execErr := repo.db.Exec(
@@ -301,12 +312,111 @@ func (repo *EmbedQueueRepo) Drop(nodeID, workerID string) error {
 	return nil
 }
 
-// Depth returns the number of pending rows across all kinds. Callers that
-// need to distinguish embed vs reindex jobs should use DepthByKind.
+// Park stops retrying a row that has used up its attempts: like Nack it
+// releases the lease, bumps attempts and records last_error, and it also
+// stamps parked_at, which keeps DrainEmbed from claiming the row and the
+// depth counts from calling it pending. The row stays so doctor can say what
+// failed; Enqueue (the node changed, or `reindex --force`) and
+// EnqueueAllEmbeddable (an [embeddings] change) re-arm it, and deleting the
+// node deletes it. Same lease guard as Nack: a no-op when workerID no longer
+// holds the row.
+func (repo *EmbedQueueRepo) Park(nodeID, workerID string, embedErr error) error {
+	var lastErr string
+
+	if embedErr != nil {
+		lastErr = embedErr.Error()
+	}
+
+	if _, execErr := repo.db.Exec(`
+		UPDATE embed_queue
+		SET    leased_by           = NULL,
+		       leased_until_ns     = NULL,
+		       lease_started_at_ns = NULL,
+		       attempts            = attempts + 1,
+		       last_error          = ?,
+		       parked_at           = ?
+		WHERE  node_id = ? AND leased_by = ?
+	`, lastErr, time.Now().UnixNano(), nodeID, workerID); execErr != nil {
+		return fmt.Errorf("embedQueueRepo: park %s: %w", nodeID, execErr)
+	}
+
+	return nil
+}
+
+// CountParked returns the number of embed rows that stopped retrying (see
+// Park).
+func (repo *EmbedQueueRepo) CountParked() (int, error) {
+	var parked int
+
+	if scanErr := repo.db.QueryRow(
+		`SELECT COUNT(*) FROM embed_queue WHERE kind = 'embed' AND parked_at IS NOT NULL`,
+	).Scan(&parked); scanErr != nil {
+		return 0, fmt.Errorf("embedQueueRepo: count parked: %w", scanErr)
+	}
+
+	return parked, nil
+}
+
+// ListParked returns every embed row that stopped retrying, with its attempt
+// count and last_error, sorted by node_id. It feeds doctor's embed-failed
+// check.
+func (repo *EmbedQueueRepo) ListParked() ([]QueueRow, error) {
+	rows, queryErr := repo.db.Query(`
+		SELECT node_id, enqueued_at, attempts, COALESCE(last_error, ''), kind
+		FROM embed_queue
+		WHERE kind = 'embed' AND parked_at IS NOT NULL
+		ORDER BY node_id ASC
+	`)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("embedQueueRepo: list parked: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	var parked []QueueRow
+
+	for rows.Next() {
+		var row QueueRow
+
+		if scanErr := rows.Scan(&row.NodeID, &row.EnqueuedAt, &row.Attempts, &row.LastError, &row.Kind); scanErr != nil {
+			return nil, fmt.Errorf("embedQueueRepo: list parked scan: %w", scanErr)
+		}
+
+		parked = append(parked, row)
+	}
+
+	return parked, rows.Err()
+}
+
+// DeleteOrphans removes every embed row whose node no longer exists and
+// returns how many it removed. Deleting a node deletes its row (the
+// nodes_drop_embed_job trigger), so this only finds rows an index written
+// before that trigger leaked (#845). Reindex rows key on a path, not a node,
+// and are left alone.
+func (repo *EmbedQueueRepo) DeleteOrphans() (int, error) {
+	result, execErr := repo.db.Exec(`
+		DELETE FROM embed_queue
+		WHERE kind = 'embed'
+		  AND NOT EXISTS (SELECT 1 FROM nodes WHERE nodes.id = embed_queue.node_id)
+	`)
+
+	if execErr != nil {
+		return 0, fmt.Errorf("embedQueueRepo: delete orphans: %w", execErr)
+	}
+
+	removed, _ := result.RowsAffected()
+
+	return int(removed), nil
+}
+
+// Depth returns the number of pending rows across all kinds. Parked rows are
+// not pending; CountParked counts them. Callers that need to distinguish
+// embed vs reindex jobs should use DepthByKind.
 func (repo *EmbedQueueRepo) Depth() (int, error) {
 	var depth int
 
-	if scanErr := repo.db.QueryRow(`SELECT COUNT(*) FROM embed_queue`).Scan(&depth); scanErr != nil {
+	if scanErr := repo.db.QueryRow(`SELECT COUNT(*) FROM embed_queue WHERE parked_at IS NULL`).Scan(&depth); scanErr != nil {
 		return 0, fmt.Errorf("embedQueueRepo: depth: %w", scanErr)
 	}
 
@@ -314,11 +424,12 @@ func (repo *EmbedQueueRepo) Depth() (int, error) {
 }
 
 // DepthByKind returns the number of pending rows whose kind matches the
-// argument. Used by status reporters to separate embed vs reindex backlogs.
+// argument, parked rows left out. Used by status reporters to separate embed
+// vs reindex backlogs.
 func (repo *EmbedQueueRepo) DepthByKind(kind string) (int, error) {
 	var depth int
 
-	if scanErr := repo.db.QueryRow(`SELECT COUNT(*) FROM embed_queue WHERE kind = ?`, kind).Scan(&depth); scanErr != nil {
+	if scanErr := repo.db.QueryRow(`SELECT COUNT(*) FROM embed_queue WHERE kind = ? AND parked_at IS NULL`, kind).Scan(&depth); scanErr != nil {
 		return 0, fmt.Errorf("embedQueueRepo: depth by kind %q: %w", kind, scanErr)
 	}
 
@@ -326,17 +437,16 @@ func (repo *EmbedQueueRepo) DepthByKind(kind string) (int, error) {
 }
 
 // ListRetrying returns every pending kind='embed' row that has failed at
-// least once (attempts > 0), carrying its attempt count and last_error. A
-// persistently failing embedder is otherwise indistinguishable from a healthy
-// backlog: the row sits leased-and-released in the queue until the attempts cap
-// drops it, and doctor sees only a generic embed-no-chunks with no cause. This
-// feeds doctor's IssueEmbedRetry check. Rows are returned oldest-first
+// least once (attempts > 0) and has not been parked, carrying its attempt
+// count and last_error. A row that is failing is otherwise indistinguishable
+// from a healthy backlog until the attempts cap parks it. This feeds doctor's
+// IssueEmbedRetry check. Rows are returned oldest-first
 // (enqueued_at asc, then node_id) for stable output.
 func (repo *EmbedQueueRepo) ListRetrying() ([]QueueRow, error) {
 	rows, queryErr := repo.db.Query(`
 		SELECT node_id, enqueued_at, attempts, COALESCE(last_error, ''), kind
 		FROM embed_queue
-		WHERE kind = 'embed' AND attempts > 0
+		WHERE kind = 'embed' AND attempts > 0 AND parked_at IS NULL
 		ORDER BY enqueued_at ASC, node_id ASC
 	`)
 
@@ -362,10 +472,11 @@ func (repo *EmbedQueueRepo) ListRetrying() ([]QueueRow, error) {
 }
 
 // ListNodeIDs returns every pending kind='embed' node_id, sorted ascending.
-// Reindex rows are excluded — callers wanting reindex jobs should query
-// directly or use a kind-filtered helper.
+// Parked rows are excluded (ListParked lists them), and so are reindex rows —
+// callers wanting reindex jobs should query directly or use a kind-filtered
+// helper.
 func (repo *EmbedQueueRepo) ListNodeIDs() ([]string, error) {
-	rows, queryErr := repo.db.Query(`SELECT node_id FROM embed_queue WHERE kind = 'embed' ORDER BY node_id`)
+	rows, queryErr := repo.db.Query(`SELECT node_id FROM embed_queue WHERE kind = 'embed' AND parked_at IS NULL ORDER BY node_id`)
 
 	if queryErr != nil {
 		return nil, fmt.Errorf("embedQueueRepo: list node ids: %w", queryErr)

@@ -16,15 +16,15 @@ func TestE2E_SemanticRetrieval(test *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var payload struct {
-			Prompt string `json:"prompt"`
+			Input string `json:"input"`
 		}
 
 		_ = json.NewDecoder(request.Body).Decode(&payload)
 
 		first := byte(0)
 
-		if len(payload.Prompt) > 0 {
-			first = payload.Prompt[0]
+		if len(payload.Input) > 0 {
+			first = payload.Input[0]
 		}
 
 		vector := []float64{0, 0, 0}
@@ -38,7 +38,7 @@ func TestE2E_SemanticRetrieval(test *testing.T) {
 			vector[2] = 1
 		}
 
-		_ = json.NewEncoder(writer).Encode(map[string]any{"embedding": vector})
+		_ = json.NewEncoder(writer).Encode(map[string]any{"embeddings": [][]float64{vector}})
 	}))
 
 	defer server.Close()

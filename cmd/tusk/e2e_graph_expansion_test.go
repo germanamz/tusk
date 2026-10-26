@@ -38,7 +38,7 @@ func TestE2E_GraphExpansion(test *testing.T) {
 	// contains "noise-token" → {0.1, 0, 0.99} (small positive cosine).
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var payload struct {
-			Prompt string `json:"prompt"`
+			Input string `json:"input"`
 		}
 
 		_ = json.NewDecoder(request.Body).Decode(&payload)
@@ -46,18 +46,18 @@ func TestE2E_GraphExpansion(test *testing.T) {
 		vector := []float64{0, 0, 1} // default = orthogonal to "auth"
 
 		switch {
-		case strings.Contains(payload.Prompt, "alpha-token"):
+		case strings.Contains(payload.Input, "alpha-token"):
 			vector = []float64{1, 0, 0}
-		case strings.Contains(payload.Prompt, "hub-token"):
+		case strings.Contains(payload.Input, "hub-token"):
 			vector = []float64{0, 0, 1}
-		case strings.Contains(payload.Prompt, "noise-token"):
+		case strings.Contains(payload.Input, "noise-token"):
 			vector = []float64{0.1, 0, 0.99}
-		case payload.Prompt == "auth":
+		case payload.Input == "auth":
 			// Bare query string from the CLI — align with the alpha notes.
 			vector = []float64{1, 0, 0}
 		}
 
-		_ = json.NewEncoder(writer).Encode(map[string]any{"embedding": vector})
+		_ = json.NewEncoder(writer).Encode(map[string]any{"embeddings": [][]float64{vector}})
 	}))
 
 	defer server.Close()

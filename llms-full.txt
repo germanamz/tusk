@@ -87,7 +87,7 @@ Or, without Homebrew:
 curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
 ```
 
-The script downloads the latest release for macOS, Linux or Windows (amd64 or arm64) into `~/.local/bin`. With Go 1.26+ you can run `go install github.com/germanamz/tusk/cmd/tusk@latest` instead. Semantic and hybrid search need [Ollama](https://ollama.com) running locally with an embedding model (`ollama pull nomic-embed-text`). Everything else works without it.
+The script downloads the latest release for macOS, Linux or Windows (amd64 or arm64) into `~/.local/bin`. With Go 1.26+ you can run `go install github.com/germanamz/tusk/cmd/tusk@latest` instead. Semantic and hybrid search need [Ollama](https://ollama.com) 0.3.4 or newer running locally with an embedding model (`ollama pull nomic-embed-text`). Everything else works without it.
 
 Updating (`tusk update`), pinning a version and building from source are in [docs/guide/install.md](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/install.md).
 
@@ -193,7 +193,7 @@ None of these commands prompt.
 1. Install: `curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh` puts `tusk` in `~/.local/bin`. If `tusk --version` fails afterwards, that directory isn't on `PATH`.
 2. Create the workspace in the vault root: `tusk init --name <name>`. It exits 1 if `tusk.toml` already exists, which you can treat as already done. If the folder holds markdown without a `type:`, init adds the vault pack and sets `default-type = "note"` so those files index as notes, and says so in its output; `--no-adopt` skips this.
 3. Declare types, unless init already added the vault pack: `tusk pack add vault` adds note, meeting and decision types. Built-in packs ship inside tusk, so it works offline. It exits 1 if run twice (`--force` overwrites). Or write `[node-types.*]` in `tusk.toml` yourself.
-4. Index: `tusk reindex`. If its summary ends with `queued for embedding (embedder unreachable)`, Ollama isn't reachable: the graph was built, and only semantic search is missing. It still exits 0.
+4. Index: `tusk reindex`. If its summary ends with `queued for embedding (embedding backend unavailable)`, Ollama isn't reachable or the model isn't pulled: the graph was built, and only semantic search is missing. It still exits 0.
 5. Connect the client as described in [Connect your agent](https://raw.githubusercontent.com/germanamz/tusk/main/README.md#connect-your-agent). For Claude Code, run `tusk claude install`.
 6. Verify: `tusk status` prints node counts by type, so non-zero counts mean files were indexed. `tusk doctor` exits 0 when the vault is healthy and 1 when an error is present, listing errors first.
 
@@ -259,7 +259,7 @@ Source: https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/install
 
 ## Prerequisites
 
-- (Optional, for semantic search) [Ollama](https://ollama.com) running locally with an embedding model, e.g. `ollama pull nomic-embed-text`. Everything except semantic and hybrid queries works without it.
+- (Optional, for semantic search) [Ollama](https://ollama.com) 0.3.4 or newer running locally with an embedding model, e.g. `ollama pull nomic-embed-text`. Everything except semantic and hybrid queries works without it.
 
 ## Homebrew (macOS and Linux)
 
@@ -666,7 +666,9 @@ document-prefix = "search_document: "
 | `snowflake-arctic-embed` (v1) | `Represent this sentence for searching relevant passages: ` | none | 512 |
 | `snowflake-arctic-embed2` | `query: ` | none | 8K |
 
-Each prefix ends with a space. `{title}` in `document-prefix` becomes the note's title (`none` for sub-units). The other keys are `document-header` (`full`, `title`, or `none`: how much frontmatter leads each file chunk), `chunk-target-bytes` / `chunk-max-bytes` / `chunk-overlap-bytes` (defaults 1600 / 4000 / 200, sized for a 2K window; for a 512-token model set `chunk-max-bytes = 1000` and a smaller target such as `chunk-target-bytes = 800`, and consider `document-header = "title"` since the header doesn't count toward the cap), and `num-ctx` (passed to Ollama as `num_ctx`).
+Each prefix ends with a space. `{title}` in `document-prefix` becomes the note's title (`none` for sub-units). The other keys are `document-header` (`full`, `title`, or `none`: how much frontmatter leads each file chunk), `chunk-target-bytes` / `chunk-max-bytes` / `chunk-overlap-bytes` (defaults 1600 / 4000 / 200, sized for a 2K window; for a 512-token model set `chunk-max-bytes = 1000` and a smaller target such as `chunk-target-bytes = 800`, and consider `document-header = "title"` since the header doesn't count toward the cap), and `num-ctx` (passed to Ollama as `num_ctx`). `num-ctx` can't take a model past the context it was trained on: `nomic-embed-text` stops at 2048 tokens whatever you set.
+
+The default cap assumes about 2 bytes per token, which holds for prose and most code. Dense text runs denser (JSON at about 1.8 bytes per token, hex at 1.5, base64 at 1.4), so a chunk of it near the cap can still be too long for the model. When that happens tusk embeds the part that fits and logs a warning. A sub-unit longer than `chunk-max-bytes`, such as a big code block or table, is split the way a file is, and its best chunk ranks it. An input the model refuses for some other reason is retried twice and then set aside: `tusk doctor` lists it as `embed-failed` with the error, and it is tried again when the note changes, on `tusk reindex --force`, or after an `[embeddings]` change.
 
 How much the prefixes matter was measured before they shipped ([#758](https://github.com/germanamz/tusk/issues/758)): a real vault of 79 markdown files, 44 hand-written queries with known target notes, note-level ranks scored from `tusk query --semantic --json`.
 
@@ -783,7 +785,7 @@ The filter is the same grammar `tusk query` takes, so you can try it there first
 
 Without `--reindex`, doctor on a fresh checkout reports an `index-not-built` warning rather than a clean vault. A warning exits 0, so add `--fail-on=warning` if you want a forgotten flag, or any other warning, to fail the job.
 
-`tusk reindex` also works on a runner. When it can't reach Ollama it still builds the index, says how many nodes are left to embed, and exits 0. Pass `--no-embed` to skip embedding, or `--strict-embed` to make an unreachable embedder fail the run.
+`tusk reindex` also works on a runner. When it can't reach Ollama it still builds the index, says how many nodes are left to embed, and exits 0. Pass `--no-embed` to skip embedding, or `--strict-embed` to fail the run when the embedder is unavailable or any node failed to embed.
 
 # docs/guide/mcp.md
 
@@ -1895,8 +1897,10 @@ Doctor reports:
     matches file nodes only unless its filter selects a sub-unit type. A rule
     that does not parse, or names a type, property or enum value tusk.toml
     does not declare, is a rule-invalid error.
-  * Embedding queue depth, and embed-retry rows (a failing embedder that
-    keeps re-enqueueing) with their attempt count and last error.
+  * Embedding queue depth, embed-retry rows (an embed that failed and is
+    being retried) and embed-failed rows (one that failed 3 times and stopped
+    retrying until the node changes, reindex --force, or an [embeddings]
+    change), each with its attempt count and last error.
   * Sub-unit pane: per-kind counts, deduped sub-units, oversize payloads.
   * Graph-expansion pane: the resolved [query.graph-expansion] settings,
     unknown edge types (valid but undeclared — the walker skips them),
@@ -3198,7 +3202,7 @@ tusk reindex [flags]
       --force          re-process every file even if its mtime and size are unchanged
   -h, --help           help for reindex
       --no-embed       build the structural index only; leave the embedding queue for a later run
-      --strict-embed   exit 1 when the embedding backend is unreachable
+      --strict-embed   exit 1 when the embedding backend is unavailable or any node failed to embed
 ```
 
 ### Options inherited from parent commands

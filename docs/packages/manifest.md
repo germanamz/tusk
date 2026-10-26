@@ -138,9 +138,9 @@ num-ctx             = 2048
 | `document-prefix` | string | `""` | Prepended to every document text (file chunks and sub-unit leaves). `{title}` becomes the node's title, or `none` for an untitled file and for every sub-unit. |
 | `document-header` | string | `"full"` | Block at the start of each file chunk: `full` (type, title, properties), `title` (title line only), or `none`. |
 | `chunk-target-bytes` | int | `1600` | File-level chunk packing goal. |
-| `chunk-max-bytes` | int | `4000` | Hard cap per file-level chunk; also the threshold doctor's oversize checks use. |
+| `chunk-max-bytes` | int | `4000` | Hard cap per file-level chunk. A sub-unit longer than this is split like a file. Also the threshold doctor's oversize checks use. |
 | `chunk-overlap-bytes` | int | `200` | Tail of each chunk carried into the next. |
-| `num-ctx` | int | `0` | Sent to Ollama as `options.num_ctx` when > 0; unset keeps the model's default window. |
+| `num-ctx` | int | `0` | Sent to Ollama as `options.num_ctx` when > 0; unset keeps the model's default window. It can't exceed the context the model was trained on (`nomic-embed-text`: 2048 tokens). |
 
 Zero or absent sizes mean the default. `Load` rejects negative sizes or `num-ctx`, an unknown `document-header`, `{title}` in `query-prefix`, a `#` in `model` (it separates the model from its options in stored vector keys), and resolved sizes that break `overlap < target <= max` (the error names any default it filled in, so lowering only `chunk-max-bytes` below the default target says so). Prefix and header bytes don't count toward the chunk budget.
 

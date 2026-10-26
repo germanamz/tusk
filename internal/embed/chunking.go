@@ -22,14 +22,15 @@ func (strategy WholeDocument) Chunk(payload []byte) [][]byte {
 	return [][]byte{payload}
 }
 
-// ASTChunking is the chunker used by the drainer for sub-unit rows. Each
-// leaf sub-unit (paragraph, list-item, code-block, blockquote, table-cell)
-// is embedded as a single vector per spec §5.6: the AST already determined
-// the semantic boundary so the chunker must not split it further.
+// ASTChunking is the chunker used by the drainer for a sub-unit row within
+// the file chunker's hard cap. Each such leaf sub-unit (paragraph, list-item,
+// code-block, blockquote, table-cell) is embedded as a single vector per spec
+// §5.6: the AST already determined the semantic boundary so the chunker must
+// not split it further. A leaf over the cap is split by the file chunker
+// instead (see chunkSubUnit in drain.go).
 //
 // Functionally identical to WholeDocument — exposed as a separate type so
-// the drainer's intent is legible at the call site and so future tweaks
-// (e.g. doctor-level oversize warnings) have a dedicated home.
+// the drainer's intent is legible at the call site.
 type ASTChunking struct{}
 
 // Chunk implements ChunkingStrategy. The returned slice always has length
@@ -47,9 +48,13 @@ func (strategy ASTChunking) Chunk(payload []byte) [][]byte {
 //
 // Zero-value defaults target ~400 tokens with ~50-token overlap for
 // nomic-embed-text (2048-token window): TargetBytes=1600, MaxBytes=4000,
-// OverlapBytes=200. MaxBytes is sized for ~2 bytes/token (code-dense
-// markdown) so chunks stay under 2048 tokens worst case; prose chunks
-// rarely approach the cap because TargetBytes triggers emit first.
+// OverlapBytes=200. MaxBytes is sized for ~2 bytes/token, which holds for
+// prose (~5 bytes/token) and most code. Dense text runs denser — measured on
+// nomic-embed-text, JSON at ~1.8 bytes/token, hex at ~1.5, base64 at ~1.4 —
+// so a chunk of it near the cap can still overflow 2048 tokens, and no byte
+// cap holds for every text. The Ollama embedder covers that gap: it embeds the
+// part of an over-long chunk that fits and logs that it did (#845). Prose
+// chunks rarely approach the cap because TargetBytes triggers emit first.
 type MarkdownRecursive struct {
 	TargetBytes  int
 	MaxBytes     int
@@ -88,6 +93,12 @@ func (strategy MarkdownRecursive) maxSize() int {
 	}
 
 	return DefaultMaxBytes
+}
+
+// MaxChunkBytes reports the hard per-chunk cap, with the default filled in.
+// The drain splits a sub-unit payload only when it is longer than this.
+func (strategy MarkdownRecursive) MaxChunkBytes() int {
+	return strategy.maxSize()
 }
 
 func (strategy MarkdownRecursive) overlap() int {

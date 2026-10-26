@@ -7,22 +7,26 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 )
 
-func TestOllamaEmbedder_PostsToEmbeddingsEndpoint(test *testing.T) {
+func TestOllamaEmbedder_PostsToEmbedEndpoint(test *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/api/embeddings" {
-			test.Errorf("path = %q, want /api/embeddings", request.URL.Path)
+		if request.URL.Path != "/api/embed" {
+			test.Errorf("path = %q, want /api/embed", request.URL.Path)
 		}
 
 		var payload struct {
-			Model  string `json:"model"`
-			Prompt string `json:"prompt"`
+			Model    string `json:"model"`
+			Input    string `json:"input"`
+			Truncate *bool  `json:"truncate"`
 		}
 
 		if decodeErr := json.NewDecoder(request.Body).Decode(&payload); decodeErr != nil {
@@ -33,13 +37,17 @@ func TestOllamaEmbedder_PostsToEmbeddingsEndpoint(test *testing.T) {
 			test.Errorf("model = %q, want test-model", payload.Model)
 		}
 
-		if payload.Prompt != "hello world" {
-			test.Errorf("prompt = %q", payload.Prompt)
+		if payload.Input != "hello world" {
+			test.Errorf("input = %q", payload.Input)
+		}
+
+		if payload.Truncate == nil || *payload.Truncate {
+			test.Errorf("truncate = %v, want false (an over-long input must be refused, not silently clipped)", payload.Truncate)
 		}
 
 		writer.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(writer).Encode(map[string]any{
-			"embedding": []float64{0.1, 0.2, 0.3},
+			"embeddings": [][]float64{{0.1, 0.2, 0.3}},
 		})
 	}))
 
@@ -90,7 +98,7 @@ func TestOllamaEmbedder_ErrorsOnDimMismatch(test *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(writer).Encode(map[string]any{
-			"embedding": []float64{0.1, 0.2}, // 2 dims, but config says 3
+			"embeddings": [][]float64{{0.1, 0.2}}, // 2 dims, but config says 3
 		})
 	}))
 
@@ -164,7 +172,7 @@ func TestOllamaEmbedder_LogsWarnOnNon2xx(test *testing.T) {
 
 func TestOllamaEmbedder_LogsDebugOnRequest(test *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		_, _ = writer.Write([]byte(`{"embedding":[0.1,0.2,0.3]}`))
+		_, _ = writer.Write([]byte(`{"embeddings":[[0.1,0.2,0.3]]}`))
 	}))
 
 	defer server.Close()
@@ -203,7 +211,7 @@ func TestOllamaEmbedder_RespectsConfiguredTimeout(test *testing.T) {
 		// Sleep longer than the configured timeout to force a client-side abort.
 		time.Sleep(200 * time.Millisecond)
 		writer.WriteHeader(http.StatusOK)
-		_, _ = writer.Write([]byte(`{"embedding":[0.1,0.2,0.3]}`))
+		_, _ = writer.Write([]byte(`{"embeddings":[[0.1,0.2,0.3]]}`))
 	}))
 
 	defer server.Close()
@@ -256,8 +264,8 @@ func TestOllamaEmbedder_HTTP5xxIsTransportError(test *testing.T) {
 }
 
 // TestOllamaEmbedder_HTTP4xxIsNotTransportError confirms a 4xx (a bad request,
-// a missing model) is a per-node/config fault, not transient — it stays a plain
-// error so the drain's retry/drop policy still applies.
+// a missing model) is not transient: it stays a plain error, and the drain's
+// probe decides whether the input or the backend is at fault.
 func TestOllamaEmbedder_HTTP4xxIsNotTransportError(test *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, "bad request", http.StatusBadRequest)
@@ -315,7 +323,7 @@ func TestOllamaEmbedder_DimMismatchIsNotTransportError(test *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(writer).Encode(map[string]any{
-			"embedding": []float64{0.1, 0.2}, // 2 dims, config says 3
+			"embeddings": [][]float64{{0.1, 0.2}}, // 2 dims, config says 3
 		})
 	}))
 
@@ -339,16 +347,16 @@ func TestOllamaEmbedder_DimMismatchIsNotTransportError(test *testing.T) {
 }
 
 // TestOllamaEmbedder_RequestBody pins the wire bytes: with num-ctx unset the
-// body must match the pre-num-ctx request exactly (no "options" key), so an
-// upgrade leaves Ollama's output, and therefore every stored vector, as is.
+// body carries no "options" key, so Ollama runs the model with its own
+// defaults, and truncate is always sent as false.
 func TestOllamaEmbedder_RequestBody(test *testing.T) {
 	cases := []struct {
 		name   string
 		numCtx int
 		want   string
 	}{
-		{name: "num-ctx unset", numCtx: 0, want: `{"model":"m","prompt":"hello"}`},
-		{name: "num-ctx set", numCtx: 512, want: `{"model":"m","prompt":"hello","options":{"num_ctx":512}}`},
+		{name: "num-ctx unset", numCtx: 0, want: `{"model":"m","input":"hello","truncate":false}`},
+		{name: "num-ctx set", numCtx: 512, want: `{"model":"m","input":"hello","truncate":false,"options":{"num_ctx":512}}`},
 	}
 
 	for _, testCase := range cases {
@@ -360,7 +368,7 @@ func TestOllamaEmbedder_RequestBody(test *testing.T) {
 				_, _ = buffer.ReadFrom(request.Body)
 				received = buffer.Bytes()
 
-				_ = json.NewEncoder(writer).Encode(map[string]any{"embedding": []float64{0.1}})
+				_ = json.NewEncoder(writer).Encode(map[string]any{"embeddings": [][]float64{{0.1}}})
 			}))
 
 			defer server.Close()
@@ -375,5 +383,150 @@ func TestOllamaEmbedder_RequestBody(test *testing.T) {
 				test.Errorf("body = %s, want %s", received, testCase.want)
 			}
 		})
+	}
+}
+
+// contextLimitServer stands in for Ollama's /api/embed with a model whose
+// context holds limit bytes: it refuses a longer input with the HTTP 400 Ollama
+// sends when truncate is false, and embeds the leading limit bytes when it is
+// true. truncates returns the truncate flag of every request so far.
+func contextLimitServer(test *testing.T, limit int) (*httptest.Server, func() []bool) {
+	test.Helper()
+
+	var (
+		mu        sync.Mutex
+		truncates []bool
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload struct {
+			Input    string `json:"input"`
+			Truncate bool   `json:"truncate"`
+		}
+
+		if decodeErr := json.NewDecoder(request.Body).Decode(&payload); decodeErr != nil {
+			test.Errorf("decode: %v", decodeErr)
+		}
+
+		mu.Lock()
+		truncates = append(truncates, payload.Truncate)
+		mu.Unlock()
+
+		if len(payload.Input) > limit && !payload.Truncate {
+			writer.WriteHeader(http.StatusBadRequest)
+			_, _ = writer.Write([]byte(`{"error":"the input length exceeds the context length"}`))
+
+			return
+		}
+
+		_ = json.NewEncoder(writer).Encode(map[string]any{"embeddings": [][]float64{{0.1, 0.2, 0.3}}})
+	}))
+
+	test.Cleanup(server.Close)
+
+	return server, func() []bool {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return slices.Clone(truncates)
+	}
+}
+
+// TestOllamaEmbedder_TruncatesInputLongerThanTheContext: an input the model
+// refuses for length is sent again with truncate on, so it embeds the part
+// that fits instead of failing, and the clipping is logged (#845).
+func TestOllamaEmbedder_TruncatesInputLongerThanTheContext(test *testing.T) {
+	server, truncates := contextLimitServer(test, 10)
+
+	var buffer bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{Endpoint: server.URL, Model: "m", Dim: 3, Logger: logger})
+
+	vector, embedErr := embedder.Embed(context.Background(), []byte(strings.Repeat("x", 50)))
+
+	if embedErr != nil {
+		test.Fatalf("Embed: %v", embedErr)
+	}
+
+	if len(vector) != 3 {
+		test.Errorf("vector = %v, want 3 dims", vector)
+	}
+
+	if want := []bool{false, true}; !slices.Equal(truncates(), want) {
+		test.Errorf("truncate flags = %v, want %v", truncates(), want)
+	}
+
+	output := buffer.String()
+
+	if !strings.Contains(output, `msg="ollama input exceeds the model's context; embedded the part that fits"`) || !strings.Contains(output, "payload_bytes=50") {
+		test.Errorf("expected a truncation warning naming the payload size; got %q", output)
+	}
+
+	if strings.Contains(output, `msg="ollama non-2xx"`) {
+		test.Errorf("a refusal the retry recovered from must not log as a failure; got %q", output)
+	}
+
+	if _, shortErr := embedder.Embed(context.Background(), []byte("short")); shortErr != nil {
+		test.Fatalf("Embed short: %v", shortErr)
+	}
+
+	if want := []bool{false, true, false}; !slices.Equal(truncates(), want) {
+		test.Errorf("an input that fits must take one request; truncate flags = %v, want %v", truncates(), want)
+	}
+}
+
+// TestOllamaEmbedder_RefusalTruncationCannotFix: a 400 that truncating does
+// not cure is returned as the plain error it is, logged once.
+func TestOllamaEmbedder_RefusalTruncationCannotFix(test *testing.T) {
+	var requests atomic.Int64
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+
+		writer.WriteHeader(http.StatusBadRequest)
+		_, _ = writer.Write([]byte(`{"error":"invalid input type"}`))
+	}))
+
+	defer server.Close()
+
+	var buffer bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buffer, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{Endpoint: server.URL, Model: "m", Dim: 3, Logger: logger})
+
+	_, embedErr := embedder.Embed(context.Background(), []byte("hello"))
+
+	if embedErr == nil || !strings.Contains(embedErr.Error(), "invalid input type") {
+		test.Fatalf("Embed error = %v, want the 400 body", embedErr)
+	}
+
+	if embed.IsTransportError(embedErr) {
+		test.Errorf("a refusal must not be a TransportError; got %v", embedErr)
+	}
+
+	if got := requests.Load(); got != 2 {
+		test.Errorf("requests = %d, want 2 (the refusal and the truncated retry)", got)
+	}
+
+	if count := strings.Count(buffer.String(), `msg="ollama non-2xx"`); count != 1 {
+		test.Errorf("non-2xx logged %d times, want once", count)
+	}
+}
+
+// TestOllamaEmbedder_RejectsResponseWithoutOneEmbedding: a response that does
+// not carry exactly one vector for the one input is an error, not a panic or a
+// silent empty vector.
+func TestOllamaEmbedder_RejectsResponseWithoutOneEmbedding(test *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte(`{"embeddings":[]}`))
+	}))
+
+	defer server.Close()
+
+	embedder := embed.NewOllamaEmbedder(embed.OllamaConfig{Endpoint: server.URL, Model: "m", Dim: 3})
+
+	if _, embedErr := embedder.Embed(context.Background(), []byte("hello")); embedErr == nil {
+		test.Fatal("expected an error for a response with no embeddings")
 	}
 }

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- (Optional, for semantic search) [Ollama](https://ollama.com) running locally with an embedding model, e.g. `ollama pull nomic-embed-text`. Everything except semantic and hybrid queries works without it.
+- (Optional, for semantic search) [Ollama](https://ollama.com) 0.3.4 or newer running locally with an embedding model, e.g. `ollama pull nomic-embed-text`. Everything except semantic and hybrid queries works without it.
 
 ## Homebrew (macOS and Linux)
 

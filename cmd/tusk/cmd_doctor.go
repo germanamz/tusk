@@ -171,8 +171,10 @@ Doctor reports:
     matches file nodes only unless its filter selects a sub-unit type. A rule
     that does not parse, or names a type, property or enum value tusk.toml
     does not declare, is a rule-invalid error.
-  * Embedding queue depth, and embed-retry rows (a failing embedder that
-    keeps re-enqueueing) with their attempt count and last error.
+  * Embedding queue depth, embed-retry rows (an embed that failed and is
+    being retried) and embed-failed rows (one that failed 3 times and stopped
+    retrying until the node changes, reindex --force, or an [embeddings]
+    change), each with its attempt count and last error.
   * Sub-unit pane: per-kind counts, deduped sub-units, oversize payloads.
   * Graph-expansion pane: the resolved [query.graph-expansion] settings,
     unknown edge types (valid but undeclared — the walker skips them),
@@ -277,7 +279,7 @@ they are not flagged as missing embeddings.`,
 
 				renderDoctorIssues(out, report)
 
-				_, _ = fmt.Fprintf(out, "embed queue depth: %d\n", report.EmbedQueueDepth)
+				renderEmbedQueue(out, report.EmbedQueueDepth, report.EmbedFailed, report.EmbedWaiting)
 				_, _ = fmt.Fprintf(out, "reindex queue depth: %d\n", report.ReindexQueueDepth)
 
 				if report.EmbedStats != nil {

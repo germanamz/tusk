@@ -274,12 +274,18 @@ type Report struct {
 	// they didn't). The drain re-embeds them under the new settings.
 	EmbedSettingsRequeued int
 
-	// EmbedDeferred is the transport error that stopped the embedding drain:
-	// the backend was unreachable (Ollama down, or absent on a CI runner). The
+	// EmbedDeferred is the error that stopped the embedding drain because the
+	// backend can't serve: it is unreachable (Ollama down, or absent on a CI
+	// runner) or failed the drain's probe (the model is missing). The
 	// structural pass still completed and the queued nodes wait for the next
 	// drain, so Run reports it here instead of failing; the caller decides how
 	// loudly to say so. Nil when embedding ran or no embedder was wired.
 	EmbedDeferred error
+
+	// EmbedFailed is how many embed jobs stopped retrying after failing on
+	// their own input (parked, #845), counted after this pass's drain. Those
+	// nodes have no vector; doctor lists them with the error.
+	EmbedFailed int
 
 	// SchemaChanged reports that the manifest's node, edge or behavior
 	// declarations differ from the ones the index was last built under (or the
@@ -777,6 +783,14 @@ func Run(config Config) (*Report, error) {
 		return nil, sweepErr
 	}
 
+	// Sweep embed jobs whose node is gone. Deleting a node takes its job with
+	// it (the index's nodes_drop_embed_job trigger), so this only finds jobs an
+	// index written before that trigger leaked, which counted as pending
+	// forever (#845).
+	if _, sweepErr := config.EmbedQueue.DeleteOrphans(); sweepErr != nil {
+		return nil, fmt.Errorf("reindex: sweep orphan embed jobs: %w", sweepErr)
+	}
+
 	// Runs after the walk and orphan reap (so the re-embed covers exactly the
 	// live node set) and before the async/sync split (so both the CLI's
 	// in-process drain and the daemon's background drainer pick it up).
@@ -895,7 +909,7 @@ func Run(config Config) (*Report, error) {
 				config.Logger.Warn(drainErr.Error())
 			}
 		case embed.IsTransportError(drainErr):
-			// The backend is unreachable, which says nothing about the vault:
+			// The backend can't serve, which says nothing about the vault:
 			// the structural pass committed and the queued nodes embed on a
 			// later drain. Failing here used to skip the marker stamps below, so
 			// every later pass without the backend re-processed every file (#787).
@@ -904,7 +918,7 @@ func Run(config Config) (*Report, error) {
 			if config.Logger != nil {
 				queued, _ := config.EmbedQueue.DepthByKind("embed")
 
-				config.Logger.Warn("reindex: embedding backend unreachable; nodes stay queued for the next drain",
+				config.Logger.Warn("reindex: embedding backend unavailable; nodes stay queued for the next drain",
 					"queued", queued,
 					"err", drainErr.Error(),
 				)
@@ -913,6 +927,14 @@ func Run(config Config) (*Report, error) {
 			return nil, drainErr
 		}
 	}
+
+	failed, countErr := config.EmbedQueue.CountParked()
+
+	if countErr != nil {
+		return nil, fmt.Errorf("reindex: count failed embeds: %w", countErr)
+	}
+
+	report.EmbedFailed = failed
 
 	if setErr := config.Meta.Set(index.LastReindexAtKey, fmt.Sprintf("%d", time.Now().UnixNano())); setErr != nil {
 		return nil, fmt.Errorf("reindex: record %s: %w", index.LastReindexAtKey, setErr)

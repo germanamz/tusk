@@ -70,7 +70,7 @@ tusk reindex [flags]
       --force          re-process every file even if its mtime and size are unchanged
   -h, --help           help for reindex
       --no-embed       build the structural index only; leave the embedding queue for a later run
-      --strict-embed   exit 1 when the embedding backend is unreachable
+      --strict-embed   exit 1 when the embedding backend is unavailable or any node failed to embed
 ```
 
 ### Options inherited from parent commands
