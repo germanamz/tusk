@@ -34,15 +34,15 @@ func TestE2E_SpecialCharacterFileIDs(test *testing.T) {
 	// text, so 'a' content and an 'a' query align while 'b' content does not.
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var payload struct {
-			Prompt string `json:"prompt"`
+			Input string `json:"input"`
 		}
 
 		_ = json.NewDecoder(request.Body).Decode(&payload)
 
 		first := byte(0)
 
-		for i := 0; i < len(payload.Prompt); i++ {
-			c := payload.Prompt[i]
+		for i := 0; i < len(payload.Input); i++ {
+			c := payload.Input[i]
 			if c > ' ' {
 				first = c
 				break
@@ -60,7 +60,7 @@ func TestE2E_SpecialCharacterFileIDs(test *testing.T) {
 			vector[2] = 1
 		}
 
-		_ = json.NewEncoder(writer).Encode(map[string]any{"embedding": vector})
+		_ = json.NewEncoder(writer).Encode(map[string]any{"embeddings": [][]float64{vector}})
 	}))
 
 	defer server.Close()

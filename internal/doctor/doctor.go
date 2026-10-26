@@ -27,6 +27,12 @@ const (
 	IssueEmbedRetry        = "embed-retry"
 	IssueWorkflowViolation = "workflow-violation"
 
+	// IssueEmbedFailed surfaces an embed job that failed MaxEmbedAttempts
+	// times on its own input and stopped retrying (it is parked), so the node
+	// has no vector and drops out of semantic results. The message carries the
+	// last error and what re-arms the job (#845).
+	IssueEmbedFailed = "embed-failed"
+
 	// IssueAmbiguousWikilink surfaces a wikilink that names a file by name
 	// ([[auth-rfc]]) when two or more files have that name. The edge stays
 	// unresolved, and the finding lists the files the name could mean in place
@@ -185,7 +191,12 @@ type Report struct {
 	Issues            []Issue
 	EmbedQueueDepth   int // pending rows with kind='embed'
 	ReindexQueueDepth int // pending rows with kind='reindex'
-	EmbedStats        *EmbedStatsReport
+	EmbedFailed       int // embed rows that stopped retrying (parked); not pending
+	// EmbedWaiting reports that the pending embed rows wait for an
+	// [embeddings] section: none is configured, so nothing drains them, and
+	// they embed once one is added.
+	EmbedWaiting bool
+	EmbedStats   *EmbedStatsReport
 	// SubUnitPane is the typed sub-unit health summary (Plan 2 Task 6
 	// / spec §5.9). nil when the manifest opts out of sub-units AND no
 	// sub-unit rows exist in the index. When sub-units are disabled but
@@ -227,9 +238,9 @@ type SubUnitPane struct {
 	EmbedQueueSubUnits int
 	// OversizeEmbedPayloads is the number of sub-unit rows whose
 	// embed_payload byte length exceeds the configured chunk-max-bytes
-	// (embed.DefaultMaxBytes when unset). Sub-unit leaves are never split,
-	// so a non-zero count means the AST emitted a leaf larger than the cap
-	// the workspace sized for its model.
+	// (embed.DefaultMaxBytes when unset). The drain splits such a leaf into
+	// several vectors the way it splits a file body (#845); the count says
+	// how many leaves were too long for one.
 	OversizeEmbedPayloads int
 }
 
@@ -304,6 +315,7 @@ func Run(config Config) (*Report, error) {
 		checkEmbeddingDrift,
 		checkEmbeddingPrefixHint,
 		checkEmbedRetries,
+		checkEmbedFailures,
 		checkRules,
 	} {
 		issues, checkErr := check(config)
@@ -1006,8 +1018,38 @@ func checkEmbedRetries(config Config) ([]Issue, error) {
 	return issues, nil
 }
 
-// populateQueueDepths fills report.EmbedQueueDepth / ReindexQueueDepth from the
-// embed queue. No-op when the queue repo is absent.
+// checkEmbedFailures surfaces embed-queue rows that used up their attempts and
+// stopped retrying (parked, #845). Each one is a node with no vector, so it is
+// missing from semantic results until something re-arms the row; the message
+// says what does. No-op when the queue repo is absent.
+func checkEmbedFailures(config Config) ([]Issue, error) {
+	if config.EmbedQueue == nil {
+		return nil, nil
+	}
+
+	parked, listErr := config.EmbedQueue.ListParked()
+
+	if listErr != nil {
+		return nil, listErr
+	}
+
+	issues := make([]Issue, 0, len(parked))
+
+	for _, row := range parked {
+		issues = append(issues, Issue{
+			Kind:   IssueEmbedFailed,
+			NodeID: row.NodeID,
+			Message: fmt.Sprintf("embedding failed %d times and stopped retrying: %s; it retries when the node changes, on `tusk reindex --force`, or after an [embeddings] change",
+				row.Attempts, row.LastError),
+		})
+	}
+
+	return issues, nil
+}
+
+// populateQueueDepths fills report.EmbedQueueDepth / ReindexQueueDepth /
+// EmbedFailed / EmbedWaiting from the embed queue. No-op when the queue repo
+// is absent.
 func populateQueueDepths(config Config, report *Report) error {
 	if config.EmbedQueue == nil {
 		return nil
@@ -1028,6 +1070,15 @@ func populateQueueDepths(config Config, report *Report) error {
 	}
 
 	report.ReindexQueueDepth = reindexDepth
+
+	failed, failedErr := config.EmbedQueue.CountParked()
+
+	if failedErr != nil {
+		return failedErr
+	}
+
+	report.EmbedFailed = failed
+	report.EmbedWaiting = config.Manifest != nil && config.Manifest.Embeddings.Provider == "" && embedDepth > 0
 
 	return nil
 }
@@ -1301,9 +1352,10 @@ func isEmbeddableSubUnit(typeName string) bool {
 }
 
 // findNoChunkNodes returns an Issue for every indexed node that should have an
-// embedding but has none and is not pending. File rows are always checked;
-// sub-unit rows are checked only when their kind is embeddable (sections are
-// skipped — they are aggregated, not embedded).
+// embedding but has none and is not queued: a pending row is still on its way,
+// and a parked one is reported as embed-failed with its cause. File rows are
+// always checked; sub-unit rows are checked only when their kind is embeddable
+// (sections are skipped — they are aggregated, not embedded).
 func findNoChunkNodes(nodes *index.NodeRepo, embeddings *index.EmbeddingRepo, queue *index.EmbedQueueRepo) ([]Issue, error) {
 	indexed, listErr := nodes.List(index.ListFilter{})
 
@@ -1334,6 +1386,16 @@ func findNoChunkNodes(nodes *index.NodeRepo, embeddings *index.EmbeddingRepo, qu
 
 		for _, id := range pendingIDs {
 			pendingSet[id] = struct{}{}
+		}
+
+		parked, parkedErr := queue.ListParked()
+
+		if parkedErr != nil {
+			return nil, fmt.Errorf("doctor: list parked: %w", parkedErr)
+		}
+
+		for _, row := range parked {
+			pendingSet[row.NodeID] = struct{}{}
 		}
 	}
 

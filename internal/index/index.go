@@ -143,11 +143,22 @@ CREATE TABLE IF NOT EXISTS embed_queue (
 	leased_by            TEXT,                          -- worker id, NULL = unleased
 	leased_until_ns      INTEGER,                       -- absolute expiry, NULL = unleased
 	lease_started_at_ns  INTEGER,                       -- when lease was taken, NULL = unleased
-	kind                 TEXT NOT NULL DEFAULT 'embed'  -- 'embed' | 'reindex'
+	kind                 TEXT NOT NULL DEFAULT 'embed', -- 'embed' | 'reindex'
+	parked_at            INTEGER NULL                   -- unix ns the row stopped retrying; NULL = pending
 );
 
 CREATE INDEX IF NOT EXISTS idx_embed_queue_kind_lease
 	ON embed_queue(kind, leased_until_ns);
+
+-- A node's embed job goes with the node. The queue keys embed jobs by node id
+-- but can't hold a foreign key to nodes (reindex jobs share the table and key
+-- on a path), so this trigger does what an ON DELETE CASCADE would, on every
+-- path that deletes a node: the reindex reap, node delete and move, and the
+-- sub-unit sync (#845).
+CREATE TRIGGER IF NOT EXISTS nodes_drop_embed_job AFTER DELETE ON nodes
+BEGIN
+	DELETE FROM embed_queue WHERE node_id = OLD.id AND kind = 'embed';
+END;
 
 CREATE TABLE IF NOT EXISTS file_state (
 	path              TEXT PRIMARY KEY,
@@ -287,6 +298,13 @@ func Open(dbPath string) (*Index, error) {
 	if migrateErr := migrateLinkColumns(ctx, db); migrateErr != nil {
 		db.Close()
 		return nil, migrateErr
+	}
+
+	// embed_queue.parked_at (#845): a row that keeps failing stops retrying
+	// instead of being dropped. ADD COLUMN keeps every queued row.
+	if _, addErr := addColumnIfMissing(ctx, db, "embed_queue", "parked_at", "INTEGER NULL"); addErr != nil {
+		db.Close()
+		return nil, addErr
 	}
 
 	idx := &Index{db: db, path: dbPath}

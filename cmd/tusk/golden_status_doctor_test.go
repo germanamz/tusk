@@ -25,13 +25,14 @@ func TestGoldenCLI_Status(test *testing.T) {
 			},
 			args: []string{"status"},
 			// Default workspace has sub-units enabled, so node bodies become
-			// `paragraph` sub-units (3) with `contains` edges (3) and embed jobs.
+			// `paragraph` sub-units (3) with `contains` edges (3) and embed jobs,
+			// which wait for an [embeddings] section the workspace doesn't have.
 			wantStdout: "TYPE       COUNT\n" +
 				"note       2\n" +
 				"paragraph  3\n" +
 				"task       1\n" +
 				"edges: 3\n" +
-				"embed queue depth: 6\n" +
+				"embed queue depth: 6 (waiting for an [embeddings] section)\n" +
 				"reindex queue depth: 0\n" +
 				"last reindex (unix ns): <TS>\n",
 		},
@@ -98,9 +99,10 @@ func TestGoldenCLI_DoctorWorkflow(test *testing.T) {
 // goldenDoctorWorkflowTail is the deterministic remainder of `tusk doctor` for
 // the kanbanWorkflowManifest workspace (sub-units disabled, so no sub-unit
 // pane): the queue depths plus the graph-expansion pane. The single ticket node
-// leaves one file-level embed job queued. Shared by the clean and violation
+// leaves one file-level embed job queued, waiting for an [embeddings] section
+// the workspace doesn't have. Shared by the clean and violation
 // cases, which differ only in the leading issue lines.
-const goldenDoctorWorkflowTail = "embed queue depth: 1\n" +
+const goldenDoctorWorkflowTail = "embed queue depth: 1 (waiting for an [embeddings] section)\n" +
 	"reindex queue depth: 0\n" +
 	"graph expansion:\n" +
 	"  enabled               false\n" +

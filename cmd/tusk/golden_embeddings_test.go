@@ -16,7 +16,7 @@ import (
 // that suddenly takes as long as a full re-embed isn't a mystery.
 func TestGoldenCLI_ReindexEmbeddingsSettingsChange(test *testing.T) {
 	ollama := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(writer).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		_ = json.NewEncoder(writer).Encode(map[string]any{"embeddings": [][]float64{{0.1, 0.2, 0.3}}})
 	}))
 
 	test.Cleanup(ollama.Close)
@@ -53,7 +53,7 @@ func TestGoldenCLI_ReindexEmbeddingsSettingsChange(test *testing.T) {
 // drainer, now on the new settings, would wait on a fingerprint nobody writes.
 func TestReload_AppliesEmbeddingsSettingsWithoutReindex(test *testing.T) {
 	ollama := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(writer).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		_ = json.NewEncoder(writer).Encode(map[string]any{"embeddings": [][]float64{{0.1, 0.2, 0.3}}})
 	}))
 
 	test.Cleanup(ollama.Close)

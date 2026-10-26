@@ -45,6 +45,7 @@ warnings and drift detail.`,
 				Edges:      index.NewEdgeRepo(store),
 				EmbedQueue: index.NewEmbedQueueRepo(store),
 				Meta:       index.NewMetaRepo(store),
+				Manifest:   loaded,
 			})
 
 			if runErr != nil {
@@ -81,8 +82,30 @@ func renderStatusCompact(out io.Writer, result *status.Result) error {
 
 	_ = tab.Flush()
 
-	_, writeErr := fmt.Fprintf(out, "edges: %d\nembed queue depth: %d\nreindex queue depth: %d\nlast reindex (unix ns): %s\n",
-		result.EdgeCount, result.EmbedQueueDepth, result.ReindexQueueDepth, result.LastReindexAt)
+	_, _ = fmt.Fprintf(out, "edges: %d\n", result.EdgeCount)
+
+	renderEmbedQueue(out, result.EmbedQueueDepth, result.EmbedFailed, result.EmbedWaiting)
+
+	_, writeErr := fmt.Fprintf(out, "reindex queue depth: %d\nlast reindex (unix ns): %s\n",
+		result.ReindexQueueDepth, result.LastReindexAt)
 
 	return writeErr
+}
+
+// renderEmbedQueue writes the embed queue depth line, labeled when the pending
+// rows wait for an [embeddings] section, then an `embed failed:` line when any
+// embed stopped retrying (#845). Status, doctor and their alias renderers all
+// print the queue through it.
+func renderEmbedQueue(out io.Writer, depth, failed int, waiting bool) {
+	line := fmt.Sprintf("embed queue depth: %d", depth)
+
+	if waiting {
+		line += " (waiting for an [embeddings] section)"
+	}
+
+	_, _ = fmt.Fprintln(out, line)
+
+	if failed > 0 {
+		_, _ = fmt.Fprintf(out, "embed failed: %d\n", failed)
+	}
 }

@@ -168,7 +168,11 @@ shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
 			if report.EmbedDeferred != nil {
 				queued, _ := config.EmbedQueue.DepthByKind("embed")
 
-				summaryExtras += fmt.Sprintf(", %d queued for embedding (embedder unreachable)", queued)
+				summaryExtras += fmt.Sprintf(", %d queued for embedding (embedding backend unavailable)", queued)
+			}
+
+			if report.EmbedFailed > 0 {
+				summaryExtras += fmt.Sprintf(", %d failed to embed (`tusk doctor` lists them)", report.EmbedFailed)
 			}
 
 			if len(violationParts) > 0 {
@@ -185,13 +189,19 @@ shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
 				return fmt.Errorf("reindex: embedding failed (--strict-embed): %w", report.EmbedDeferred)
 			}
 
+			// A node the model keeps refusing used to look like an unreachable
+			// backend; now it fails alone, and the gate still has to catch it.
+			if strictEmbed && report.EmbedFailed > 0 {
+				return fmt.Errorf("reindex: %d node%s failed to embed (--strict-embed); `tusk doctor` lists them", report.EmbedFailed, plural(report.EmbedFailed))
+			}
+
 			return nil
 		},
 	}
 
 	reindexCmd.Flags().Bool("force", false, "re-process every file even if its mtime and size are unchanged")
 	reindexCmd.Flags().BoolVar(&noEmbed, "no-embed", false, "build the structural index only; leave the embedding queue for a later run")
-	reindexCmd.Flags().BoolVar(&strictEmbed, "strict-embed", false, "exit 1 when the embedding backend is unreachable")
+	reindexCmd.Flags().BoolVar(&strictEmbed, "strict-embed", false, "exit 1 when the embedding backend is unavailable or any node failed to embed")
 	reindexCmd.MarkFlagsMutuallyExclusive("no-embed", "strict-embed")
 
 	return reindexCmd

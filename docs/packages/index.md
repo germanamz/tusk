@@ -9,6 +9,8 @@ status: stable
 
 SQLite-backed index. Owns the schema (nodes, edges, path_refs, embeddings, node_embeddings, embed_queue, file_state, skipped_files, workflow_drift, property_drift, meta) and the per-table repos. Sub-unit `nodes` rows carry a structural-address id (`<fileID>#S1.2P3`) and a `content_hash`; vectors are content-addressed — `embeddings` is keyed by `(content_hash, model)` and `node_embeddings` maps each node-chunk to its shared vector. Opens the DB in WAL mode with `busy_timeout=5000` so reindex, watcher, and MCP tool calls can share the file safely.
 
+`embed_queue` holds embed jobs (keyed by node id) and reindex jobs (keyed by `reindex:<path>`). An embed job that failed `MaxEmbedAttempts` times is parked: `parked_at` is set, `DrainEmbed` skips it, and `Depth`, `DepthByKind` and `ListNodeIDs` leave it out; `CountParked` and `ListParked` report it. `Enqueue`, `EnqueueMany` and `EnqueueAllEmbeddable` re-arm a parked job. The `nodes_drop_embed_job` trigger deletes a node's embed job whenever the node row is deleted, whatever deletes it; `DeleteOrphans` sweeps jobs an index written before the trigger leaked (#845).
+
 ## Public surface
 
 - `Open(path string) (*Store, error)` — opens or creates the DB and switches it to WAL. On a new file that switch is a write, and when two processes switch the same new file at once SQLite fails the loser straight away with `SQLITE_BUSY` instead of waiting out the busy timeout, so `Open` retries it for up to the same 5 s (#839).

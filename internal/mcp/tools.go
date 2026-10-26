@@ -64,19 +64,23 @@ func registerStatusTool(srv *Server) {
 			Edges:      srv.runtime.Edges,
 			EmbedQueue: srv.runtime.EmbedQueue,
 			Meta:       srv.runtime.Meta,
+			Manifest:   srv.runtime.Manifest,
 		})
 
 		if runErr != nil {
 			return toolError(runErr), nil
 		}
 
-		return toolJSON(map[string]any{
+		response := map[string]any{
 			"nodes_by_type":       result.NodesByType,
 			"edge_count":          result.EdgeCount,
-			"embed_queue_depth":   result.EmbedQueueDepth,
 			"reindex_queue_depth": result.ReindexQueueDepth,
 			"last_reindex_at":     result.LastReindexAt,
-		})
+		}
+
+		aliasdispatch.AddEmbedQueueKeys(response, result.EmbedQueueDepth, result.EmbedFailed, result.EmbedWaiting)
+
+		return toolJSON(response)
 	}
 
 	srv.register(tool, handler)
@@ -983,7 +987,7 @@ func registerDoctorTool(srv *Server) {
 		// rows migration left in place) is an issue with a severity; the
 		// counts carry the verdict, so findings never set isError.
 		response := aliasdispatch.DoctorIssuesPayload(report)
-		response["embed_queue_depth"] = report.EmbedQueueDepth
+		aliasdispatch.AddEmbedQueueKeys(response, report.EmbedQueueDepth, report.EmbedFailed, report.EmbedWaiting)
 		response["reindex_queue_depth"] = report.ReindexQueueDepth
 
 		if migrationReport != nil {
@@ -1427,11 +1431,17 @@ func registerReindexTool(srv *Server) {
 			"embed_settings_requeued": report.EmbedSettingsRequeued,
 		}
 
-		// The embedding backend was unreachable: the index is up to date and the
-		// queued nodes embed once it returns (#787). Name the cause so the agent
+		// The embedding backend couldn't serve: the index is up to date and the
+		// queued nodes embed once it can (#787). Name the cause so the agent
 		// doesn't wait on a queue that can't drain.
 		if report.EmbedDeferred != nil {
 			result["embed_error"] = report.EmbedDeferred.Error()
+		}
+
+		// Nodes whose embedding stopped retrying won't drain at all; tusk_doctor
+		// lists them with the error (#845).
+		if report.EmbedFailed > 0 {
+			result["embed_failed"] = report.EmbedFailed
 		}
 
 		// Surface remaining embed work so the agent can see embeddings are

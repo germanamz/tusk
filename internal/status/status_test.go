@@ -1,10 +1,13 @@
 package status_test
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/status"
 )
 
@@ -108,5 +111,76 @@ func TestSnapshot_LastReindexAt(test *testing.T) {
 
 	if snap.LastReindexAt != "1747000000" {
 		test.Errorf("LastReindexAt = %q, want 1747000000", snap.LastReindexAt)
+	}
+}
+
+// TestSnapshot_SeparatesFailedEmbedsFromPending pins #845: an embed row that
+// stopped retrying is not pending, and is counted on its own.
+func TestSnapshot_SeparatesFailedEmbedsFromPending(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	queueRepo := index.NewEmbedQueueRepo(store)
+	queueRepo.Enqueue("pending")
+	queueRepo.Enqueue("stuck")
+
+	if _, drainErr := queueRepo.DrainEmbed("worker", 10, time.Minute); drainErr != nil {
+		test.Fatalf("DrainEmbed: %v", drainErr)
+	}
+
+	if parkErr := queueRepo.Park("stuck", "worker", errors.New("refused")); parkErr != nil {
+		test.Fatalf("Park: %v", parkErr)
+	}
+
+	snap, snapErr := status.Snapshot(status.Config{
+		Nodes:      index.NewNodeRepo(store),
+		Edges:      index.NewEdgeRepo(store),
+		EmbedQueue: queueRepo,
+		Meta:       index.NewMetaRepo(store),
+	})
+
+	if snapErr != nil {
+		test.Fatalf("Snapshot: %v", snapErr)
+	}
+
+	if snap.EmbedQueueDepth != 1 || snap.EmbedFailed != 1 {
+		test.Errorf("EmbedQueueDepth = %d, EmbedFailed = %d; want 1 and 1", snap.EmbedQueueDepth, snap.EmbedFailed)
+	}
+}
+
+// TestSnapshot_EmbedWaitingWithoutEmbeddings: with no [embeddings] section
+// nothing drains the queue; its rows wait for one to be added, and the
+// snapshot says so instead of passing them off as a backlog.
+func TestSnapshot_EmbedWaitingWithoutEmbeddings(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	queueRepo := index.NewEmbedQueueRepo(store)
+	queueRepo.Enqueue("a")
+
+	for _, testCase := range []struct {
+		name     string
+		manifest *manifest.Manifest
+		want     bool
+	}{
+		{name: "no embeddings section", manifest: &manifest.Manifest{}, want: true},
+		{name: "embeddings configured", manifest: &manifest.Manifest{Embeddings: manifest.EmbeddingsSection{Provider: "ollama"}}, want: false},
+		{name: "manifest unknown", manifest: nil, want: false},
+	} {
+		snap, snapErr := status.Snapshot(status.Config{
+			Nodes:      index.NewNodeRepo(store),
+			Edges:      index.NewEdgeRepo(store),
+			EmbedQueue: queueRepo,
+			Meta:       index.NewMetaRepo(store),
+			Manifest:   testCase.manifest,
+		})
+
+		if snapErr != nil {
+			test.Fatalf("%s: Snapshot: %v", testCase.name, snapErr)
+		}
+
+		if snap.EmbedWaiting != testCase.want {
+			test.Errorf("%s: EmbedWaiting = %v, want %v", testCase.name, snap.EmbedWaiting, testCase.want)
+		}
 	}
 }

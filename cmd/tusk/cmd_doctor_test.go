@@ -98,7 +98,7 @@ func TestDoctor_PrintsEmbedStatsBlock(test *testing.T) {
 	tmpDir := initWorkspace(test)
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		_ = json.NewEncoder(writer).Encode(map[string]any{"embedding": []float64{1, 0, 0}})
+		_ = json.NewEncoder(writer).Encode(map[string]any{"embeddings": [][]float64{{1, 0, 0}}})
 	}))
 
 	defer server.Close()

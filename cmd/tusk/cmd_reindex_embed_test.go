@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -57,7 +58,7 @@ func TestReindexCmd_UnreachableEmbedderExitsZero(test *testing.T) {
 		test.Errorf("stdout = %q, want the reindex summary", stdout.String())
 	}
 
-	if !strings.Contains(stdout.String(), "queued for embedding (embedder unreachable)") {
+	if !strings.Contains(stdout.String(), "queued for embedding (embedding backend unavailable)") {
 		test.Errorf("stdout = %q, want the deferred-embedding clause", stdout.String())
 	}
 
@@ -113,8 +114,64 @@ func TestReindexCmd_NoEmbedSkipsEmbedder(test *testing.T) {
 		test.Errorf("stdout = %q, want the reindex summary", stdout.String())
 	}
 
-	if strings.Contains(stdout.String(), "embedder unreachable") {
-		test.Errorf("stdout = %q, --no-embed must not report the embedder as unreachable", stdout.String())
+	if strings.Contains(stdout.String(), "embedding backend unavailable") {
+		test.Errorf("stdout = %q, --no-embed must not report the embedder as unavailable", stdout.String())
+	}
+}
+
+// refusingEndpoint serves /api/embed like a model that refuses every input
+// containing marker, truncated or not, and embeds everything else (the
+// drain's probe included).
+func refusingEndpoint(test *testing.T, marker string) string {
+	test.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload struct {
+			Input string `json:"input"`
+		}
+
+		_ = json.NewDecoder(request.Body).Decode(&payload)
+
+		if strings.Contains(payload.Input, marker) {
+			writer.WriteHeader(http.StatusBadRequest)
+			_, _ = writer.Write([]byte(`{"error":"invalid input"}`))
+
+			return
+		}
+
+		_ = json.NewEncoder(writer).Encode(map[string]any{"embeddings": [][]float64{{1, 0, 0}}})
+	}))
+
+	test.Cleanup(server.Close)
+
+	return server.URL
+}
+
+// A node the model refuses no longer stalls the drain or reads as an
+// unreachable backend: reindex exits 0 and its summary counts the failure;
+// --strict-embed still fails on it (#845).
+func TestReindexCmd_ReportsFailedEmbeds(test *testing.T) {
+	root := writeEmbedWorkspace(test, refusingEndpoint(test, "REFUSE"))
+	writeWatchTestFile(test, root, "notes/base.md", "---\ntype: note\n---\n# Base\n\nREFUSE\n")
+
+	stdout, stderr, ok := runCLISplit(root, "reindex")
+
+	if !ok {
+		test.Fatalf("reindex exited non-zero on a refused input; stderr:\n%s", stderr)
+	}
+
+	if !strings.Contains(stdout.String(), "failed to embed (`tusk doctor` lists them)") || strings.Contains(stdout.String(), "unavailable") {
+		test.Errorf("stdout = %q, want the failed-embed clause and no outage", stdout.String())
+	}
+
+	_, strictStderr, strictOK := runCLISplit(root, "reindex", "--strict-embed")
+
+	if strictOK {
+		test.Fatal("reindex --strict-embed exited 0 with failed embeds")
+	}
+
+	if !strings.Contains(strictStderr.String(), "failed to embed (--strict-embed)") {
+		test.Errorf("stderr = %q, want the strict failure", strictStderr.String())
 	}
 }
 

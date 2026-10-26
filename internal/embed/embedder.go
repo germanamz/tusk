@@ -62,13 +62,13 @@ func NewFromManifest(cfg manifest.EmbeddingsSection, logger *slog.Logger) (Embed
 	return embedder, MarkdownRecursive{TargetBytes: target, MaxBytes: maxBytes, OverlapBytes: overlap}
 }
 
-// TransportError marks an embed failure as transient infrastructure trouble —
-// the embedding backend is unreachable, timed out, dropped the connection, or
-// returned a 5xx — as opposed to a per-node/content fault (a 4xx, a dimension
-// mismatch, a parse error). DrainQueue aborts the whole drain pass on a
-// TransportError and leaves the claimed rows leased for the next tick, rather
-// than burning each node's retry budget and dropping it from semantic results
-// over a brief blip.
+// TransportError marks an embed failure as the backend's rather than the
+// input's: the embedding backend is unreachable, timed out, dropped the
+// connection, or returned a 5xx. DrainQueue returns one when an embed call
+// fails and the backend then fails its probe as well (see probeInput in
+// drain.go), aborting the drain pass and leaving the claimed rows leased for
+// the next tick rather than burning each node's retry budget over an outage.
+// Query paths treat one as "semantic search is unavailable right now".
 type TransportError struct {
 	Err error
 }

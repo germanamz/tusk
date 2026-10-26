@@ -17,7 +17,7 @@ import (
 	"github.com/germanamz/tusk/internal/embed"
 )
 
-// fakeOllama is an /api/embeddings stand-in that records every prompt, so a
+// fakeOllama is an /api/embed stand-in that records every prompt, so a
 // test can drive the real Ollama embedder NewFromManifest builds on reload.
 type fakeOllama struct {
 	server *httptest.Server
@@ -32,16 +32,16 @@ func newFakeOllama(test *testing.T) *fakeOllama {
 	fake := &fakeOllama{}
 	fake.server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body struct {
-			Prompt string `json:"prompt"`
+			Input string `json:"input"`
 		}
 
 		_ = json.NewDecoder(request.Body).Decode(&body)
 
 		fake.mu.Lock()
-		fake.prompts = append(fake.prompts, body.Prompt)
+		fake.prompts = append(fake.prompts, body.Input)
 		fake.mu.Unlock()
 
-		_ = json.NewEncoder(writer).Encode(map[string]any{"embedding": []float64{0.1, 0.2, 0.3}})
+		_ = json.NewEncoder(writer).Encode(map[string]any{"embeddings": [][]float64{{0.1, 0.2, 0.3}}})
 	}))
 
 	test.Cleanup(fake.server.Close)

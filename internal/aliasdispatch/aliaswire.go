@@ -70,7 +70,7 @@ func ResultPayload(result *DispatchResult) any {
 
 	case *doctor.Result:
 		envelope := DoctorIssuesPayload(typed.Report)
-		envelope["embed_queue_depth"] = typed.Report.EmbedQueueDepth
+		AddEmbedQueueKeys(envelope, typed.Report.EmbedQueueDepth, typed.Report.EmbedFailed, typed.Report.EmbedWaiting)
 		envelope["reindex_queue_depth"] = typed.Report.ReindexQueueDepth
 
 		if typed.Migration != nil {
@@ -80,16 +80,36 @@ func ResultPayload(result *DispatchResult) any {
 		return envelope
 
 	case *status.Result:
-		return map[string]any{
+		envelope := map[string]any{
 			"nodes_by_type":       typed.NodesByType,
 			"edge_count":          typed.EdgeCount,
-			"embed_queue_depth":   typed.EmbedQueueDepth,
 			"reindex_queue_depth": typed.ReindexQueueDepth,
 			"last_reindex_at":     typed.LastReindexAt,
 		}
+
+		AddEmbedQueueKeys(envelope, typed.EmbedQueueDepth, typed.EmbedFailed, typed.EmbedWaiting)
+
+		return envelope
 	}
 
 	return result.Result
+}
+
+// AddEmbedQueueKeys sets the embed-queue keys every status and doctor JSON
+// surface carries: embed_queue_depth (pending rows) always, embed_failed when
+// any embed stopped retrying, and embed_waiting when the pending rows wait for
+// an [embeddings] section (#845). The last two are left out when unset, so a
+// healthy workspace's payload stays as small as before.
+func AddEmbedQueueKeys(envelope map[string]any, depth, failed int, waiting bool) {
+	envelope["embed_queue_depth"] = depth
+
+	if failed > 0 {
+		envelope["embed_failed"] = failed
+	}
+
+	if waiting {
+		envelope["embed_waiting"] = true
+	}
 }
 
 // DoctorIssuesPayload returns the issue part of every doctor JSON surface

@@ -79,7 +79,7 @@ Or, without Homebrew:
 curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh
 ```
 
-The script downloads the latest release for macOS, Linux or Windows (amd64 or arm64) into `~/.local/bin`. With Go 1.26+ you can run `go install github.com/germanamz/tusk/cmd/tusk@latest` instead. Semantic and hybrid search need [Ollama](https://ollama.com) running locally with an embedding model (`ollama pull nomic-embed-text`). Everything else works without it.
+The script downloads the latest release for macOS, Linux or Windows (amd64 or arm64) into `~/.local/bin`. With Go 1.26+ you can run `go install github.com/germanamz/tusk/cmd/tusk@latest` instead. Semantic and hybrid search need [Ollama](https://ollama.com) 0.3.4 or newer running locally with an embedding model (`ollama pull nomic-embed-text`). Everything else works without it.
 
 Updating (`tusk update`), pinning a version and building from source are in [docs/guide/install.md](docs/guide/install.md).
 
@@ -185,7 +185,7 @@ None of these commands prompt.
 1. Install: `curl -fsSL https://raw.githubusercontent.com/germanamz/tusk/main/install.sh | sh` puts `tusk` in `~/.local/bin`. If `tusk --version` fails afterwards, that directory isn't on `PATH`.
 2. Create the workspace in the vault root: `tusk init --name <name>`. It exits 1 if `tusk.toml` already exists, which you can treat as already done. If the folder holds markdown without a `type:`, init adds the vault pack and sets `default-type = "note"` so those files index as notes, and says so in its output; `--no-adopt` skips this.
 3. Declare types, unless init already added the vault pack: `tusk pack add vault` adds note, meeting and decision types. Built-in packs ship inside tusk, so it works offline. It exits 1 if run twice (`--force` overwrites). Or write `[node-types.*]` in `tusk.toml` yourself.
-4. Index: `tusk reindex`. If its summary ends with `queued for embedding (embedder unreachable)`, Ollama isn't reachable: the graph was built, and only semantic search is missing. It still exits 0.
+4. Index: `tusk reindex`. If its summary ends with `queued for embedding (embedding backend unavailable)`, Ollama isn't reachable or the model isn't pulled: the graph was built, and only semantic search is missing. It still exits 0.
 5. Connect the client as described in [Connect your agent](#connect-your-agent). For Claude Code, run `tusk claude install`.
 6. Verify: `tusk status` prints node counts by type, so non-zero counts mean files were indexed. `tusk doctor` exits 0 when the vault is healthy and 1 when an error is present, listing errors first.
 

@@ -327,7 +327,7 @@ func renderAliasEdgeList(out io.Writer, result *index.EdgeListResult, _ outputFo
 func renderAliasDoctor(out io.Writer, result *doctor.Result, _ outputFormat) error {
 	renderDoctorIssues(out, result.Report)
 
-	_, _ = fmt.Fprintf(out, "embed queue depth: %d\n", result.Report.EmbedQueueDepth)
+	renderEmbedQueue(out, result.Report.EmbedQueueDepth, result.Report.EmbedFailed, result.Report.EmbedWaiting)
 	_, _ = fmt.Fprintf(out, "reindex queue depth: %d\n", result.Report.ReindexQueueDepth)
 
 	return nil
