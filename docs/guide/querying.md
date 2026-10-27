@@ -13,6 +13,18 @@ the operators below.
 tusk query 'type=ticket status=active priority=high'
 tusk query 'type:plan shipped-at>=2026-04-01'   # date ordering, chronological
 
+# != and NOT also match nodes without the property; * means "has a value"
+tusk query 'type=ticket status!=done'           # includes tickets with no status
+tusk query 'type=service owner!=*'              # services with no owner
+
+# Lists: ~= for one item, [a, b] for all of them in any order
+tusk query 'type=ticket labels~=bug'
+tusk query 'type=ticket labels=[bug, urgent]'
+
+# Relative dates on date and datetime properties: h, d, w, m (months), y
+tusk query 'type=service reviewed<today-90d'
+tusk query 'type=ticket due<=today+2w'
+
 # Path patterns on path and id: * stays in one folder, ** crosses folders
 tusk query 'type=note path=docs/product/*'      # notes directly in docs/product/
 tusk query 'path=docs/** path!=docs/archive/**' # all of docs/ except the archive

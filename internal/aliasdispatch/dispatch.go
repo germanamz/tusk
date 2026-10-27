@@ -12,6 +12,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/germanamz/tusk/internal/argval"
 	"github.com/germanamz/tusk/internal/doctor"
@@ -178,7 +179,7 @@ func builtinAdapters() map[string]VerbAdapter {
 func buildNodeListRequest(args map[string]any, deps Deps) (any, error) {
 	reader := &argReader{args: args}
 
-	req := query.ListRequest{WorkspaceRoot: deps.WorkspaceRoot}
+	req := query.ListRequest{WorkspaceRoot: deps.WorkspaceRoot, Now: time.Now()}
 	req.Filter = reader.String("filter")
 	req.Sort = reader.String("sort")
 	req.Take = reader.Int("take")
@@ -310,6 +311,7 @@ func buildQueryRequest(args map[string]any, deps Deps) (any, error) {
 		WorkspaceRoot:           deps.WorkspaceRoot,
 		SemanticDefaultTake:     deps.SemanticDefaultTake,
 		SemanticDefaultMaxUnits: deps.SemanticDefaultMaxUnits,
+		Now:                     time.Now(),
 	}
 	req.Filter = reader.String("filter")
 	req.Sort = reader.String("sort")
@@ -408,6 +410,7 @@ func buildDoctorRequest(args map[string]any, deps Deps) (any, error) {
 			Meta:          deps.Meta,
 			Manifest:      deps.Manifest,
 			Root:          deps.WorkspaceRoot,
+			Now:           time.Now(),
 		},
 		NoMigrate: noMigrate,
 	}, nil

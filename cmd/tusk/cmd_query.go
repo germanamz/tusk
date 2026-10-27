@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"text/tabwriter"
+	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/filter"
@@ -49,10 +50,15 @@ Three modes, all driven by the same command:
     edge-traversal expression. Property predicates use comparison
     operators — = and : (equal), != (not equal), < <= > >= (ordering) —
     written directly after the key (e.g. status=open, priority>=2);
-    ranges use key=lo..hi. Ordering and range operators compare by the
-    property's declared type: int numerically, date/datetime
-    chronologically, enum by declared order (a value name or a 0-based
-    index). path and id also take glob patterns with = and !=: * stays
+    ranges use key=lo..hi. != and NOT also match a node without the
+    property; key=* means it has a value and key!=* that it is missing.
+    A list property takes ~= for one item (labels~=bug) and key=[a, b]
+    for every listed item, in any order. Ordering and range operators
+    compare by the property's declared type: int numerically,
+    date/datetime chronologically, enum by declared order (a value name
+    or a 0-based index). A date or datetime also takes a relative date:
+    today, today-90d or today+2w (units h, d, w, m for months, y), and
+    now-48h for a datetime. path and id also take glob patterns with = and !=: * stays
     inside one folder, ? is one character, and a ** segment crosses
     folders (e.g. path=docs/product/*, path=docs/**, id=**/index); quote
     the value to match a literal *. Edge traversal uses edge-type-> (outgoing) or edge-type<-
@@ -118,6 +124,13 @@ id, e.g. notes/doc#S1.2P3 (paragraph 3 of section 1.2) or notes/doc#S1.1T1R0C0
 the document is restructured.`,
 		Example: `  # Structural: all priority-1 tickets touched in the last week
   tusk query 'type=ticket AND priority=1 AND modified-since:7d'
+
+  # Tickets with no owner, or labelled both bug and urgent
+  tusk query 'type=ticket AND owner!=*'
+  tusk query 'type=ticket AND labels=[bug, urgent]'
+
+  # Services not reviewed in the last 90 days (relative to today)
+  tusk query 'type=service AND reviewed<today-90d'
 
   # Expand bodies and edges in one round-trip
   tusk query 'type=ticket' --include body,edges
@@ -201,6 +214,7 @@ the document is restructured.`,
 			}
 
 			result, runErr := query.Run(context.Background(), deps, query.Request{
+				Now:      time.Now(),
 				Filter:   args[0],
 				Sort:     sortSpec,
 				Take:     take,

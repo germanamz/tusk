@@ -27,6 +27,11 @@ type CompileOptions struct {
 	// file's path, so a path filter otherwise returns every section and
 	// paragraph of each matching file too.
 	FilesOnly bool
+
+	// Now is the clock that relative dates (`today-90d`, `now-48h`) and
+	// `modified-since:<duration>` resolve against. Required when the filter
+	// holds one; Compile fails rather than guess.
+	Now time.Time
 }
 
 // Compile turns an AST + options into parameterized SQL against the nodes table.
@@ -35,7 +40,7 @@ func Compile(expr Expr, opts CompileOptions) (string, []any, error) {
 		return "", nil, ErrSkipRequiresTake
 	}
 
-	state := &compileState{}
+	state := &compileState{now: opts.Now}
 
 	whereClause, whereParams, whereErr := state.compileWhere(expr, 0)
 
@@ -105,6 +110,9 @@ type compileState struct {
 	// AST traversal order, but is undefined if the AST is reshaped.
 	// Callers that want explicit ordering should pass --sort to override.
 	defaultOrderBy string
+	// now is CompileOptions.Now, the clock relative dates and
+	// modified-since durations resolve against. Zero when the caller set none.
+	now time.Time
 }
 
 // recursiveAncestorsCTE returns the recursive-CTE body that walks `type` edges
@@ -203,11 +211,15 @@ func (state *compileState) compileWhere(expr Expr, depth int) (string, []any, er
 			return "", nil, innerErr
 		}
 
-		return "NOT (" + inner + ")", innerParams, nil
+		// A comparison against a missing property is NULL in SQL, and so is
+		// NOT NULL, which would drop the row from both p=v and NOT p=v. IS
+		// TRUE reads NULL as false, so NOT matches exactly the rows the inner
+		// term doesn't.
+		return "NOT ((" + inner + ") IS TRUE)", innerParams, nil
 	case *PropertyPredicate:
-		return compileProperty(typed, columnPrefix(depth))
+		return state.compileProperty(typed, columnPrefix(depth))
 	case *ModifiedSincePredicate:
-		return compileModifiedSince(typed, columnPrefix(depth))
+		return compileModifiedSince(typed, columnPrefix(depth), state.now)
 	case *NamesPathPredicate:
 		return compileNamesPath(typed, columnPrefix(depth))
 	case *EdgePredicate:
@@ -256,13 +268,18 @@ var coreColumns = map[string]struct{}{
 // internal/index/index.go schema), so the threshold is converted with
 // UnixNano(). Either Duration or Since must be set by the validator;
 // emitting SQL without a resolved threshold mirrors the
-// TraversalShortcut.EdgeType check.
-func compileModifiedSince(predicate *ModifiedSincePredicate, columnPrefix string) (string, []any, error) {
+// TraversalShortcut.EdgeType check. A duration counts back from now, the
+// compile clock, which the caller must set.
+func compileModifiedSince(predicate *ModifiedSincePredicate, columnPrefix string, now time.Time) (string, []any, error) {
 	var thresholdNs int64
 
 	switch {
 	case predicate.Duration > 0:
-		thresholdNs = time.Now().Add(-predicate.Duration).UnixNano()
+		if now.IsZero() {
+			return "", nil, fmt.Errorf("compile: modified-since:%s needs CompileOptions.Now", predicate.Raw)
+		}
+
+		thresholdNs = now.Add(-predicate.Duration).UnixNano()
 	case !predicate.Since.IsZero():
 		thresholdNs = predicate.Since.UnixNano()
 	default:
@@ -283,6 +300,19 @@ func compileTypeRef(raw, columnPrefix string, op Op) (string, []any, error) {
 
 	if parseErr != nil {
 		return "", nil, fmt.Errorf("compile: parse type ref: %w", parseErr)
+	}
+
+	// A qualified `!=` is the complement of its `=`: a row from another
+	// source, or with no source, passes, which `source = ? AND type != ?`
+	// would drop.
+	if op == OpNE && ref.Scope != typeref.ScopeAny {
+		equal, params, equalErr := compileTypeRef(raw, columnPrefix, OpEQ)
+
+		if equalErr != nil {
+			return "", nil, equalErr
+		}
+
+		return "NOT ((" + equal + ") IS TRUE)", params, nil
 	}
 
 	sqlOp, opErr := opToSQL(op)
@@ -309,8 +339,23 @@ func compileTypeRef(raw, columnPrefix string, op Op) (string, []any, error) {
 // predicate (`n0.type`, `json_extract(n0.properties_json, ...)`), following the
 // same convention compileTypeRef uses. All type assertions are checked so a
 // malformed AST returns an error instead of panicking.
-func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string, []any, error) {
+//
+// `!=` is the complement of `=`: it compiles to the null-safe IS NOT, so a row
+// without the property passes it.
+func (state *compileState) compileProperty(predicate *PropertyPredicate, columnPrefix string) (string, []any, error) {
 	column, isCoreColumn := propertyColumn(predicate.Property)
+
+	if _, isAny := predicate.Value.(AnyValue); isAny {
+		return compilePresence(predicate, columnPrefix, column, isCoreColumn)
+	}
+
+	if list, isList := predicate.Value.(ListValue); isList || predicate.Op == OpContains {
+		if isCoreColumn {
+			return "", nil, fmt.Errorf("compile: %q is not a list", predicate.Property)
+		}
+
+		return state.compileListMatch(predicate, columnPrefix, list)
+	}
 
 	if predicate.Property == "type" && predicate.Op != OpRange {
 		stringValue, ok := predicate.Value.(StringValue)
@@ -334,7 +379,16 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 		}
 
 		switch {
-		case isTextComparedType(predicate.ResolvedType), predicate.ResolvedType == "string":
+		case isTextComparedType(predicate.ResolvedType):
+			low, lowErr := state.temporalOperand(StringValue{V: rangeValue.Min, Bareword: rangeValue.MinBareword}, predicate.ResolvedType)
+			high, highErr := state.temporalOperand(StringValue{V: rangeValue.Max, Bareword: rangeValue.MaxBareword}, predicate.ResolvedType)
+
+			if boundErr := errors.Join(lowErr, highErr); boundErr != nil {
+				return "", nil, boundErr
+			}
+
+			return quotedExtract(columnPrefix, predicate.Property) + " BETWEEN ? AND ?", []any{low, high}, nil
+		case predicate.ResolvedType == "string":
 			return quotedExtract(columnPrefix, predicate.Property) + " BETWEEN ? AND ?", []any{rangeValue.Min, rangeValue.Max}, nil
 		case predicate.ResolvedType == "enum":
 			return compileEnumRange(predicate, columnPrefix, rangeValue)
@@ -364,6 +418,10 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 		return "", nil, opErr
 	}
 
+	if predicate.Op == OpNE {
+		sqlOp = "IS NOT"
+	}
+
 	if isCoreColumn {
 		return columnPrefix + column + " " + sqlOp + " ?", []any{stringValue.V}, nil
 	}
@@ -385,7 +443,15 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 	// ordering operators, TEXT for equality — so ad-hoc property queries are
 	// unaffected.
 	switch {
-	case isTextComparedType(predicate.ResolvedType), predicate.ResolvedType == "string":
+	case isTextComparedType(predicate.ResolvedType):
+		operand, operandErr := state.temporalOperand(stringValue, predicate.ResolvedType)
+
+		if operandErr != nil {
+			return "", nil, operandErr
+		}
+
+		return quotedExtract(columnPrefix, predicate.Property) + " " + sqlOp + " ?", []any{operand}, nil
+	case predicate.ResolvedType == "string":
 		return quotedExtract(columnPrefix, predicate.Property) + " " + sqlOp + " ?", []any{stringValue.V}, nil
 	case predicate.ResolvedType == "enum":
 		if isNumericOp(predicate.Op) {
@@ -405,6 +471,140 @@ func compileProperty(predicate *PropertyPredicate, columnPrefix string) (string,
 	}
 
 	return quotedExtract(columnPrefix, predicate.Property) + " " + sqlOp + " ?", []any{stringValue.V}, nil
+}
+
+// compilePresence compiles `p=*` (has a value) and `p!=*` (missing). A core
+// column has a value unless it is empty. A frontmatter property has one when
+// json_each yields a non-null item: a scalar yields itself, while absent, null
+// and an empty list yield none.
+func compilePresence(predicate *PropertyPredicate, columnPrefix, column string, isCoreColumn bool) (string, []any, error) {
+	has := fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE item.value IS NOT NULL)", jsonItems(columnPrefix, predicate.Property))
+
+	if isCoreColumn {
+		has = "COALESCE(" + columnPrefix + column + ", '') <> ''"
+	}
+
+	switch predicate.Op {
+	case OpEQ:
+		return has, nil, nil
+	case OpNE:
+		return "NOT (" + has + ")", nil, nil
+	}
+
+	return "", nil, fmt.Errorf("compile: `*` only works with = or !=, got %s", predicate.Op)
+}
+
+// compileListMatch compiles `p~=v` (the list holds v) and `p=[a, b]` (it holds
+// every item, in any order), plus the `!=` complement of a list. Each item is
+// one EXISTS over the property's items; a list value ANDs them.
+func (state *compileState) compileListMatch(predicate *PropertyPredicate, columnPrefix string, list ListValue) (string, []any, error) {
+	items := list.Items
+
+	if predicate.Op == OpContains {
+		stringValue, ok := predicate.Value.(StringValue)
+
+		if !ok {
+			return "", nil, fmt.Errorf("compile: ~= with non-StringValue")
+		}
+
+		items = []StringValue{stringValue}
+	}
+
+	if len(items) == 0 {
+		return "", nil, fmt.Errorf("compile: a list needs at least one item")
+	}
+
+	clauses := make([]string, 0, len(items))
+
+	var params []any
+
+	for _, item := range items {
+		clause, param, itemErr := state.compileItemMatch(predicate, columnPrefix, item)
+
+		if itemErr != nil {
+			return "", nil, itemErr
+		}
+
+		clauses = append(clauses, clause)
+		params = append(params, param)
+	}
+
+	holdsAll := strings.Join(clauses, " AND ")
+
+	switch predicate.Op {
+	case OpEQ, OpContains:
+		return holdsAll, params, nil
+	case OpNE:
+		return "NOT (" + holdsAll + ")", params, nil
+	}
+
+	return "", nil, fmt.Errorf("compile: a list only works with = or !=, got %s", predicate.Op)
+}
+
+// compileItemMatch returns an EXISTS that is true when one of the property's
+// items equals operand, compared in the item type's domain. json_each walks
+// an array's items and yields a scalar as its single row, so an undeclared
+// property matches whether it holds a list or one value.
+func (state *compileState) compileItemMatch(predicate *PropertyPredicate, columnPrefix string, operand StringValue) (string, any, error) {
+	itemType := comparedType(predicate)
+	comparison := "item.value = ?"
+
+	var param any = operand.V
+
+	if intValue, isBool := boolLiteralAsInt(operand, OpEQ); isBool && (itemType == "" || itemType == "bool") {
+		param = intValue
+	} else {
+		switch {
+		case itemType == "int":
+			comparison = "CAST(item.value AS INTEGER) = ?"
+		case itemType == "float":
+			comparison = "CAST(item.value AS REAL) = ?"
+		case isTextComparedType(itemType):
+			resolved, operandErr := state.temporalOperand(operand, itemType)
+
+			if operandErr != nil {
+				return "", nil, operandErr
+			}
+
+			param = resolved
+		}
+	}
+
+	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", jsonItems(columnPrefix, predicate.Property), comparison), param, nil
+}
+
+// temporalOperand binds a date or datetime operand: an unquoted relative date
+// resolves against the compile clock in the stored format of valueType, and
+// any other value binds as written.
+func (state *compileState) temporalOperand(operand StringValue, valueType string) (any, error) {
+	relative, isRelative := parseRelativeDate(operand.V)
+
+	if !operand.Bareword || !isRelative || !isTextComparedType(valueType) {
+		return operand.V, nil
+	}
+
+	if state.now.IsZero() {
+		return nil, fmt.Errorf("compile: relative date %q needs CompileOptions.Now", operand.V)
+	}
+
+	return formatTemporal(relative.resolve(state.now), valueType), nil
+}
+
+// comparedType is the declared type of the values a predicate compares: a
+// list's item type, or the property's own type. Empty when undeclared.
+func comparedType(predicate *PropertyPredicate) string {
+	if predicate.ResolvedType == "list-of" {
+		return predicate.ItemType
+	}
+
+	return predicate.ResolvedType
+}
+
+// jsonItems is the json_each source over a property's value, aliased item: an
+// array's items, or a scalar as its single row. quotedExtract's precondition
+// on the property name applies.
+func jsonItems(columnPrefix, property string) string {
+	return fmt.Sprintf(`json_each(%sproperties_json, '$."%s"') AS item`, columnPrefix, property)
 }
 
 // compilePattern matches column against a path glob. The glob is translated to
@@ -590,10 +790,11 @@ func propertyColumn(name string) (string, bool) {
 
 // opToSQL maps a binary comparison operator to its SQL glyph. The glyph is the
 // single source of truth in Op.String(); opToSQL refuses operators that are not
-// binary comparisons (OpRange, which compiles to BETWEEN, and any unknown
-// value) rather than emitting a "?" sentinel into a query.
+// binary comparisons (OpRange, which compiles to BETWEEN, OpContains, which
+// compiles to an EXISTS over the items, and any unknown value) rather than
+// emitting a "?" sentinel into a query.
 func opToSQL(op Op) (string, error) {
-	if op == OpRange || !op.valid() {
+	if op == OpRange || op == OpContains || !op.valid() {
 		return "", fmt.Errorf("compile: %v is not a binary comparison operator", op)
 	}
 

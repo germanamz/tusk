@@ -4,8 +4,10 @@ import (
 	"database/sql"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
@@ -238,5 +240,81 @@ func TestCompileRules_NilAndEmpty(test *testing.T) {
 		if len(compiled) != 0 || len(ruleErrs) != 0 {
 			test.Errorf("%s: CompileRules = %v, %v, want nothing", name, compiled, ruleErrs)
 		}
+	}
+}
+
+// A rule can catch a missing property (#846): NOT matches a node without
+// domain, `!=*` names the missing case directly, and a relative date resolves
+// against Config.Now on every run.
+func TestRun_RulesSeeMissingPropertiesAndRelativeDates(test *testing.T) {
+	store, _ := index.Open(filepath.Join(test.TempDir(), "index.db"))
+	defer store.Close()
+
+	nodes := index.NewNodeRepo(store)
+
+	for _, row := range []index.NodeRow{
+		{ID: "a", Type: "note", Path: "a.md", Title: "A", PropertiesJSON: `{"domain":"product","checked":"2026-01-01"}`, LastChecksum: "x"},
+		{ID: "b", Type: "note", Path: "b.md", Title: "B", PropertiesJSON: `{"domain":"engineering","checked":"2026-10-20"}`, LastChecksum: "x"},
+		{ID: "c", Type: "note", Path: "c.md", Title: "C", PropertiesJSON: `{}`, LastChecksum: "x"},
+	} {
+		if upsertErr := nodes.Upsert(row); upsertErr != nil {
+			test.Fatalf("upsert %s: %v", row.ID, upsertErr)
+		}
+	}
+
+	loaded := loadGraphExpansionManifest(test, `[workspace]
+name = "brain"
+
+[node-types.note]
+properties = [
+  { name = "domain", type = "enum", values = ["product", "engineering"] },
+  { name = "checked", type = "date" },
+]
+
+[rule.not-both-domains]
+filter = "type=note AND NOT domain=product AND NOT domain=engineering"
+
+[rule.has-domain]
+filter = "type=note AND domain!=*"
+
+[rule.stale]
+filter = "type=note AND checked<today-90d"
+`)
+
+	config := doctor.Config{
+		Nodes:    nodes,
+		Edges:    index.NewEdgeRepo(store),
+		Manifest: loaded,
+		DB:       store.DB(),
+		Now:      time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC),
+	}
+
+	report, runErr := doctor.Run(config)
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	var got []string
+
+	for _, issue := range report.Issues {
+		if strings.HasPrefix(issue.Kind, doctor.RuleKindPrefix) || issue.Kind == doctor.IssueRuleInvalid {
+			got = append(got, issue.Kind+" "+issue.NodeID)
+		}
+	}
+
+	want := []string{"rule:has-domain c", "rule:not-both-domains c", "rule:stale a"}
+
+	sort.Strings(got)
+
+	if !reflect.DeepEqual(got, want) {
+		test.Fatalf("rule issues = %v, want %v", got, want)
+	}
+
+	// A caller that sets no clock gets an error, not a guess.
+	config.Now = time.Time{}
+
+	if _, noClockErr := doctor.Run(config); noClockErr == nil || !strings.Contains(noClockErr.Error(), "CompileOptions.Now") {
+		test.Fatalf("Run without Now = %v, want the missing-clock error", noClockErr)
 	}
 }

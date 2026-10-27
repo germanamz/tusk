@@ -612,7 +612,7 @@ func TestCompile_ModifiedSinceDurationEmitsLastMtimeBound(test *testing.T) {
 
 	before := time.Now().Add(-7 * 24 * time.Hour).UnixNano()
 
-	sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+	sql, params, err := filter.Compile(expr, filter.CompileOptions{Now: time.Now()})
 
 	after := time.Now().Add(-7 * 24 * time.Hour).UnixNano()
 
@@ -694,7 +694,7 @@ func TestCompile_ModifiedSinceComposesWithOtherPredicates(test *testing.T) {
 		test.Fatalf("validate: %+v", validateErrs)
 	}
 
-	sql, params, err := filter.Compile(expr, filter.CompileOptions{})
+	sql, params, err := filter.Compile(expr, filter.CompileOptions{Now: time.Now()})
 
 	if err != nil {
 		test.Fatalf("compile: %v", err)

@@ -102,7 +102,7 @@ func TestModifiedSince_EndToEndAgainstIndex(test *testing.T) {
 				test.Fatalf("validate: %+v", validateErrs)
 			}
 
-			sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+			sqlQuery, params, compileErr := filter.Compile(expr, filter.CompileOptions{Now: now})
 
 			if compileErr != nil {
 				test.Fatalf("compile: %v", compileErr)

@@ -231,19 +231,20 @@ func checkRules(config Config) ([]Issue, error) {
 	return issues, nil
 }
 
-// filterMatcher is the filter kind: every node the compiled filter matches
-// breaks the rule.
+// filterMatcher is the filter kind: every node the filter matches breaks the
+// rule. It holds the validated expression and compiles it each run, so a
+// relative date such as today-90d means the day doctor runs.
 type filterMatcher struct {
-	source string
-	query  string
-	params []any
+	source    string
+	expr      filter.Expr
+	filesOnly bool
 }
 
-// compileFilterRule parses, validates and compiles a rule's filter. Validation
-// is strict when the manifest declares node types to check names against (a
-// typo would otherwise match nothing forever), and query's own validation in a
-// schemaless vault. The rule matches file nodes only unless the filter
-// selects a sub-unit type, because sub-units share their file's path.
+// compileFilterRule parses and validates a rule's filter. Validation is strict
+// when the manifest declares node types to check names against (a typo would
+// otherwise match nothing forever), and query's own validation in a schemaless
+// vault. The rule matches file nodes only unless the filter selects a sub-unit
+// type, because sub-units share their file's path.
 func compileFilterRule(rule manifest.Rule, loaded *manifest.Manifest) (ruleMatcher, error) {
 	source := strings.TrimSpace(rule.Filter)
 
@@ -267,13 +268,7 @@ func compileFilterRule(rule manifest.Rule, loaded *manifest.Manifest) (ruleMatch
 		return nil, fmt.Errorf("filter: %s", joinMessages(validationErrs))
 	}
 
-	query, params, compileErr := filter.Compile(expr, filter.CompileOptions{FilesOnly: !selectsSubUnits(expr)})
-
-	if compileErr != nil {
-		return nil, fmt.Errorf("filter: %w", compileErr)
-	}
-
-	return filterMatcher{source: source, query: query, params: params}, nil
+	return filterMatcher{source: source, expr: expr, filesOnly: !selectsSubUnits(expr)}, nil
 }
 
 // selectsSubUnits reports whether the filter's outer level names a built-in
@@ -303,7 +298,13 @@ func joinMessages[Err error](errs []Err) string {
 }
 
 func (matcher filterMatcher) violations(config Config) ([]ruleViolation, error) {
-	rows, queryErr := config.DB.Query(matcher.query, matcher.params...)
+	query, params, compileErr := filter.Compile(matcher.expr, filter.CompileOptions{FilesOnly: matcher.filesOnly, Now: config.Now})
+
+	if compileErr != nil {
+		return nil, compileErr
+	}
+
+	rows, queryErr := config.DB.Query(query, params...)
 
 	if queryErr != nil {
 		return nil, queryErr

@@ -526,6 +526,7 @@ func registerNodeListTool(srv *Server) {
 			// Bound tool output by default; the CLI `tusk node list` stays
 			// uncapped. Raising take past 50 pages through more.
 			StructuralDefaultTake: 50,
+			Now:                   time.Now(),
 		})
 
 		if runErr != nil {
@@ -677,7 +678,7 @@ func registerQueryTool(srv *Server) {
 	// had agents send "include": body, which fails to parse as JSON and
 	// costs a retry (22% of queries in the #815 benchmark).
 	tool := mcpgo.NewTool("tusk_query",
-		mcpgo.WithDescription(`Structural filter, semantic kNN ranking, or both. Filter DSL: type=ticket AND priority>=2; status!=done OR NOT owner=me; path=docs/** (glob); blocks-> type=epic (out-edge; blocks<- in); tree=<id>; modified-since:7d. Semantic: top-5 files, each with its best sections (heading, line range); the top hit's best section includes its text. Structural: top-50. Grammar: tusk_help(topic:"filter"); output: tusk_help(topic:"query").`),
+		mcpgo.WithDescription(`Structural filter, semantic kNN ranking, or both. Filter DSL: type=ticket AND priority>=2; status!=done OR NOT owner=me; path=docs/** (glob); blocks-> type=epic (out-edge; blocks<- in); tree=<id>; modified-since:7d; owner!=* (missing); labels~=bug; due<today-90d. Semantic: top-5 files, each with its best sections (heading, line range); the top hit's best section includes its text. Structural: top-50. Grammar: tusk_help(topic:"filter"); output: tusk_help(topic:"query").`),
 		mcpgo.WithString("filter", mcpgo.Required(), mcpgo.Description(`Filter DSL; "" = all.`)),
 		mcpgo.WithString("sort", mcpgo.Description(`e.g. "+priority,-due"`)),
 		mcpgo.WithNumber("take", mcpgo.Description("Limit (default 50; semantic 5).")),
@@ -751,6 +752,7 @@ func registerQueryTool(srv *Server) {
 			Nodes:      srv.runtime.Nodes,
 			Edges:      srv.runtime.Edges,
 		}, query.Request{
+			Now:      time.Now(),
 			Filter:   filterText,
 			Sort:     argStringOptional(request, "sort"),
 			Take:     take,
@@ -972,6 +974,7 @@ func registerDoctorTool(srv *Server) {
 			Meta:          srv.runtime.Meta,
 			Manifest:      srv.runtime.Manifest,
 			Root:          srv.runtime.Root,
+			Now:           time.Now(),
 		}
 
 		runResult, runErr := doctor.RunWithMigration(doctor.Request{Cfg: cfg, NoMigrate: noMigrate})

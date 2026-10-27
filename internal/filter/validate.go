@@ -232,9 +232,10 @@ func unionScope(base, extra typeScope) typeScope {
 
 // resolveProperty resolves a property predicate's declared type from the
 // manifest within its conjunctive type scope and stamps ResolvedType (plus
-// EnumValues for enums) so the compiler can choose a type-aware comparison.
-// It also surfaces validation errors for ordering/range operators: an invalid
-// enum value/index, an unparseable date/datetime, or an ambiguous property
+// EnumValues for enums and ItemType for lists) so the compiler can choose a
+// type-aware comparison. It also surfaces validation errors: an operator that
+// doesn't fit a list or a single value, an invalid enum value/index, an
+// unparseable date/datetime or relative date, and an ordering on a property
 // declared on multiple node types without a disambiguating `type=`.
 //
 // Core columns (id/type/path/title) and undeclared properties are left
@@ -242,6 +243,8 @@ func unionScope(base, extra typeScope) typeScope {
 // ad-hoc property queries.
 func (collector *validationCollector) resolveProperty(pred *PropertyPredicate, scope typeScope) {
 	if _, core := coreColumns[pred.Property]; core {
+		collector.checkCoreOperator(pred)
+
 		return
 	}
 
@@ -249,6 +252,8 @@ func (collector *validationCollector) resolveProperty(pred *PropertyPredicate, s
 
 	switch len(decls) {
 	case 0:
+		collector.checkUntypedRelative(pred)
+
 		return
 	case 1:
 		// resolved below
@@ -267,13 +272,131 @@ func (collector *validationCollector) resolveProperty(pred *PropertyPredicate, s
 	decl := decls[0]
 	pred.ResolvedType = decl.Type
 
-	if decl.Type == "enum" {
+	switch decl.Type {
+	case "enum":
 		pred.EnumValues = decl.Values
+	case "list-of":
+		pred.ItemType = decl.ItemType
+
+		if decl.ItemType == "enum" {
+			pred.EnumValues = decl.Values
+		}
 	}
 
-	if isOrderingOrRange(pred.Op) {
-		collector.checkTypedComparison(pred, decl)
+	if !collector.checkListShape(pred, decl) {
+		return
 	}
+
+	valueType := comparedType(pred)
+
+	switch {
+	case isOrderingOrRange(pred.Op):
+		collector.checkTypedComparison(pred, decl)
+	case isTextComparedType(valueType):
+		collector.checkRelativeOperands(pred, valueType)
+	}
+
+	if !isTextComparedType(valueType) && valueType != "enum" {
+		collector.checkUntypedRelative(pred)
+	}
+}
+
+// checkCoreOperator reports a list operator on a core column, which always
+// holds a single value.
+func (collector *validationCollector) checkCoreOperator(pred *PropertyPredicate) {
+	first := firstOperand(pred)
+
+	switch {
+	case pred.Op == OpContains:
+		collector.add(pred.Pos, fmt.Sprintf("~= tests list items, and %q is not a list", pred.Property), fmt.Sprintf("use %s=%s", pred.Property, first))
+	case isListValue(pred.Value):
+		collector.add(pred.Pos, fmt.Sprintf("%q is not a list", pred.Property), "")
+	}
+}
+
+// checkListShape reports an operator that doesn't fit the declared shape: =
+// or != with one value on a list, which would compare the whole list; an
+// ordering on a list; or ~= or a [a, b] value on a single value. It returns
+// false after reporting, so later checks don't pile on.
+func (collector *validationCollector) checkListShape(pred *PropertyPredicate, decl manifest.PropertyDecl) bool {
+	if _, anyValue := pred.Value.(AnyValue); anyValue {
+		return true
+	}
+
+	isList := decl.Type == "list-of"
+	first := firstOperand(pred)
+
+	switch {
+	case isList && (pred.Op == OpEQ || pred.Op == OpNE) && !isListValue(pred.Value):
+		collector.add(
+			pred.Pos,
+			fmt.Sprintf("property %q is a list", pred.Property),
+			fmt.Sprintf("use %s~=%s for one item, or %s=[%s, ...] for several", pred.Property, first, pred.Property, first),
+		)
+	case isList && isOrderingOrRange(pred.Op):
+		collector.add(
+			pred.Pos,
+			fmt.Sprintf("property %q is a list; %s compares single values", pred.Property, pred.Op),
+			fmt.Sprintf("use %s~=%s to test an item", pred.Property, first),
+		)
+	case !isList && (pred.Op == OpContains || isListValue(pred.Value)):
+		collector.add(
+			pred.Pos,
+			fmt.Sprintf("property %q is declared %s, not a list", pred.Property, decl.Type),
+			fmt.Sprintf("use %s=%s", pred.Property, first),
+		)
+	default:
+		return true
+	}
+
+	return false
+}
+
+// checkRelativeOperands reports an unquoted value on a date or datetime that
+// opens like a relative date but isn't one (today-5x), so it isn't compared as
+// text and silently missed. Ordering and range bounds get the full check from
+// normalizeTemporal instead.
+func (collector *validationCollector) checkRelativeOperands(pred *PropertyPredicate, valueType string) {
+	for _, operand := range comparisonOperands(pred) {
+		if !operand.Bareword || !looksRelative(operand.V) {
+			continue
+		}
+
+		if _, ok := parseRelativeDate(operand.V); !ok {
+			collector.add(pred.Pos, fmt.Sprintf("%q is not a valid value for %q", operand.V, pred.Property), temporalHint(valueType))
+		}
+	}
+}
+
+// checkUntypedRelative reports an ordering against a relative date on a
+// property that isn't declared as a date or datetime. Without the type the
+// compiler can't know to resolve the literal, and the comparison would match
+// nothing.
+func (collector *validationCollector) checkUntypedRelative(pred *PropertyPredicate) {
+	if !isOrderingOrRange(pred.Op) {
+		return
+	}
+
+	for _, operand := range comparisonOperands(pred) {
+		if _, ok := parseRelativeDate(operand.V); ok && operand.Bareword {
+			collector.add(
+				pred.Pos,
+				fmt.Sprintf("%q is a relative date, but %q is not declared as a date or datetime", operand.V, pred.Property),
+				`declare it with type = "date" or "datetime"`,
+			)
+
+			return
+		}
+	}
+}
+
+// temporalHint names the values a date or datetime comparison accepts.
+func temporalHint(valueType string) string {
+	if valueType == "date" {
+		return "expected ISO date (YYYY-MM-DD) or a relative date like today-90d"
+	}
+
+	return "expected RFC3339 datetime or a relative date like now-48h"
 }
 
 // lookupPropertyDecls returns the distinct declarations of property name within
@@ -318,34 +441,39 @@ func (collector *validationCollector) lookupPropertyDecls(name string, scope typ
 func (collector *validationCollector) checkTypedComparison(pred *PropertyPredicate, decl manifest.PropertyDecl) {
 	switch decl.Type {
 	case "enum":
-		for _, token := range comparisonTokens(pred) {
-			if _, ok := resolveEnumIndex(decl.Values, token); !ok {
+		for _, operand := range comparisonOperands(pred) {
+			if _, ok := resolveEnumIndex(decl.Values, operand.V); !ok {
 				collector.add(
 					pred.Pos,
-					fmt.Sprintf("%q is not a value or 0-based index of enum property %q", token, pred.Property),
+					fmt.Sprintf("%q is not a value or 0-based index of enum property %q", operand.V, pred.Property),
 					"valid values: "+strings.Join(decl.Values, ", "),
 				)
 			}
 		}
 	case "date":
-		collector.normalizeTemporal(pred, time.DateOnly, "ISO date (YYYY-MM-DD)")
+		collector.normalizeTemporal(pred, time.DateOnly)
 	case "datetime":
-		collector.normalizeTemporal(pred, time.RFC3339, "RFC3339 datetime")
+		collector.normalizeTemporal(pred, time.RFC3339)
 	}
 }
 
 // normalizeTemporal parses each comparison bound with layout, reporting a
 // validation error on failure, and rewrites the predicate's value(s) to the
-// canonical re-formatted form on success.
-func (collector *validationCollector) normalizeTemporal(pred *PropertyPredicate, layout, expected string) {
-	normalize := func(raw string) (string, bool) {
+// canonical re-formatted form on success. An unquoted relative date is left
+// for the compiler to resolve against its clock.
+func (collector *validationCollector) normalizeTemporal(pred *PropertyPredicate, layout string) {
+	normalize := func(raw string, bareword bool) (string, bool) {
+		if _, isRelative := parseRelativeDate(raw); isRelative && bareword {
+			return raw, true
+		}
+
 		parsed, parseErr := time.Parse(layout, raw)
 
 		if parseErr != nil {
 			collector.add(
 				pred.Pos,
 				fmt.Sprintf("%q is not a valid value for %q", raw, pred.Property),
-				"expected "+expected,
+				temporalHint(pred.ResolvedType),
 			)
 
 			return "", false
@@ -356,30 +484,49 @@ func (collector *validationCollector) normalizeTemporal(pred *PropertyPredicate,
 
 	switch value := pred.Value.(type) {
 	case StringValue:
-		if normalized, ok := normalize(value.V); ok {
+		if normalized, ok := normalize(value.V, value.Bareword); ok {
 			pred.Value = StringValue{V: normalized, Bareword: value.Bareword}
 		}
 	case RangeValue:
-		normMin, okMin := normalize(value.Min)
-		normMax, okMax := normalize(value.Max)
+		normMin, okMin := normalize(value.Min, value.MinBareword)
+		normMax, okMax := normalize(value.Max, value.MaxBareword)
 
 		if okMin && okMax {
-			pred.Value = RangeValue{Min: normMin, Max: normMax}
+			pred.Value = RangeValue{Min: normMin, Max: normMax, MinBareword: value.MinBareword, MaxBareword: value.MaxBareword}
 		}
 	}
 }
 
-// comparisonTokens returns the raw right-hand value tokens of a predicate: one
-// for a scalar comparison, two for a range.
-func comparisonTokens(pred *PropertyPredicate) []string {
+// comparisonOperands returns the right-hand values of a predicate: one for a
+// scalar comparison, two for a range, each item of a list, and none for `*`.
+func comparisonOperands(pred *PropertyPredicate) []StringValue {
 	switch value := pred.Value.(type) {
 	case StringValue:
-		return []string{value.V}
+		return []StringValue{value}
 	case RangeValue:
-		return []string{value.Min, value.Max}
+		return []StringValue{{V: value.Min, Bareword: value.MinBareword}, {V: value.Max, Bareword: value.MaxBareword}}
+	case ListValue:
+		return value.Items
 	}
 
 	return nil
+}
+
+// firstOperand is the first right-hand value of a predicate, for a hint that
+// shows the fix; empty when there is none.
+func firstOperand(pred *PropertyPredicate) string {
+	if operands := comparisonOperands(pred); len(operands) > 0 {
+		return operands[0].V
+	}
+
+	return ""
+}
+
+// isListValue reports whether value is a `[a, b]` list.
+func isListValue(value Value) bool {
+	_, isList := value.(ListValue)
+
+	return isList
 }
 
 // containsEquivalentDecl reports whether decls already holds a declaration with

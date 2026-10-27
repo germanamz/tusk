@@ -42,7 +42,6 @@ debt internal/embed                   import:internal/index              *
 debt internal/embed                   import:net/http                    1
 debt internal/embedconfig             env                                1
 debt internal/epoch                   fs                                 7
-debt internal/filter                  clock                              1
 debt internal/graphexpand             import:internal/index              *
 debt internal/ignore                  fs                                 1
 debt internal/leaseconfig             env                                1

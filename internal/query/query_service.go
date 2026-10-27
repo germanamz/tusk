@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/filter"
@@ -76,6 +77,11 @@ type Request struct {
 	// trace of how each result row was scored (cosine, lexical and graph
 	// contributions).
 	Explain bool
+
+	// Now is the clock the filter's relative dates (`today-90d`) and
+	// `modified-since:<duration>` resolve against. Required when the filter
+	// holds one.
+	Now time.Time
 }
 
 // Row is a single structural result.
@@ -243,7 +249,7 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		structTake = req.StructuralDefaultTake
 	}
 
-	rows, compileErr := compileAndQuery(deps.Database, deps.Manifest, req.Filter, req.Sort, structTake, structSkip)
+	rows, compileErr := compileAndQuery(deps.Database, deps.Manifest, req.Filter, req.Sort, structTake, structSkip, req.Now)
 
 	if compileErr != nil {
 		return nil, compileErr

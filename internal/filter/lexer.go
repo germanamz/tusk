@@ -76,6 +76,12 @@ func (lex *Lexer) NextValue() Token {
 		return lex.lexString()
 	}
 
+	if lex.input[lex.pos] == '[' {
+		lex.pos++
+
+		return Token{Kind: TokenLBracket, Pos: startPos}
+	}
+
 	end := lex.pos
 
 	for end < len(lex.input) {
@@ -98,6 +104,31 @@ func (lex *Lexer) NextValue() Token {
 	lex.pos = end
 
 	return Token{Kind: TokenBareValue, Value: text, Pos: startPos}
+}
+
+// NextListSeparator returns what follows an item of a `[a, b]` list: a comma,
+// the closing bracket, EOF, or an illegal token for anything else.
+func (lex *Lexer) NextListSeparator() Token {
+	lex.skipWhitespace()
+
+	if lex.pos >= len(lex.input) {
+		return Token{Kind: TokenEOF, Pos: lex.pos}
+	}
+
+	startPos := lex.pos
+
+	switch lex.input[lex.pos] {
+	case ',':
+		lex.pos++
+
+		return Token{Kind: TokenComma, Pos: startPos}
+	case ']':
+		lex.pos++
+
+		return Token{Kind: TokenRBracket, Pos: startPos}
+	}
+
+	return Token{Kind: TokenIllegal, Value: "expected , or ]", Pos: startPos}
 }
 
 // Pos reports the current byte offset.
@@ -123,6 +154,7 @@ type operatorMatch struct {
 
 var operators = []operatorMatch{
 	{"!=", TokenNE},
+	{"~=", TokenContains},
 	{"<=", TokenLE},
 	{">=", TokenGE},
 	{"->", TokenArrowOut},
@@ -219,14 +251,15 @@ func isIdentifier(text string) bool {
 
 // isBareValueChar reports whether character can appear in an unquoted value.
 // `*` and `?` are the path-pattern wildcards; the parser rejects them on any
-// property but path and id.
+// property but path and id. `+` is for relative dates such as today+2w.
 func isBareValueChar(character byte) bool {
 	return isIdentContinue(character) ||
 		character == '/' ||
 		character == '.' ||
 		character == ':' ||
 		character == '*' ||
-		character == '?'
+		character == '?' ||
+		character == '+'
 }
 
 func keywordOrIdent(text string) TokenKind {

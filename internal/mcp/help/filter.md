@@ -15,10 +15,52 @@ key<=value
 key>value
 key>=value
 key=lo..hi            # range, inclusive
+key=*                 # has a value
+key!=*                # missing
+key~=item             # a list property holds item
+key=[a, b]            # a list property holds a and b, in any order
 ```
 
 Examples: `type=ticket`, `priority>=2`, `estimate=1..5`,
-`status!=done`.
+`status!=done`, `owner!=*`, `labels~=bug`.
+
+`NOT key=value` and `key!=value` are the exact opposite of
+`key=value`, so they also match a node that lacks the property:
+`status!=done` returns the tickets with no status too. Write
+`status=* AND status!=done` to keep only tickets that set one.
+
+## Missing properties
+
+`key=*` matches a node whose `key` has a value, and `key!=*` (or
+`NOT key=*`) matches one where it is missing. An absent key and a null
+are missing. An empty string is a value, as it is for `required`. A list
+needs at least one item, so `labels: []` is missing. On `path` and `id`
+a lone `*` keeps its glob meaning (below).
+
+```
+type=service AND domain!=*          # services with no domain
+type=ticket AND NOT (owner=* AND due=*)
+```
+
+## Lists
+
+A `list-of` property is tested item by item. `~=` asks for one item and
+`[a, b]` for all of them, in any order:
+
+```
+labels~=bug                # holds bug
+labels=[bug, urgent]       # holds both (and maybe more)
+labels!=[bug, urgent]      # lacks at least one of them, or has no labels
+NOT labels~=bug            # no bug label, empty and missing lists included
+```
+
+Items in `[a, b]` are bare or quoted values, comma-separated. A list
+item is compared in the declared item type, so `scores~=5` works on a
+`list-of` int. A frontmatter key that isn't declared works with both
+forms whether it holds a list or a single value (`tags~=x`). On a
+declared list, a plain `labels=bug` is an error that points at `~=`,
+and `<`, `>` and ranges don't apply. `~=` and `[a, b]` on a declared
+single value are errors too.
 
 An unquoted value can hold letters, digits, `-`, `_`, `/`, `.` and `:`,
 plus the path-pattern wildcards `*` and `?` (below). Quote anything else:
@@ -53,8 +95,9 @@ its id with `#…`, so a pattern matches them along with the file. Add
 
 Patterns work with `=`, `:` and `!=`, including after an edge arrow
 (`references-> path=docs/**`) and as the scope of a semantic query.
-Wildcards on any other property, with `<`/`>`, in a `lo..hi` range or
-in `tree=`/`parent=`/`root=` are an error. Only an unquoted value is a
+Wildcards on any other property (apart from a lone `*`, which means
+"has a value"), with `<`/`>`, in a `lo..hi` range or in
+`tree=`/`parent=`/`root=` are an error. Only an unquoted value is a
 pattern, so quote it to match a literal `*`: `path="odd/file*.md"`.
 
 ## Typed comparisons
@@ -71,6 +114,29 @@ These resolve the property against its declared type, so add
 `type=<node-type>` when a name is declared on more than one type
 (e.g. `type=plan status>=shipped`). An out-of-range value or an
 unparseable date errors rather than silently matching nothing.
+
+## Relative dates
+
+A `date` or `datetime` property compares against a date counted from
+the day the query runs, so a rule like "not reviewed in 90 days" keeps
+working without edits:
+
+```
+reviewed<today-90d          # more than 90 days ago
+due<=today+2w               # due within two weeks
+reviewed=today-1y..today    # in the last year
+seen>=now-48h               # a datetime in the last 48 hours
+```
+
+`today` is the local calendar date and `now` the current instant. The
+offset is a number and a unit: `h` hours, `d` days, `w` weeks, `m`
+months, `y` years (`m` is months; there is no minutes unit). A month or
+year back from the 31st lands on the last day of a shorter month. On a
+`datetime`, `today` means local midnight. The literal works with every
+operator, inside `[a, b]` on a list of dates, and in `[rule]` filters,
+where it resolves each time doctor runs. Quote it to compare the text
+literally. On a property that isn't declared as a date, an ordering
+against `today` is an error.
 
 ## Boolean composition
 
@@ -135,6 +201,9 @@ modified-since:7d                # last 7 days
 modified-since:24h
 modified-since:2026-05-23        # absolute ISO date
 ```
+
+`modified-since:` reads the file's modification time. To compare a
+date stored in frontmatter, use a relative date (above).
 
 ## Path refs
 

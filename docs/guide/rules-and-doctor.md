@@ -34,7 +34,18 @@ filter      = "type=note AND domain=product AND NOT path=docs/product/**"
 description = "a product page links only to product pages and the glossary"
 filter      = "domain=product AND references-> (type=note AND NOT domain=product AND NOT id=docs/glossary)"
 severity    = "warning"   # error (the default) | warning | advice
+
+[rule.service-has-an-owner]
+description = "every service names its owning team"
+filter      = "type=service AND owner!=*"
+
+[rule.review-is-current]
+description = "a service was reviewed in the last 90 days"
+filter      = "type=service AND reviewed<today-90d"
+severity    = "warning"
 ```
+
+`owner!=*` matches a service whose `owner` is missing or null; an optional property is checked the same way. `NOT` and `!=` match a node that lacks the property too, so `NOT domain=product` includes notes with no domain. `today-90d` counts back from the day doctor runs, so the second rule needs no edits to stay current.
 
 `tusk doctor` runs every rule and reports each matching node as a `rule:<name>` issue at the rule's severity, so a broken convention fails it like a dangling link would:
 

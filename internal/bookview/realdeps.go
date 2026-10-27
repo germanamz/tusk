@@ -3,6 +3,7 @@ package bookview
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/graphexpand"
@@ -77,6 +78,7 @@ func (adapter *searcher) Search(ctx context.Context, req SearchRequest) (SearchR
 		StructuralDefaultTake: req.Limit,
 		WorkspaceRoot:         adapter.workspaceRoot,
 		Explain:               req.Explain,
+		Now:                   time.Now(),
 	}
 
 	if req.Expand {

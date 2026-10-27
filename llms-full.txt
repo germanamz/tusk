@@ -610,6 +610,18 @@ the operators below.
 tusk query 'type=ticket status=active priority=high'
 tusk query 'type:plan shipped-at>=2026-04-01'   # date ordering, chronological
 
+# != and NOT also match nodes without the property; * means "has a value"
+tusk query 'type=ticket status!=done'           # includes tickets with no status
+tusk query 'type=service owner!=*'              # services with no owner
+
+# Lists: ~= for one item, [a, b] for all of them in any order
+tusk query 'type=ticket labels~=bug'
+tusk query 'type=ticket labels=[bug, urgent]'
+
+# Relative dates on date and datetime properties: h, d, w, m (months), y
+tusk query 'type=service reviewed<today-90d'
+tusk query 'type=ticket due<=today+2w'
+
 # Path patterns on path and id: * stays in one folder, ** crosses folders
 tusk query 'type=note path=docs/product/*'      # notes directly in docs/product/
 tusk query 'path=docs/** path!=docs/archive/**' # all of docs/ except the archive
@@ -754,7 +766,18 @@ filter      = "type=note AND domain=product AND NOT path=docs/product/**"
 description = "a product page links only to product pages and the glossary"
 filter      = "domain=product AND references-> (type=note AND NOT domain=product AND NOT id=docs/glossary)"
 severity    = "warning"   # error (the default) | warning | advice
+
+[rule.service-has-an-owner]
+description = "every service names its owning team"
+filter      = "type=service AND owner!=*"
+
+[rule.review-is-current]
+description = "a service was reviewed in the last 90 days"
+filter      = "type=service AND reviewed<today-90d"
+severity    = "warning"
 ```
+
+`owner!=*` matches a service whose `owner` is missing or null; an optional property is checked the same way. `NOT` and `!=` match a node that lacks the property too, so `NOT domain=product` includes notes with no domain. `today-90d` counts back from the day doctor runs, so the second rule needs no edits to stay current.
 
 `tusk doctor` runs every rule and reports each matching node as a `rule:<name>` issue at the rule's severity, so a broken convention fails it like a dangling link would:
 
@@ -2651,10 +2674,14 @@ List nodes from the index, optionally filtering by expression.
 The filter is a property and edge-traversal expression. Property
 predicates use comparison operators — = and : (equal), != (not equal),
 < <= > >= (ordering) — written directly after the key (e.g. status=open,
-priority>=2); ranges use key=lo..hi. Ordering and range operators compare
-by the property's declared type: int numerically, date/datetime
-chronologically, enum by declared order (a value name or a 0-based index).
-path and id also take glob patterns with = and !=: * stays inside one
+priority>=2); ranges use key=lo..hi. != and NOT also match a node without
+the property; key=* means it has a value and key!=* that it is missing. A
+list property takes ~= for one item (labels~=bug) and key=[a, b] for every
+listed item, in any order. Ordering and range operators compare by the
+property's declared type: int numerically, date/datetime chronologically,
+enum by declared order (a value name or a 0-based index). A date or
+datetime also takes a relative date: today, today-90d or today+2w (units
+h, d, w, m for months, y), and now-48h for a datetime. path and id also take glob patterns with = and !=: * stays inside one
 folder, ? is one character, and a ** segment crosses folders (e.g.
 path=docs/product/*, path=docs/**, id=**/index); quote the value to match a
 literal *. Edge traversal uses edge-type-> (outgoing) or edge-type<- (incoming) and
@@ -2998,10 +3025,15 @@ Three modes, all driven by the same command:
     edge-traversal expression. Property predicates use comparison
     operators — = and : (equal), != (not equal), < <= > >= (ordering) —
     written directly after the key (e.g. status=open, priority>=2);
-    ranges use key=lo..hi. Ordering and range operators compare by the
-    property's declared type: int numerically, date/datetime
-    chronologically, enum by declared order (a value name or a 0-based
-    index). path and id also take glob patterns with = and !=: * stays
+    ranges use key=lo..hi. != and NOT also match a node without the
+    property; key=* means it has a value and key!=* that it is missing.
+    A list property takes ~= for one item (labels~=bug) and key=[a, b]
+    for every listed item, in any order. Ordering and range operators
+    compare by the property's declared type: int numerically,
+    date/datetime chronologically, enum by declared order (a value name
+    or a 0-based index). A date or datetime also takes a relative date:
+    today, today-90d or today+2w (units h, d, w, m for months, y), and
+    now-48h for a datetime. path and id also take glob patterns with = and !=: * stays
     inside one folder, ? is one character, and a ** segment crosses
     folders (e.g. path=docs/product/*, path=docs/**, id=**/index); quote
     the value to match a literal *. Edge traversal uses edge-type-> (outgoing) or edge-type<-
@@ -3075,6 +3107,13 @@ tusk query <filter> [flags]
 ```
   # Structural: all priority-1 tickets touched in the last week
   tusk query 'type=ticket AND priority=1 AND modified-since:7d'
+
+  # Tickets with no owner, or labelled both bug and urgent
+  tusk query 'type=ticket AND owner!=*'
+  tusk query 'type=ticket AND labels=[bug, urgent]'
+
+  # Services not reviewed in the last 90 days (relative to today)
+  tusk query 'type=service AND reviewed<today-90d'
 
   # Expand bodies and edges in one round-trip
   tusk query 'type=ticket' --include body,edges

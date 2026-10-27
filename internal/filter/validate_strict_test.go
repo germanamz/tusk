@@ -52,7 +52,7 @@ func TestValidateStrict_AcceptsDeclaredNames(test *testing.T) {
 		"id=docs/glossary OR title=Glossary",
 		"NOT type=section",
 		"type=section AND heading-level=1",
-		"type=ticket AND labels=bug",
+		"type=ticket AND labels~=bug",
 		"type=:note",
 		"modified-since:7d",
 	} {
@@ -79,7 +79,7 @@ func TestValidateStrict_RejectsTypos(test *testing.T) {
 		{"(type=ticket OR type=note) AND type=ticket AND summary=x", `property "summary" is not declared on node type "ticket"`, ""},
 		{"domain=prodcut", `"prodcut" is not a value of enum property "domain"`, "valid values: product, engineering"},
 		{"domain!=prodcut", `"prodcut" is not a value of enum property "domain"`, "valid values: product, engineering"},
-		{"type=ticket AND labels=bugg", `"bugg" is not a value of enum property "labels"`, "valid values: bug, chore"},
+		{"type=ticket AND labels~=bugg", `"bugg" is not a value of enum property "labels"`, "valid values: bug, chore"},
 	}
 
 	for _, testCase := range cases {

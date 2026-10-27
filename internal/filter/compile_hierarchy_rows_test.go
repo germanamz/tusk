@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/index"
@@ -17,7 +18,7 @@ import (
 func runHierarchyFilter(test *testing.T, store *index.Index, expr filter.Expr) []string {
 	test.Helper()
 
-	sqlText, params, compileErr := filter.Compile(expr, filter.CompileOptions{})
+	sqlText, params, compileErr := filter.Compile(expr, filter.CompileOptions{Now: time.Now()})
 
 	if compileErr != nil {
 		test.Fatalf("Compile: %v", compileErr)
