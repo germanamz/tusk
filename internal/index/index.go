@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS edges (
 	kind        TEXT NOT NULL,              -- 'direct' | 'derived' | 'structural'
 	source      TEXT NULL,                  -- namespace identifier; NULL = user
 	link        TEXT NULL,                  -- the text of a wikilink resolved by lookup ("auth-rfc", "notes/x#Some heading") that target_id is resolved from; NULL for every other edge
+	position    INTEGER NULL,               -- 1-based place of target_id among the source file's targets of this type, in the order they are written; NULL for sub-unit and structural edges
 	UNIQUE(source, type, source_id, target_id, source_path),
 	FOREIGN KEY (source_id) REFERENCES nodes(id) ON DELETE CASCADE,
 	CHECK (
@@ -303,6 +304,13 @@ func Open(dbPath string) (*Index, error) {
 	// embed_queue.parked_at (#845): a row that keeps failing stops retrying
 	// instead of being dropped. ADD COLUMN keeps every queued row.
 	if _, addErr := addColumnIfMissing(ctx, db, "embed_queue", "parked_at", "INTEGER NULL"); addErr != nil {
+		db.Close()
+		return nil, addErr
+	}
+
+	// edges.position (#848): the order a file writes its targets in. ADD
+	// COLUMN keeps every row; the edge-derivation version bump fills it in.
+	if _, addErr := addColumnIfMissing(ctx, db, "edges", "position", "INTEGER NULL"); addErr != nil {
 		db.Close()
 		return nil, addErr
 	}

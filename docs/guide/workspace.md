@@ -100,6 +100,20 @@ Edges are typed, declared in the manifest, and can be created two ways:
 
 Edge declarations enforce legality (`from`/`to` types), cardinality, ordering, and optional `acyclic = true` (cycles are rejected at write time). A hand-edited file that breaks `from`/`to` or cardinality is still indexed, and `tusk doctor` reports the edge as an error.
 
+### Listing edges
+
+`tusk edge list` and `tusk node get --include edges` (`tusk_edge_list` and `tusk_node_get` over MCP) list edges one per file. A link written in a paragraph is stored for its file and again for the paragraph and each section around it, but a listing shows it once, as an edge from the file. The edge's `units` name the paragraphs, list items or headings the link is written in, in reading order, so `tusk node get` can open the passage. Each file's `contains` edges to its own sections and paragraphs are left out unless you filter on that edge type, and `--sub-units` lists the stored rows as they are.
+
+A file's targets of one type come out in the order the file writes them: its frontmatter list first, then the links in its body, top to bottom.
+
+```bash
+# Which files link to this note, and from which passages?
+tusk node get notes/auth-rfc --edge-type references --direction in
+
+# Every stored row, one per section and paragraph that holds a link
+tusk edge list --to notes/auth-rfc --sub-units
+```
+
 ## Pages name the files they describe
 
 Technical pages name source files, in inline code or as links. Set `paths = true` on an edge type and tusk records, with its line, each inline-code span that is a workspace-relative path (`` `server/ledger/core/service.go` ``, or a bare `Makefile`) and each link or image destination (`[the service](../server/ledger/core/service.go)`, resolved against the page's folder), so a file can find the pages that describe it:

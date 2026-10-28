@@ -80,19 +80,13 @@ func TestGoldenCLI_NodeLifecycle(test *testing.T) {
 			args: []string{"node", "get", "notes/j", "--json"},
 			// Pretty MarshalIndent, sorted keys; with no --include the full node
 			// is emitted (body + edges + properties incl. title/type). Edges are
-			// hydrated from the index (issue #706), so the node's structural
-			// sub-unit edge (`contains` → its "Alpha." paragraph) surfaces here as
-			// an in/out EdgeRef, matching `query --include edges`.
+			// hydrated from the index (issue #706), but the default edge view
+			// leaves out the node's own structural `contains` edge to its
+			// "Alpha." paragraph (#848; --sub-units lists it), and the note
+			// links nowhere, so it has none.
 			wantStdout: `{
   "body": "Alpha.\n",
-  "edges": [
-    {
-      "type": "contains",
-      "direction": "out",
-      "target_id": "notes/j#P1",
-      "target_title": "Alpha."
-    }
-  ],
+  "edges": null,
   "id": "notes/j",
   "path": "notes/j.md",
   "properties": {

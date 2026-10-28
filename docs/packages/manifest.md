@@ -52,7 +52,7 @@ Hierarchy edges (and any edge type that should expose stable child order) may de
 - `ordered = true` — children are ordered by the source node's `order` property (the default key).
 - `ordered = "<prop>"` — children are ordered by the named source-node property (e.g. `ordered = "rank"`).
 
-After load, the resolved shape is `Ordered bool` + `OrderedBy string`; when `ordered = true`, `OrderedBy` is set to `"order"`. Edges are declared in frontmatter (the 2026-05-18 edges-from-frontmatter design): `tusk edge add` / `tusk_edge_add` mutate frontmatter directly and the index is rebuilt from it.
+After load, the resolved shape is `Ordered bool` + `OrderedBy string`; when `ordered = true`, `OrderedBy` is set to `"order"`. `ordered` sorts the results of the `tree=`, `parent=` and `root=` shortcuts, nothing else. Edge listings keep the order a file writes its targets in whatever it says (`edges.position`, #848), so when the bool form's implied `order` property is missing, the load error quotes `ordered = true` as written and says what it does instead of reporting a property named `"order"` the manifest never mentions. Edges are declared in frontmatter (the 2026-05-18 edges-from-frontmatter design): `tusk edge add` / `tusk_edge_add` mutate frontmatter directly and the index is rebuilt from it.
 
 ### Path refs — `paths = true`
 

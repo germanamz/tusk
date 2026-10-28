@@ -1,6 +1,7 @@
 package index_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/index"
@@ -409,5 +410,82 @@ func TestEdgeRepo_RetargetEdges_DedupesNullSourceDuplicates(test *testing.T) {
 
 	if len(listed) != 1 {
 		test.Errorf("expected a single deduped edge, got %+v", listed)
+	}
+}
+
+// TestEdgeRepo_PositionOrdersASourcesTargets pins #848 finding 16 at the
+// store: Position round-trips (0 as NULL) and a source's targets of one type
+// list in that order, not by id.
+func TestEdgeRepo_PositionOrdersASourcesTargets(test *testing.T) {
+	repo := newTestEdgeRepo(test, "doc")
+
+	if upsertErr := repo.UpsertAll("doc", "doc.md", []index.EdgeRow{
+		{Type: "describes", SourceID: "doc", TargetID: "alpha", SourcePath: "doc.md", Kind: "direct", Position: 2},
+		{Type: "describes", SourceID: "doc", TargetID: "zeta", SourcePath: "doc.md", Kind: "direct", Position: 1},
+		{Type: "describes", SourceID: "doc", TargetID: "mid", SourcePath: "doc.md", Kind: "direct", Position: 3},
+	}); upsertErr != nil {
+		test.Fatalf("UpsertAll: %v", upsertErr)
+	}
+
+	for name, list := range map[string]func() ([]index.EdgeRow, error){
+		"ListBySource": func() ([]index.EdgeRow, error) { return repo.ListBySource("doc") },
+		"ListByType":   func() ([]index.EdgeRow, error) { return repo.ListByType("describes") },
+		"ListAll":      repo.ListAll,
+	} {
+		rows, listErr := list()
+
+		if listErr != nil {
+			test.Fatalf("%s: %v", name, listErr)
+		}
+
+		var got []string
+
+		for _, row := range rows {
+			got = append(got, row.TargetID)
+		}
+
+		if want := []string{"zeta", "alpha", "mid"}; !slices.Equal(got, want) {
+			test.Errorf("%s targets = %v, want %v", name, got, want)
+		}
+
+		if rows[0].Position != 1 {
+			test.Errorf("%s: Position = %d, want 1", name, rows[0].Position)
+		}
+	}
+}
+
+// TestEdgeRepo_ListBySourceFile pins that a file's listing takes in its
+// sub-units' edges, by id range, and no sibling file's.
+func TestEdgeRepo_ListBySourceFile(test *testing.T) {
+	repo := newTestEdgeRepo(test, "src", "src#S1P1", "src2")
+
+	for _, edge := range []index.EdgeRow{
+		{Type: "references", SourceID: "src", TargetID: "target", SourcePath: "src.md", Kind: "direct", Position: 1},
+		{Type: "references", SourceID: "src#S1P1", TargetID: "target", SourcePath: "src.md", Kind: "direct"},
+		{Type: "references", SourceID: "src2", TargetID: "target", SourcePath: "src2.md", Kind: "direct", Position: 1},
+	} {
+		if upsertErr := repo.UpsertAll(edge.SourceID, edge.SourcePath, []index.EdgeRow{edge}); upsertErr != nil {
+			test.Fatalf("UpsertAll %s: %v", edge.SourceID, upsertErr)
+		}
+	}
+
+	rows, listErr := repo.ListBySourceFile("src")
+
+	if listErr != nil {
+		test.Fatalf("ListBySourceFile: %v", listErr)
+	}
+
+	var sources []string
+
+	for _, row := range rows {
+		sources = append(sources, row.SourceID)
+	}
+
+	if want := []string{"src", "src#S1P1"}; !slices.Equal(sources, want) {
+		test.Errorf("sources = %v, want %v", sources, want)
+	}
+
+	if rows[1].Position != 0 {
+		test.Errorf("sub-unit Position = %d, want 0 (stored NULL)", rows[1].Position)
 	}
 }

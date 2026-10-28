@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -135,6 +136,9 @@ func permissiveFlags() []manifest.FlagSpec {
 		{Name: "to", Kind: "string"},
 		{Name: "type", Kind: "string"},
 		{Name: "no-migrate", Kind: "bool"},
+		{Name: "sub-units", Kind: "bool"},
+		{Name: "edge-type", Kind: "string"},
+		{Name: "direction", Kind: "string"},
 	}
 }
 
@@ -390,10 +394,10 @@ func TestDispatcher_EdgeList(test *testing.T) {
 		test.Errorf("Kind = %q, want %q", result.Kind, aliasdispatch.KindEdgeList)
 	}
 
-	edgeResult, ok := result.Result.(*index.EdgeListResult)
+	edgeResult, ok := result.Result.(*query.EdgeListResult)
 
 	if !ok {
-		test.Fatalf("Result type = %T, want *index.EdgeListResult", result.Result)
+		test.Fatalf("Result type = %T, want *query.EdgeListResult", result.Result)
 	}
 
 	if len(edgeResult.Rows) != 1 {
@@ -402,6 +406,102 @@ func TestDispatcher_EdgeList(test *testing.T) {
 
 	if edgeResult.Rows[0].TargetID != "notes/world" {
 		test.Errorf("Rows[0].TargetID = %q, want notes/world", edgeResult.Rows[0].TargetID)
+	}
+}
+
+// upsertFoldableLink stores notes/hello's link to notes/world the way a reindex
+// does when the link sits in a paragraph: once for the file and once for the
+// paragraph sub-unit.
+func upsertFoldableLink(test *testing.T, deps aliasdispatch.Deps) {
+	test.Helper()
+
+	if upsertErr := deps.Nodes.BulkUpsert([]index.NodeRow{{
+		ID:             "notes/hello#P1",
+		Type:           "paragraph",
+		Path:           "notes/hello.md",
+		PropertiesJSON: "{}",
+		LastChecksum:   "abc",
+		ParentID:       sql.NullString{String: "notes/hello", Valid: true},
+		Ordinal:        sql.NullInt64{Int64: 1, Valid: true},
+	}}, "markdown"); upsertErr != nil {
+		test.Fatalf("BulkUpsert sub-unit: %v", upsertErr)
+	}
+
+	if upsertErr := deps.Edges.UpsertAll("notes/hello", "notes/hello.md", []index.EdgeRow{
+		{Type: "references", SourceID: "notes/hello", TargetID: "notes/world", SourcePath: "notes/hello.md", Kind: "direct", Position: 1},
+	}); upsertErr != nil {
+		test.Fatalf("UpsertAll file: %v", upsertErr)
+	}
+
+	if upsertErr := deps.Edges.UpsertAll("notes/hello#P1", "notes/hello.md", []index.EdgeRow{
+		{Type: "references", SourceID: "notes/hello#P1", TargetID: "notes/world", SourcePath: "notes/hello.md", Kind: "direct"},
+	}); upsertErr != nil {
+		test.Fatalf("UpsertAll sub-unit: %v", upsertErr)
+	}
+}
+
+// TestDispatcher_EdgeListSubUnits pins that an `edge list` alias folds like the
+// CLI and reads the sub-units arg (#848).
+func TestDispatcher_EdgeListSubUnits(test *testing.T) {
+	deps := setupWorkspace(test)
+	dispatcher := aliasdispatch.NewDispatcher(deps)
+
+	upsertFoldableLink(test, deps)
+
+	for _, testCase := range []struct {
+		args      map[string]any
+		wantRows  int
+		wantUnits []string
+	}{
+		{map[string]any{"to": "notes/world"}, 1, []string{"notes/hello#P1"}},
+		{map[string]any{"to": "notes/world", "sub-units": true}, 2, nil},
+	} {
+		result, runErr := dispatcher.Run(context.Background(), validatedAlias(test, "edge list", testCase.args))
+
+		if runErr != nil {
+			test.Fatalf("Run %v: %v", testCase.args, runErr)
+		}
+
+		rows := result.Result.(*query.EdgeListResult).Rows
+
+		if len(rows) != testCase.wantRows || !slices.Equal(rows[0].Units, testCase.wantUnits) {
+			test.Errorf("edge list %v: rows %+v, want %d with units %v first", testCase.args, rows, testCase.wantRows, testCase.wantUnits)
+		}
+	}
+}
+
+// TestDispatcher_NodeGetEdgeFilters pins that a `node get` alias reads the
+// edge-type and direction args.
+func TestDispatcher_NodeGetEdgeFilters(test *testing.T) {
+	deps := setupWorkspace(test)
+	dispatcher := aliasdispatch.NewDispatcher(deps)
+
+	upsertFoldableLink(test, deps)
+
+	for _, testCase := range []struct {
+		direction string
+		wantEdges int
+	}{
+		{"out", 1},
+		{"in", 0},
+	} {
+		alias := validatedAlias(test, "node get", map[string]any{
+			"id":        "notes/hello",
+			"edge-type": "references",
+			"direction": testCase.direction,
+		})
+
+		result, runErr := dispatcher.Run(context.Background(), alias)
+
+		if runErr != nil {
+			test.Fatalf("Run direction=%s: %v", testCase.direction, runErr)
+		}
+
+		edges := result.Result.(*aliasdispatch.NodeGetResult).Edges
+
+		if len(edges) != testCase.wantEdges {
+			test.Errorf("direction=%s: edges %+v, want %d", testCase.direction, edges, testCase.wantEdges)
+		}
 	}
 }
 

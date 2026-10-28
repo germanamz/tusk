@@ -1,6 +1,9 @@
 package node
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+)
 
 // GetRequest configures GetRun.
 //
@@ -12,10 +15,20 @@ import "slices"
 // Fields, when set, names the columns the renderer should project (rendering
 // concern); fields that match an expandable name also imply their include
 // flag for shape parity with the other read verbs.
+//
+// EdgeType, EdgeDirection and SubUnitEdges shape the edges the caller hydrates
+// (query.EdgeOptions): keep one edge type, keep one direction ("in", "out",
+// or "both", the same as ""), and list sub-unit edges as stored instead of
+// folded onto their file. Setting any of them asks for edges the way
+// include=edges does.
 type GetRequest struct {
 	ID      string
 	Include []string
 	Fields  []string
+
+	EdgeType      string
+	EdgeDirection string
+	SubUnitEdges  bool
 }
 
 // GetResult is the typed payload returned by GetRun. Node carries id, type,
@@ -33,7 +46,7 @@ type GetResult struct {
 	IncludeProperties bool
 	IncludePaths      bool
 	// HasIncludeFilter reports whether the caller passed any explicit
-	// Include or Fields. False means "render everything" (back-compat:
+	// Include, Fields or edge option. False means "render everything" (back-compat:
 	// matches the historical raw-file behavior of `tusk node get`).
 	HasIncludeFilter bool
 }
@@ -42,14 +55,21 @@ type GetResult struct {
 // verb. It delegates to Service.Get; this wrapper exists so the CLI and MCP
 // handler share the same request/result types as the other read verbs.
 func GetRun(service *Service, req GetRequest) (*GetResult, error) {
+	switch req.EdgeDirection {
+	case "", "in", "out", "both":
+	default:
+		return nil, fmt.Errorf("node get: direction must be in, out or both (got %q)", req.EdgeDirection)
+	}
+
 	loaded, getErr := service.Get(req.ID)
 
 	if getErr != nil {
 		return nil, getErr
 	}
 
-	hasFilter := len(req.Include) > 0 || len(req.Fields) > 0
-	result := &GetResult{Node: loaded, HasIncludeFilter: hasFilter}
+	shapesEdges := req.EdgeType != "" || req.EdgeDirection != "" || req.SubUnitEdges
+	hasFilter := len(req.Include) > 0 || len(req.Fields) > 0 || shapesEdges
+	result := &GetResult{Node: loaded, HasIncludeFilter: hasFilter, IncludeEdges: shapesEdges}
 
 	if !hasFilter {
 		result.IncludeBody = true

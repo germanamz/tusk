@@ -24,6 +24,14 @@ links, or a paths-only frontmatter value) under edge types with
 paths = true, each with its lines and a live exists flag, the way
 tusk query --include paths does. It is never part of the default shape.
 
+--include edges lists the node's edges in both directions, the way
+tusk edge list shows them: a link another file writes in a paragraph
+reads as one edge from that file, with units naming the passages that
+hold it, and the node's contains edges to its own sections and
+paragraphs are left out. --edge-type and --direction in|out keep one
+edge type or one direction, and --sub-units lists the stored rows as
+they are. Each of the three implies --include edges.
+
 ```
 tusk node get <node-id> [flags]
 ```
@@ -40,6 +48,9 @@ tusk node get <node-id> [flags]
   # The workspace paths a page names
   tusk node get technical/ledger --include paths
 
+  # Only the files that link to a page
+  tusk node get notes/hello --edge-type references --direction in
+
   # Open in $EDITOR (round-trip through a temp file)
   tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md
 ```
@@ -47,11 +58,14 @@ tusk node get <node-id> [flags]
 ### Options
 
 ```
-      --fields strings    project returned shape to these fields (comma-separated)
-      --format string     output format: compact|json (default: compact for TTY, json otherwise)
-  -h, --help              help for get
-      --include strings   expand returned shape: body|edges|properties|paths (comma-separated; paths lists the workspace paths the page names)
-      --json              emit structured JSON (sugar for --format json)
+      --direction string   keep only in or out edges (implies --include edges)
+      --edge-type string   keep only edges of this type (implies --include edges)
+      --fields strings     project returned shape to these fields (comma-separated)
+      --format string      output format: compact|json (default: compact for TTY, json otherwise)
+  -h, --help               help for get
+      --include strings    expand returned shape: body|edges|properties|paths (comma-separated; paths lists the workspace paths the page names)
+      --json               emit structured JSON (sugar for --format json)
+      --sub-units          list sub-unit edges as stored instead of folded onto their file (implies --include edges)
 ```
 
 ### Options inherited from parent commands

@@ -46,10 +46,11 @@ import (
 // and the heading key of a section plus the link text of every link with a
 // #fragment (#808), and the block key a ^block-id marker gives a unit, whose
 // text loses the marker and whose standalone marker line stops being a unit
-// (#819).
+// (#819), and the position of each target in the order its file writes them
+// (#848).
 const (
 	edgeDerivationVersionKey = "edge_derivation_version"
-	edgeDerivationVersion    = "2026-10-16-block-references"
+	edgeDerivationVersion    = "2026-10-28-edge-positions"
 )
 
 // lineNumberingKey stores the [workspace].line-numbering scheme the sub-unit

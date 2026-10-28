@@ -127,7 +127,7 @@ func nodeExists(db *sql.DB, id string) (bool, error) {
 }
 
 // sectionRows reads the section rows of the file whose sub-unit id range
-// (subUnitIDRange) it is given, in document order. The unary + keeps kind and
+// (SubUnitIDRange) it is given, in document order. The unary + keeps kind and
 // type from choosing the index: with no sqlite_stat1 the planner took
 // nodes_kind_type_idx over the id range and read every section in the vault
 // (#838).
@@ -145,7 +145,7 @@ const blockRows = `SELECT id, name_key FROM nodes
 // loadSections returns fileID's section rows in document order, with the
 // heading key a wikilink fragment is matched on.
 func loadSections(db *sql.DB, fileID string) ([]wikilink.Section, error) {
-	lo, hi := subUnitIDRange(fileID)
+	lo, hi := SubUnitIDRange(fileID)
 
 	rows, queryErr := db.Query(sectionRows, lo, hi)
 
@@ -174,7 +174,7 @@ func loadSections(db *sql.DB, fileID string) ([]wikilink.Section, error) {
 // marker names (wikilink.BlockKey, stored in name_key) to the sub-unit's id,
 // keeping the first in document order when several share an id.
 func loadBlocks(db *sql.DB, fileID string) (map[string]string, error) {
-	lo, hi := subUnitIDRange(fileID)
+	lo, hi := SubUnitIDRange(fileID)
 
 	rows, queryErr := db.Query(blockRows, lo, hi)
 

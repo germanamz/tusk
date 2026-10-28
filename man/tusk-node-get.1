@@ -29,8 +29,25 @@ links, or a paths-only frontmatter value) under edge types with
 paths = true, each with its lines and a live exists flag, the way
 tusk query --include paths does. It is never part of the default shape.
 
+.PP
+--include edges lists the node's edges in both directions, the way
+tusk edge list shows them: a link another file writes in a paragraph
+reads as one edge from that file, with units naming the passages that
+hold it, and the node's contains edges to its own sections and
+paragraphs are left out. --edge-type and --direction in|out keep one
+edge type or one direction, and --sub-units lists the stored rows as
+they are. Each of the three implies --include edges.
+
 
 .SH OPTIONS
+\fB--direction\fP=""
+	keep only in or out edges (implies --include edges)
+
+.PP
+\fB--edge-type\fP=""
+	keep only edges of this type (implies --include edges)
+
+.PP
 \fB--fields\fP=[]
 	project returned shape to these fields (comma-separated)
 
@@ -49,6 +66,10 @@ tusk query --include paths does. It is never part of the default shape.
 .PP
 \fB--json\fP[=false]
 	emit structured JSON (sugar for --format json)
+
+.PP
+\fB--sub-units\fP[=false]
+	list sub-unit edges as stored instead of folded onto their file (implies --include edges)
 
 
 .SH OPTIONS INHERITED FROM PARENT COMMANDS
@@ -70,6 +91,9 @@ tusk query --include paths does. It is never part of the default shape.
 
   # The workspace paths a page names
   tusk node get technical/ledger --include paths
+
+  # Only the files that link to a page
+  tusk node get notes/hello --edge-type references --direction in
 
   # Open in $EDITOR (round-trip through a temp file)
   tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md

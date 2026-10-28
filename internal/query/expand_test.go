@@ -201,7 +201,7 @@ func TestLoadEdgesForNode(test *testing.T) {
 	}
 
 	// Source side: one outgoing edge to b, titled.
-	outEdges, outErr := LoadEdgesForNode(store.DB(), "a")
+	outEdges, outErr := LoadEdgesForNode(store.DB(), "a", EdgeOptions{})
 
 	if outErr != nil {
 		test.Fatalf("LoadEdgesForNode(a): %v", outErr)
@@ -213,7 +213,7 @@ func TestLoadEdgesForNode(test *testing.T) {
 
 	// Target side: the same edge surfaces as an incoming edge — both directions
 	// are hydrated (parity with `tusk_query --include edges`).
-	inEdges, inErr := LoadEdgesForNode(store.DB(), "b")
+	inEdges, inErr := LoadEdgesForNode(store.DB(), "b", EdgeOptions{})
 
 	if inErr != nil {
 		test.Fatalf("LoadEdgesForNode(b): %v", inErr)
@@ -228,7 +228,7 @@ func TestLoadEdgesForNode(test *testing.T) {
 		test.Fatal(err)
 	}
 
-	noEdges, noErr := LoadEdgesForNode(store.DB(), "c")
+	noEdges, noErr := LoadEdgesForNode(store.DB(), "c", EdgeOptions{})
 
 	if noErr != nil {
 		test.Fatalf("LoadEdgesForNode(c): %v", noErr)
@@ -239,7 +239,7 @@ func TestLoadEdgesForNode(test *testing.T) {
 	}
 
 	// A nil db is a programmer error, surfaced explicitly.
-	if _, nilErr := LoadEdgesForNode(nil, "a"); nilErr == nil {
+	if _, nilErr := LoadEdgesForNode(nil, "a", EdgeOptions{}); nilErr == nil {
 		test.Errorf("expected an error for a nil db")
 	}
 }

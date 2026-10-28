@@ -550,7 +550,7 @@ func expandScoredEdges(rows []ScoredRow, db *sql.DB) error {
 		likes[index] = &scoredRowLike{row: &rows[index]}
 	}
 
-	return loadEdgesForRows(likes, db)
+	return loadEdgesForRows(likes, db, EdgeOptions{})
 }
 
 // attachScoredPaths decorates semantic rows with their path refs.
