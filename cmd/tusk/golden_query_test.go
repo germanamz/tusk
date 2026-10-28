@@ -210,12 +210,13 @@ func TestGoldenCLI_Query(test *testing.T) {
 			// Pins the format contract: semantic --json is a single-line
 			// Encoder array with score + snippet keys, distinct from the
 			// structural MarshalIndent shape above. (Ranking correctness is
-			// covered structurally by e2e_semantic_test.go.) Tie-broken by
-			// NodeID, so apple precedes banana.
+			// covered structurally by e2e_semantic_test.go.) The stub
+			// embedder scores both notes 0; the query names apple's title,
+			// so the default title-weight lifts it to 0.5 (#849).
 			name:       "semantic query emits single-line JSON with score and snippet",
 			setup:      semanticFixture,
 			args:       []string{"query", "type=note", "--semantic", "apple", "--json"},
-			wantStdout: `[{"id":"notes/apple","type":"note","path":"notes/apple.md","title":"Apple","score":0,"snippet":"Apples are great."},{"id":"notes/banana","type":"note","path":"notes/banana.md","title":"Banana","score":0,"snippet":"Bananas are yellow."}]` + "\n",
+			wantStdout: `[{"id":"notes/apple","type":"note","path":"notes/apple.md","title":"Apple","score":0.5,"snippet":"Apples are great."},{"id":"notes/banana","type":"note","path":"notes/banana.md","title":"Banana","score":0,"snippet":"Bananas are yellow."}]` + "\n",
 		},
 	})
 }

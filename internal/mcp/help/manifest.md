@@ -41,6 +41,13 @@ document-prefix = "search_document: "  # optional; may contain {title}
 
 [query]
 lexical-weight = 0.5          # optional, [0, 1]; blend word matches into semantic scores
+title-weight   = 0.5          # optional, [0, 1], default 0.5; lift files whose title the query names
+
+[query.type-weights]          # optional, (0, 1]; demote results by node type
+note = 0.8
+
+[query.path-weights]          # optional, (0, 1]; demote results by path glob
+"incidents/**" = 0.6
 
 [query.graph-expansion]       # default knobs for tusk_query
 enabled    = true

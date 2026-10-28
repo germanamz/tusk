@@ -57,12 +57,14 @@ type MatchedUnit struct {
 	TextEndLine   int    `json:"-"`
 
 	// Explain-only score-trace fields, mirroring ScoredRow. Populated by
-	// the sub-unit semantic path only when Request.Explain is true and
-	// graph expansion or lexical fusion ran. `omitempty` keeps the JSON
-	// shape byte-stable for callers that don't opt into explain mode.
+	// the sub-unit semantic path only when Request.Explain is true.
+	// `omitempty` keeps the JSON shape byte-stable for callers that don't
+	// opt into explain mode.
 	CosineScore  float64 `json:"cosine_score,omitempty"`
 	LexicalScore float64 `json:"lexical_score,omitempty"`
+	TitleScore   float64 `json:"title_score,omitempty"`
 	GraphScore   float64 `json:"graph_score,omitempty"`
+	Weight       float64 `json:"weight,omitempty"`
 	FinalScore   float64 `json:"final_score,omitempty"`
 	Distance     int     `json:"distance,omitempty"`
 }
@@ -122,7 +124,9 @@ func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 		TextLines    []int   `json:"text_lines,omitempty"`
 		CosineScore  float64 `json:"cosine_score,omitempty"`
 		LexicalScore float64 `json:"lexical_score,omitempty"`
+		TitleScore   float64 `json:"title_score,omitempty"`
 		GraphScore   float64 `json:"graph_score,omitempty"`
+		Weight       float64 `json:"weight,omitempty"`
 		FinalScore   float64 `json:"final_score,omitempty"`
 		Distance     int     `json:"distance,omitempty"`
 	}{
@@ -135,7 +139,9 @@ func (unit MatchedUnit) MarshalJSON() ([]byte, error) {
 		TextLines:    textLines,
 		CosineScore:  RoundScore(unit.CosineScore),
 		LexicalScore: RoundScore(unit.LexicalScore),
+		TitleScore:   RoundScore(unit.TitleScore),
 		GraphScore:   RoundScore(unit.GraphScore),
+		Weight:       RoundScore(unit.Weight),
 		FinalScore:   RoundScore(unit.FinalScore),
 		Distance:     unit.Distance,
 	})

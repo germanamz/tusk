@@ -146,6 +146,44 @@ func TestSearcher_SemanticExpandExplain_PopulatesScores(test *testing.T) {
 	}
 }
 
+// TestSearcher_SemanticExplainWithoutExpand_CarriesCosineAndFinal covers #849
+// finding 13 on the book API: explain without graph expansion reports the
+// cosine and final score the match ranked by, and no graph score or distance.
+func TestSearcher_SemanticExplainWithoutExpand_CarriesCosineAndFinal(test *testing.T) {
+	store := openTestStore(test)
+
+	nodes := index.NewNodeRepo(store)
+	embeddings := index.NewEmbeddingRepo(store)
+	edges := index.NewEdgeRepo(store)
+
+	seedNoteWithVector(test, nodes, embeddings, "seed", []float32{0.6, 0.8})
+
+	loaded := newTestManifest(manifest.DefaultGraphExpansion())
+	svc := NewSearcher(store.DB(), loaded, stubEmbedder{vector: []float32{1, 0}}, embeddings, nodes, edges, test.TempDir())
+
+	resp, searchErr := svc.Search(context.Background(), SearchRequest{
+		Q: "anything", Filter: "type=note", Explain: true, Limit: 10,
+	})
+
+	if searchErr != nil {
+		test.Fatalf("Search: %v", searchErr)
+	}
+
+	if len(resp.Matches) != 1 {
+		test.Fatalf("matches = %+v, want one", resp.Matches)
+	}
+
+	match := resp.Matches[0]
+
+	if match.CosineScore == 0 || match.CosineScore != match.Score || match.FinalScore != match.Score {
+		test.Errorf("cosine %v final %v, want both the score %v", match.CosineScore, match.FinalScore, match.Score)
+	}
+
+	if match.GraphScore != 0 || match.Distance != 0 {
+		test.Errorf("graph %v distance %v without graph expansion, want 0", match.GraphScore, match.Distance)
+	}
+}
+
 // TestSearcher_StructuralOnly_ScoreIsOne covers the brief's structural-only
 // case: no Q, a Filter, every returned match's Score is exactly 1 (the
 // structural path carries no ranking signal).

@@ -740,7 +740,6 @@ func registerQueryTool(srv *Server) {
 		}
 
 		explain := argBoolOptional(request, "explain", false)
-		lexical := srv.runtime.Manifest.LexicalWeight > 0
 
 		take, takeErr := argIntOptionalStrict(request, "take", 0)
 
@@ -840,11 +839,12 @@ func registerQueryTool(srv *Server) {
 						UnitsTotal:   scored.UnitsTotal,
 						CosineScore:  scored.CosineScore,
 						LexicalScore: scored.LexicalScore,
+						TitleScore:   scored.TitleScore,
 						GraphScore:   scored.GraphScore,
+						Weight:       scored.Weight,
 						FinalScore:   scored.FinalScore,
 						Distance:     scored.Distance,
-						HasExplain:   explain,
-						HasLexical:   lexical,
+						Trace:        result.Semantic.Trace,
 					})
 				}
 			}
@@ -941,23 +941,32 @@ func registerQueryTool(srv *Server) {
 			}
 
 			// Explain-trace fields are surfaced when the caller asked for
-			// them (Request.Explain) AND graph expansion or lexical fusion
-			// actually ran — the modes that populate a per-row breakdown.
-			// Gating on the mode being active (not on the scores being
-			// non-zero) keeps the trace, including `distance`, on all-zero
-			// rows such as a hop-2 neighbor that blends toward zero —
-			// precisely the rows a caller most needs to explain (#688). When
-			// Explain is on with neither mode, the query service leaves the
-			// fields zero and this gate stays closed.
-			if explain && (lexical || (graphExpansion != nil && graphExpansion.Enabled)) {
+			// them: cosine and final on every row, and each other component
+			// only when the ranking computed it (query.Trace). Gating on the
+			// component being computed, not on its value being non-zero,
+			// keeps the trace, including `distance`, on all-zero rows such
+			// as a hop-2 neighbor that blends toward zero — precisely the
+			// rows a caller most needs to explain (#688).
+			if trace := semantic.Trace; trace != nil {
 				entry["cosine_score"] = query.RoundScore(scored.CosineScore)
-				entry["graph_score"] = query.RoundScore(scored.GraphScore)
 				entry["final_score"] = query.RoundScore(scored.FinalScore)
-				entry["distance"] = scored.Distance
-			}
 
-			if explain && lexical {
-				entry["lexical_score"] = query.RoundScore(scored.LexicalScore)
+				if trace.Lexical {
+					entry["lexical_score"] = query.RoundScore(scored.LexicalScore)
+				}
+
+				if trace.Title {
+					entry["title_score"] = query.RoundScore(scored.TitleScore)
+				}
+
+				if trace.Graph {
+					entry["graph_score"] = query.RoundScore(scored.GraphScore)
+					entry["distance"] = scored.Distance
+				}
+
+				if trace.Weight {
+					entry["weight"] = query.RoundScore(scored.Weight)
+				}
 			}
 
 			ranking = append(ranking, entry)

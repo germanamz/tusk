@@ -236,7 +236,7 @@ func TestCompactNodeRows_ExplainTail(test *testing.T) {
 			GraphScore:  0.66,
 			FinalScore:  0.84,
 			Distance:    1,
-			HasExplain:  true,
+			Trace:       &query.Trace{Graph: true},
 		},
 	}
 
@@ -263,7 +263,7 @@ func TestCompactNodeRows_ExplainTail(test *testing.T) {
 	}
 
 	if strings.Contains(got, "lexical=") {
-		test.Errorf("lexical= rendered without HasLexical:\n%s", got)
+		test.Errorf("lexical= rendered without Trace.Lexical:\n%s", got)
 	}
 }
 
@@ -272,7 +272,7 @@ func TestCompactNodeRows_ExplainTailWithLexical(test *testing.T) {
 		{
 			ID: "notes/x", Type: "note", Title: "X", Score: 0.9, HasScore: true,
 			CosineScore: 0.6, LexicalScore: 1, FinalScore: 0.9,
-			HasExplain: true, HasLexical: true,
+			Trace: &query.Trace{Lexical: true},
 		},
 	}
 
@@ -282,8 +282,52 @@ func TestCompactNodeRows_ExplainTailWithLexical(test *testing.T) {
 		test.Fatalf("render: %v", err)
 	}
 
-	if !strings.Contains(buf.String(), "cosine=0.6000 lexical=1.0000 graph=0.0000 final=0.9000 dist=0") {
+	if !strings.Contains(buf.String(), "cosine=0.6000 lexical=1.0000 final=0.9000\n") {
 		test.Errorf("explain tail with lexical wrong:\n%s", buf.String())
+	}
+}
+
+// TestCompactNodeRows_ExplainTailPrintsOnlyComputedComponents pins #849
+// finding 13: with neither graph expansion nor lexical fusion the tail is the
+// cosine and final score the row ranked by, not zeros for components the
+// ranking never computed.
+func TestCompactNodeRows_ExplainTailPrintsOnlyComputedComponents(test *testing.T) {
+	cases := []struct {
+		name  string
+		row   CompactRow
+		trace query.Trace
+		want  string
+	}{
+		{
+			name: "cosine alone",
+			row:  CompactRow{CosineScore: 0.5985, FinalScore: 0.5985},
+			want: "cosine=0.5985 final=0.5985\n",
+		},
+		{
+			name:  "every component",
+			row:   CompactRow{CosineScore: 0.6, LexicalScore: 0.3, TitleScore: 1, GraphScore: 0.2, Weight: 0.8, FinalScore: 0.7, Distance: 0},
+			trace: query.Trace{Lexical: true, Title: true, Graph: true, Weight: true},
+			want:  "cosine=0.6000 lexical=0.3000 title=1.0000 graph=0.2000 weight=0.8000 final=0.7000 dist=0\n",
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			row := testCase.row
+			row.ID, row.Type, row.Title = "notes/x", "note", "X"
+			row.Score, row.HasScore = row.FinalScore, true
+			row.Trace = &testCase.trace
+
+			var buf bytes.Buffer
+
+			if err := CompactNodeRows(&buf, []CompactRow{row}, CompactOpts{}); err != nil {
+				test.Fatalf("render: %v", err)
+			}
+
+			if !strings.HasSuffix(buf.String(), testCase.want) {
+				test.Errorf("explain tail = %q, want suffix %q", buf.String(), testCase.want)
+			}
+		})
 	}
 }
 

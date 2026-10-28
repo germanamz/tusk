@@ -33,20 +33,21 @@ type CompactRow struct {
 	// to emit the score token.
 	HasScore bool
 
-	// Explain-trace fields. When HasExplain is true the renderer appends a
-	// space-separated `cosine=… graph=… final=… dist=N` tail to the row's
-	// record line, with `lexical=…` after the cosine when HasLexical is set
-	// (the workspace sets [query] lexical-weight). The format is
-	// intentionally machine-friendly (key=value tokens) so agents can parse
-	// it; the plan's `0.84 = 0.74×0.8 + …` math notation was illustrative
-	// only.
+	// Explain-trace fields. When Trace is set the renderer appends a
+	// space-separated `cosine=… final=…` tail to the row's record line, with
+	// the components Trace names in between (`lexical=…`, `title=…`,
+	// `graph=…`, `weight=…`) and `dist=N` after the final score when graph
+	// expansion ran, so a row never shows a zero its ranking didn't compute
+	// (query.Trace). The format is intentionally machine-friendly (key=value
+	// tokens) so agents can parse it.
 	CosineScore  float64
 	LexicalScore float64
+	TitleScore   float64
 	GraphScore   float64
+	Weight       float64
 	FinalScore   float64
 	Distance     int
-	HasExplain   bool
-	HasLexical   bool
+	Trace        *query.Trace
 
 	// MatchedUnits, when non-empty, triggers the hierarchical render
 	// path: the file row is followed by indented `→ #<hash>` lines for
@@ -244,17 +245,8 @@ func writeRecordLine(builder *strings.Builder, row CompactRow, fieldSet map[stri
 		line = appendToken(line, fmt.Sprintf("score=%.4f", row.Score))
 	}
 
-	if row.HasExplain {
-		cosine := fmt.Sprintf("cosine=%.4f", row.CosineScore)
-
-		if row.HasLexical {
-			cosine += fmt.Sprintf(" lexical=%.4f", row.LexicalScore)
-		}
-
-		line = appendToken(line, fmt.Sprintf(
-			"%s graph=%.4f final=%.4f dist=%d",
-			cosine, row.GraphScore, row.FinalScore, row.Distance,
-		))
+	if row.Trace != nil {
+		line = appendToken(line, explainTokens(row))
 	}
 
 	if showField(fieldSet, "properties") && len(row.Properties) > 0 {
@@ -266,6 +258,37 @@ func writeRecordLine(builder *strings.Builder, row CompactRow, fieldSet map[stri
 	// next column starts on the same line.
 	builder.WriteString(strings.TrimRight(line, " "))
 	builder.WriteString("\n")
+}
+
+// explainTokens renders a row's score trace: the cosine, each component
+// row.Trace names, the final score, and the hop distance when graph expansion
+// ran.
+func explainTokens(row CompactRow) string {
+	tokens := []string{fmt.Sprintf("cosine=%.4f", row.CosineScore)}
+
+	if row.Trace.Lexical {
+		tokens = append(tokens, fmt.Sprintf("lexical=%.4f", row.LexicalScore))
+	}
+
+	if row.Trace.Title {
+		tokens = append(tokens, fmt.Sprintf("title=%.4f", row.TitleScore))
+	}
+
+	if row.Trace.Graph {
+		tokens = append(tokens, fmt.Sprintf("graph=%.4f", row.GraphScore))
+	}
+
+	if row.Trace.Weight {
+		tokens = append(tokens, fmt.Sprintf("weight=%.4f", row.Weight))
+	}
+
+	tokens = append(tokens, fmt.Sprintf("final=%.4f", row.FinalScore))
+
+	if row.Trace.Graph {
+		tokens = append(tokens, fmt.Sprintf("dist=%d", row.Distance))
+	}
+
+	return strings.Join(tokens, " ")
 }
 
 // writeBody emits each line of row.Body with a two-space indent. A trailing

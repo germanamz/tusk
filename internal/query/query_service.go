@@ -150,16 +150,20 @@ type ScoredRow struct {
 	Paths []PathRef `json:"paths,omitempty"`
 
 	// Explain-only score-trace fields. Populated by the query service only
-	// when Request.Explain is true AND graph expansion or lexical fusion
-	// ran for this row. `omitempty` keeps the JSON wire format byte-stable
-	// for callers that never opt into explain mode. Score and FinalScore
-	// carry the same value. CosineScore exposes the bare cosine (clipped
-	// when graph expansion alone ran), LexicalScore the word-match score in
-	// [0, 1] when [query] lexical-weight is set, and GraphScore the
-	// seed-neighbor contribution.
+	// when Request.Explain is true; SemanticResult.Trace names which of them
+	// the ranking computed. `omitempty` keeps the JSON wire format
+	// byte-stable for callers that never opt into explain mode. Score and
+	// FinalScore carry the same value. CosineScore is the bare cosine,
+	// LexicalScore the word-match score and TitleScore the title match in
+	// [0, 1], GraphScore the seed-neighbor contribution, and Weight the
+	// [query] type/path weight the score was multiplied by. A walked-in
+	// neighbor (Distance > 0) ranks on its graph score alone, so its cosine,
+	// lexical and title inputs are 0.
 	CosineScore  float64 `json:"cosine_score,omitempty"`
 	LexicalScore float64 `json:"lexical_score,omitempty"`
+	TitleScore   float64 `json:"title_score,omitempty"`
 	GraphScore   float64 `json:"graph_score,omitempty"`
+	Weight       float64 `json:"weight,omitempty"`
 	FinalScore   float64 `json:"final_score,omitempty"`
 	Distance     int     `json:"distance,omitempty"`
 }
@@ -178,11 +182,14 @@ type Result struct {
 
 // SemanticResult is the semantic-rank payload. Model is the embedder model
 // used. FilteredBelowMinScore counts candidates dropped by MinScore so the
-// caller can surface "lower --min-score to see more results" UX.
+// caller can surface "lower --min-score to see more results" UX. Trace is
+// set when the request asked to explain the ranking, and names the score
+// components its rows' explain fields carry.
 type SemanticResult struct {
 	Ranked                []ScoredRow
 	Model                 string
 	FilteredBelowMinScore int
+	Trace                 *Trace
 }
 
 // Deps bundles the primitives Run needs. Each field is required for the path
@@ -421,10 +428,13 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		})
 	}
 
-	lexWeight := lexicalWeight(deps)
-	scoreLexical(candidates, req.Semantic, lexWeight)
+	fusion := fusionWeights(deps)
+	scoreLexical(candidates, req.Semantic, fusion.Lexical)
+	scoreTitles(candidates, req.Semantic, fusion.Title, func(nodeID string) string {
+		return nodeName(byID[nodeID])
+	})
 
-	ranked := filter.SemanticRank(candidates, queryVector, lexWeight)
+	ranked := filter.SemanticRank(candidates, queryVector, fusion)
 
 	// graphExpansionActive is also read below to gate the lazy NodeRepo
 	// fallback for walked-in neighbors (spec §6.5), so keep it in scope here.
@@ -436,6 +446,33 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 
 	if blendErr != nil {
 		return nil, blendErr
+	}
+
+	// The [query] type/path weights scale each node's final score before
+	// MinScore, so a demoted node can fall below it, and re-order the rank.
+	weights := newFileWeights(deps, func(nodeID string) (Row, bool) {
+		meta, known := byID[nodeID]
+
+		return meta, known
+	})
+
+	var weightByID map[string]float64
+
+	if weights.active() {
+		weightByID = make(map[string]float64, len(ranked))
+
+		for position := range ranked {
+			weight, weightErr := weights.of(ranked[position].NodeID)
+
+			if weightErr != nil {
+				return nil, weightErr
+			}
+
+			weightByID[ranked[position].NodeID] = weight
+			ranked[position].Score *= weight
+		}
+
+		sortRanked(ranked)
 	}
 
 	ranked, filteredBelowMinScore := applyMinScore(ranked, req.MinScore)
@@ -493,24 +530,9 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 			row.Properties = properties
 		}
 
-		if req.Explain && blendedByID != nil {
-			if trace, ok := blendedByID[scoredCandidate.NodeID]; ok {
-				row.CosineScore = trace.Cosine
-				row.GraphScore = trace.Graph
-				row.FinalScore = trace.Final
-				row.Distance = trace.Distance
-			}
-		}
-
-		// A walked-in neighbor (distance > 0) has no cosine or lexical
-		// input of its own; its graph trace above is the whole story.
-		if req.Explain && lexWeight > 0 && row.Distance == 0 {
-			row.CosineScore = scoredCandidate.Cosine
-			row.LexicalScore = scoredCandidate.Lexical
-
-			if blendedByID == nil {
-				row.FinalScore = row.Score
-			}
+		if req.Explain {
+			blend, blended := blendedByID[scoredCandidate.NodeID]
+			row.setTrace(explainScore(scoredCandidate, blend, blended, weightByID[scoredCandidate.NodeID], row.Score))
 		}
 
 		scored = append(scored, row)
@@ -532,6 +554,7 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		Ranked:                scored,
 		Model:                 deps.Embedder.Model(),
 		FilteredBelowMinScore: filteredBelowMinScore,
+		Trace:                 newTrace(deps, req),
 	}
 
 	return result, nil

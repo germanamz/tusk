@@ -264,21 +264,47 @@ dim = 3
 		test.Errorf("plain output unexpectedly has trace columns:\n%s", plain.String())
 	}
 
-	// --- with --explain: the header gains the score-breakdown columns ---
+	// --- with --explain: the header gains the columns the ranking computed:
+	// cosine and final always, graph and distance only with graph expansion
+	// (#849 finding 13) ---
 
-	out := &bytes.Buffer{}
-	queryCmd := newRootCmd()
-	queryCmd.SetOut(out)
-	queryCmd.SetErr(out)
-	queryCmd.SetArgs([]string{"query", "type=note", "--semantic", "authentication", "--explain"})
+	explained := func(extra ...string) string {
+		out := &bytes.Buffer{}
+		queryCmd := newRootCmd()
+		queryCmd.SetOut(out)
+		queryCmd.SetErr(out)
+		queryCmd.SetArgs(append([]string{"query", "type=note", "--semantic", "authentication", "--explain"}, extra...))
 
-	if execErr := queryCmd.Execute(); execErr != nil {
-		test.Fatalf("query (explain): %v\nout:\n%s", execErr, out.String())
+		if execErr := queryCmd.Execute(); execErr != nil {
+			test.Fatalf("query (explain %v): %v\nout:\n%s", extra, execErr, out.String())
+		}
+
+		return out.String()
 	}
 
+	cosineOnly := explained()
+
+	for _, column := range []string{"COSINE", "FINAL"} {
+		if !strings.Contains(cosineOnly, column) {
+			test.Errorf("--explain output missing %q column:\n%s", column, cosineOnly)
+		}
+	}
+
+	for _, column := range []string{"GRAPH", "DIST", "LEXICAL"} {
+		if strings.Contains(cosineOnly, column) {
+			test.Errorf("--explain without graph expansion or lexical fusion has a %q column:\n%s", column, cosineOnly)
+		}
+	}
+
+	if !strings.Contains(cosineOnly, "notes/one  1.0000  1.0000") {
+		test.Errorf("--explain cosine column doesn't carry the score the row ranked by:\n%s", cosineOnly)
+	}
+
+	expanded := explained("--graph-expand")
+
 	for _, column := range []string{"COSINE", "GRAPH", "FINAL", "DIST"} {
-		if !strings.Contains(out.String(), column) {
-			test.Errorf("--explain output missing %q column:\n%s", column, out.String())
+		if !strings.Contains(expanded, column) {
+			test.Errorf("--explain --graph-expand output missing %q column:\n%s", column, expanded)
 		}
 	}
 }

@@ -111,6 +111,16 @@ type Manifest struct {
 	// filter.SemanticRank for the formula.
 	LexicalWeight float64 `toml:"-"`
 
+	// TitleWeight is [query] title-weight: how much a semantic query naming a
+	// node's title raises the scores of that node's passages, in [0, 1].
+	// Absent means DefaultTitleWeight; 0 turns the title match off. See
+	// filter.SemanticRank for the formula.
+	TitleWeight float64 `toml:"-"`
+
+	// ScoreWeights is [query.type-weights] and [query.path-weights]: the
+	// multipliers that demote semantic results by node type and path.
+	ScoreWeights ScoreWeights `toml:"-"`
+
 	// graphCluster carries the on-disk [graph.cluster] primitives captured
 	// by decodeGraphSection. Consumed and cleared by resolveGraphCluster;
 	// consumers should read GraphCluster instead.
