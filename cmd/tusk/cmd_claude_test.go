@@ -30,6 +30,17 @@ func TestClaudeContext_OrientationAndDigest(test *testing.T) {
 	appendAliasBlock(test, root, `[alias.everything]
 command = "node list"
 
+[alias.notes]
+command     = "node list"
+description = "every note"
+
+[alias.alpha]
+command = "query"
+
+[alias.alpha.args]
+filter = "type=note AND title=Alpha"
+take   = 5
+
 [context]
 pinned  = ["notes/alpha"]
 include = ["everything"]
@@ -44,7 +55,7 @@ include = ["everything"]
 	for _, want := range []string{
 		`This project is a tusk vault ("test")`,
 		"Node types: note 1\n",
-		"Aliases: everything (run with tusk_run)\n",
+		"Aliases (tusk_run):\n  alpha: query filter=\"type=note AND title=Alpha\" take=5\n  everything: node list\n  notes: every note\n",
 		"\n## Pinned\nnotes/alpha",
 		"\n## Aliases / everything\n",
 	} {

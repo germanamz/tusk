@@ -3,6 +3,7 @@ package mcp_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/manifest"
@@ -123,6 +124,27 @@ func TestTool_Run_UnknownAlias(test *testing.T) {
 
 	if callErr == nil {
 		test.Fatalf("expected error, got nil")
+	}
+}
+
+// An args list used to decode as no args, so tusk_run returned the whole
+// index (#847). The alias is now invalid and the error names the table form.
+func TestTool_Run_ArgsListAliasIsInvalid(test *testing.T) {
+	rt := bootRuntimeWithAlias(test, `[alias.billing]
+command = "query"
+args    = ["type=note"]
+`)
+	defer rt.Close()
+
+	srv := mcp.NewServer(rt)
+	_, callErr := callTool(test, srv, "tusk_run", map[string]any{"alias": "billing"})
+
+	if callErr == nil {
+		test.Fatalf("expected error, got nil")
+	}
+
+	if want := "args is an array, but it must be a table: write [alias.billing.args]"; !strings.Contains(callErr.Error(), want) {
+		test.Errorf("error = %v, want it to contain %q", callErr, want)
 	}
 }
 

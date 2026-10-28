@@ -15,6 +15,17 @@ of node list, node get, query, edge list, doctor, status) to a fixed set of
 arguments so an agent or operator can dispatch a frequent query by name
 rather than retyping the filter / sort / take flags.
 
+An alias's arguments are a table keyed by flag or positional name. A list
+(args = ["..."]) is not accepted: the alias is reported as invalid.
+
+  [alias.billing]
+  command     = "query"
+  description = "billing services"
+
+  [alias.billing.args]
+  filter = "type=service AND domain=billing"
+  take   = 20
+
 Use --list to enumerate the aliases the loaded manifest declares. Use
 --format / --json to override the output format (defaults match the
 underlying verb: tab-aligned table for the legacy view, compact at TTY,

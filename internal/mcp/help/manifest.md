@@ -49,12 +49,17 @@ weight     = 0.5              # per-hop blend weight, [0, 1]
 edge-types = ["mentions", "tags"]
 
 [context]                     # composed by tusk_context
-pinned  = ["notes/north-star"]
-aliases = ["recent-tickets"]
+pinned    = ["notes/north-star"]
+include   = ["recent-tickets"]  # aliases folded into the digest
+max-bytes = 16384             # session block budget (tusk claude context)
 
 [alias.<name>]                # invoked via tusk_run(alias)
-command = "query"             # query | node list | node get | edge list | doctor | status
-args    = ["type=ticket AND modified-since:7d"]
+command     = "query"         # query | node list | node get | edge list | doctor | status
+description = "tickets touched this week"  # shown in the session orientation
+
+[alias.<name>.args]           # a table: one key per flag or positional; not a list
+filter = "type=ticket AND modified-since:7d"
+take   = 20
 
 [rule.<name>]                 # a convention tusk_doctor checks; see "Rules"
 description = "a product note lives under docs/product/"

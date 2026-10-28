@@ -272,6 +272,22 @@ func LoadEdgesForNode(db *sql.DB, nodeID string) ([]EdgeRef, error) {
 	return row.edges, nil
 }
 
+// FileEdges returns edges without the ones whose other end is a sub-unit (an
+// id carrying '#'): a file's `contains` edges to its own sections and
+// paragraphs, and links to or from another file's sub-units, which repeat
+// that file's own file-level link. Returns nil when no edge is left.
+func FileEdges(edges []EdgeRef) []EdgeRef {
+	var kept []EdgeRef
+
+	for _, edge := range edges {
+		if !strings.Contains(edge.TargetID, "#") {
+			kept = append(kept, edge)
+		}
+	}
+
+	return kept
+}
+
 // loadEdgesForRows fetches outgoing and incoming edges for every row in a
 // single SQL query, then stitches them onto each row.
 func loadEdgesForRows(rows []rowLike, db *sql.DB) error {

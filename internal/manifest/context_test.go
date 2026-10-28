@@ -68,6 +68,44 @@ include = []
 	}
 }
 
+func TestValidateContext_RejectsInlineRecentArgsList(test *testing.T) {
+	body := `[workspace]
+name = "brain"
+
+[context]
+pinned = ["docs/agent-charter"]
+
+[context.recent]
+command = "node list"
+args    = ["type=note"]
+`
+
+	loaded, loadErr := manifest.Load(writeContextManifest(test, body))
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	manifest.ValidateAliases(loaded, fixtureIntrospector(defaultFixtureFlags()))
+	manifest.ValidateContext(loaded, fixtureIntrospector(defaultFixtureFlags()))
+
+	if loaded.Context.Recent != nil {
+		test.Errorf("Recent = %+v, want nil for an args list", loaded.Context.Recent)
+	}
+
+	if len(loaded.ContextErrors) != 1 {
+		test.Fatalf("ContextErrors = %v, want one", loaded.ContextErrors)
+	}
+
+	message := loaded.ContextErrors[0].Message
+
+	for _, want := range []string{"args is an array", "[context.recent.args]"} {
+		if !strings.Contains(message, want) {
+			test.Errorf("ContextErrors[0] = %q, want it to contain %q", message, want)
+		}
+	}
+}
+
 func TestLoad_ParsesContextInlineForm(test *testing.T) {
 	body := `[workspace]
 name = "brain"

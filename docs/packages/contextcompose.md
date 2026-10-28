@@ -28,6 +28,7 @@ The digest is built in three steps:
 ## Notes
 
 - `Compose` returns an empty `Result` (not nil) when the manifest declares no `[context]` block, so renderers can treat "no digest configured" uniformly.
+- Pinned and recent rows keep only their file-to-file edges (`query.FileEdges`). A node's `contains` edges to its own sections and paragraphs, and links from other files' sub-units, repeat its body and those files' own links; on a real vault they took a quarter of the session block's budget (#847). Include-alias results are left as their alias returns them.
 - The per-node include override (`Request.Include`) applies only to the pinned and recent sections. Include-aliases use whatever expansion their own `[alias.<name>].args.include` declares.
 - Pinned-row ordering is the manifest declaration order, not the SQL engine's order.
 - `Result.Pinned` and `Result.Recent` use the JSON tag `omitempty` so the wire envelope omits empty sections instead of emitting null.

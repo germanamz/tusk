@@ -7,11 +7,14 @@ import (
 
 func TestOrientation_ReadyIndex(test *testing.T) {
 	got := Orientation(Snapshot{
-		Name:       "my-brain",
-		NodeTypes:  map[string]int{"note": 5, "package": 29, "person": 1, "spec": 0},
-		EdgeTypes:  []string{"relates-to", "depends-on", "references"},
-		EdgeCount:  706,
-		Aliases:    []string{"standup", "open-tickets"},
+		Name:      "my-brain",
+		NodeTypes: map[string]int{"note": 5, "package": 29, "person": 1, "spec": 0},
+		EdgeTypes: []string{"relates-to", "depends-on", "references"},
+		EdgeCount: 706,
+		Aliases: []Alias{
+			{Name: "standup", Summary: "what changed since yesterday"},
+			{Name: "open-tickets", Summary: `query filter="type=ticket AND status!=done" take=20`},
+		},
 		Index:      IndexReady,
 		EmbedQueue: 3,
 	})
@@ -20,12 +23,30 @@ func TestOrientation_ReadyIndex(test *testing.T) {
 Use the tusk_* tools to query it before grepping files.
 Node types: package 29 · note 5 · person 1
 Edges: 706 · depends-on, references, relates-to
-Aliases: open-tickets, standup (run with tusk_run)
+Aliases (tusk_run):
+  open-tickets: query filter="type=ticket AND status!=done" take=20
+  standup: what changed since yesterday
 Index: 3 embeddings pending
 `
 
 	if got != want {
 		test.Errorf("Orientation =\n%s\nwant\n%s", got, want)
+	}
+}
+
+// An alias line is capped so a long description or filter cannot crowd the
+// orientation, which the block never cuts.
+func TestOrientation_CapsLongAliasSummary(test *testing.T) {
+	got := Orientation(Snapshot{
+		Name:    "vault",
+		Aliases: []Alias{{Name: "long", Summary: strings.Repeat("é", 150)}},
+		Index:   IndexMissing,
+	})
+
+	want := "  long: " + strings.Repeat("é", aliasSummaryMax-1) + "…\n"
+
+	if !strings.Contains(got, want) {
+		test.Errorf("Orientation missing capped line %q:\n%s", want, got)
 	}
 }
 
@@ -47,7 +68,7 @@ func TestOrientation_MissingIndexListsDeclaredTypes(test *testing.T) {
 		}
 	}
 
-	if strings.Contains(got, "Aliases:") {
+	if strings.Contains(got, "Aliases") {
 		test.Errorf("Orientation lists aliases when none are declared:\n%s", got)
 	}
 }

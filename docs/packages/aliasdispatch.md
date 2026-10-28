@@ -25,7 +25,7 @@ Per-verb adapters are hand-written (no reflection). Each adapter has a `Build` c
 
 TOML integers decode as `int64` when the destination is `map[string]any`; the adapter helpers (`optionalInt`, `optionalFloat`) coerce `int64` and exact-integer `float64` values to `int` so MCP callers (whose JSON numbers arrive as `float64`) and CLI callers (whose TOML numbers arrive as `int64`) both work.
 
-Alias validation lives in `internal/manifest` (`ValidateAliases`); the dispatcher trusts the aliases it sees and surfaces only build-time / runtime errors from the service layer.
+Alias validation lives in `internal/manifest` (`ValidateAliases`), including the check that `args` is a table rather than a list; the dispatcher trusts the aliases it sees and surfaces only build-time / runtime errors from the service layer.
 
 ## Callers
 

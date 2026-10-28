@@ -10,8 +10,10 @@ Print the context block the Claude Code plugin adds to a session
 
 Print the block the plugin adds to the first message of a Claude Code
 conversation: a short orientation (the vault's declared node types with
-counts, edge types, aliases, index state), then the [context] digest
-("tusk context") when tusk.toml declares one.
+counts, edge types, each alias with its description or the command it runs,
+index state), then the [context] digest ("tusk context") when tusk.toml
+declares one. Pinned and recent nodes list only their links to and from
+other files, not their own sections and paragraphs.
 
 The block stays within [context] max-bytes (default 16384). Over budget, it
 drops alias sections first, then recent nodes, then pinned nodes, a whole node

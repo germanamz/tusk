@@ -199,6 +199,7 @@ func resolveContextRecent(loaded *Manifest, introspect VerbIntrospector) (*Alias
 		Command:     inline.Command,
 		Description: inline.Description,
 		Args:        inline.Args,
+		argsType:    argsTypeOf(*meta, "context", "recent", "args"),
 	}
 
 	verb, verbErr := resolveAliasVerb(synthetic.Command)
