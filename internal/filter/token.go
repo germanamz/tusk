@@ -26,6 +26,13 @@ const (
 	TokenAnd
 	TokenOr
 	TokenNot
+	// TokenContains is `~=`.
+	TokenContains
+	// TokenLBracket, TokenRBracket and TokenComma delimit a `[a, b]` list
+	// value. Only the value-position lexer produces them.
+	TokenLBracket
+	TokenRBracket
+	TokenComma
 	// TokenIllegal is input the lexer can't tokenize: a character outside the
 	// grammar or a string with no closing quote. Its Value describes the
 	// problem, ready to report as the parse error.

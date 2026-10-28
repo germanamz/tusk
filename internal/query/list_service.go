@@ -3,6 +3,7 @@ package query
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -35,6 +36,11 @@ type ListRequest struct {
 	// at 0 (no cap, matching `tusk node list`'s historical "return all rows");
 	// the MCP handler sets it to bound tool responses. Ignored when Take > 0.
 	StructuralDefaultTake int
+
+	// Now is the clock the filter's relative dates (`today-90d`) and
+	// `modified-since:<duration>` resolve against. Required when the filter
+	// holds one.
+	Now time.Time
 }
 
 // ListResult is the typed payload returned by ListRun.
@@ -77,7 +83,7 @@ func ListRun(database *sql.DB, loadedManifest *manifest.Manifest, req ListReques
 		effectiveTake = req.StructuralDefaultTake
 	}
 
-	rows, compileErr := compileAndQuery(database, loadedManifest, req.Filter, req.Sort, effectiveTake, req.Skip)
+	rows, compileErr := compileAndQuery(database, loadedManifest, req.Filter, req.Sort, effectiveTake, req.Skip, req.Now)
 
 	if compileErr != nil {
 		return nil, compileErr
@@ -140,8 +146,8 @@ func ListRun(database *sql.DB, loadedManifest *manifest.Manifest, req ListReques
 // the OPEN *sql.Rows — the caller owns the result set and must defer
 // rows.Close(). The error chain (parse, validate, sort, compile, query) is the
 // exact order both Run and ListRun relied on before this was hoisted, with
-// identical error text.
-func compileAndQuery(database *sql.DB, loadedManifest *manifest.Manifest, filterStr, sortStr string, take, skip int) (*sql.Rows, error) {
+// identical error text. now is the compile clock (see ListRequest.Now).
+func compileAndQuery(database *sql.DB, loadedManifest *manifest.Manifest, filterStr, sortStr string, take, skip int, now time.Time) (*sql.Rows, error) {
 	expr, parseErrs := filter.NewParser(filterStr).Parse()
 
 	if len(parseErrs) > 0 {
@@ -168,6 +174,7 @@ func compileAndQuery(database *sql.DB, loadedManifest *manifest.Manifest, filter
 		SortKeys: sortKeys,
 		Take:     take,
 		Skip:     skip,
+		Now:      now,
 	})
 
 	if compileErr != nil {

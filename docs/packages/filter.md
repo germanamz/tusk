@@ -7,7 +7,7 @@ status: stable
 
 # internal/filter
 
-Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk node list <expr>` and the `tusk_query` MCP tool. Supports property predicates (`=`/`:`, `!=`, `<`, `<=`, `>`, `>=`, range `lo..hi`), glob patterns on `path` and `id` (`path=docs/product/*`), edge traversal (`edge-type->`, `edge-type<-`) whose inner term can be anything the grammar accepts, traversal shortcuts (`tree=id`, `parent=id`, `root=id`, plus their qualified forms `tree:<alias>=id`, `parent:<alias>=id`, `root:<alias>=id`), path refs (`names-path=<path|glob>`), boolean composition (`AND`/`OR`/`NOT`/parens), and multi-hop paths.
+Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk node list <expr>` and the `tusk_query` MCP tool. Supports property predicates (`=`/`:`, `!=`, `<`, `<=`, `>`, `>=`, range `lo..hi`, presence `=*`/`!=*`, list membership `~=` and `=[a, b]`, relative dates `today-90d`/`now-48h`), glob patterns on `path` and `id` (`path=docs/product/*`), edge traversal (`edge-type->`, `edge-type<-`) whose inner term can be anything the grammar accepts, traversal shortcuts (`tree=id`, `parent=id`, `root=id`, plus their qualified forms `tree:<alias>=id`, `parent:<alias>=id`, `root:<alias>=id`), path refs (`names-path=<path|glob>`), boolean composition (`AND`/`OR`/`NOT`/parens), and multi-hop paths.
 
 ## Public surface
 
@@ -26,6 +26,9 @@ Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk n
   property error, since the type error already covers it.
 - `Compile(Expr, CompileOptions) (string, []any, error)` — AST → parameterized SQL.
   `CompileOptions.FilesOnly` wraps the WHERE clause as `(...) AND parent_id IS NULL`.
+  `CompileOptions.Now` is the clock relative dates and `modified-since:<duration>`
+  resolve against. The package never reads the clock itself: Compile fails when
+  the filter needs one and `Now` is zero, and the driving adapters set it.
 - `OuterTypes(Expr) []string` — the node-type names that `type=` equalities select
   at the outer level, through AND and OR but not under NOT or past an edge arrow.
   Doctor uses it to decide whether a rule opts into sub-units.
@@ -44,6 +47,22 @@ undeclared property and errors when a name is declared on multiple node types
 without a disambiguating `type=`.
 
 ## Notes
+
+### Two-valued logic: NOT, != and missing properties
+
+A comparison against a property a node doesn't have is NULL in SQL, and so is its `NOT`, so before #846 a node without `domain` matched neither `domain=billing` nor `NOT domain=billing`. The compiler now keeps every predicate two-valued, so `NOT x` is the exact complement of `x`. `NOT` compiles to `NOT ((x) IS TRUE)`, which reads NULL as false. `!=` compiles to the null-safe `IS NOT`, so `p!=v` means the same as `NOT p=v`. A qualified `type!=src:t` negates the whole `source = ? AND type = ?` pair the same way, so rows from another source pass. Ordering and ranges compare values, so they still skip a node without one.
+
+A lone unquoted `*` is `AnyValue`: `p=*` holds when the property has a value and `p!=*` when it is missing. The test runs `EXISTS` over `json_each` and asks for a non-null item. That way a scalar counts (it is its own single row), while absent, null and an empty list don't. An empty string is a value, matching how doctor treats a `required` property. On a core column, `*` means non-empty, except on `path` and `id`, where a lone `*` stays the glob it always was.
+
+### Lists
+
+`p~=v` (`OpContains`) holds when a list property has an item equal to `v`. `p=[a, b]` (`ListValue`) holds when it has every item, in any order, and `p!=[a, b]` is its complement. Each item compiles to `EXISTS (SELECT 1 FROM json_each(<row>.properties_json, '$."p"') AS item WHERE item.value = ?)`, compared in the declared item type (`CAST(... AS INTEGER)` for int items, a resolved relative date for date items, `1`/`0` for a bareword bool). A list value ANDs the items. An undeclared property gets the same SQL, which matches whether it holds a list or a single value, since `json_each` yields a scalar as one row.
+
+`Validate` stamps `ResolvedType = "list-of"` and `ItemType` for a declared list. It rejects a plain `=`/`!=` with one value on a list, since that would compare the whole list and match nothing, and points at `~=` or `[a, ...]` instead. It also rejects an ordering or range on a list, and `~=` or a list value on a declared single value or a core column. `ValidateStrict` checks each item of a list-of(enum) against its values.
+
+### Relative dates
+
+A bare value `today`, `now`, or either with a signed offset (`today-90d`, `today+2w`, `now-48h`) is a relative date on a `date` or `datetime` property, or on a list of them. `relative_date.go` parses it (units `h`, `d`, `w`, `m` for months, `y`; up to six digits) and resolves it on the compile clock. `today` is local midnight of `CompileOptions.Now`'s location, and months and years clamp to the end of a shorter month. A date renders as `YYYY-MM-DD` in that location, and a datetime as RFC3339 in UTC, the stored forms they compare against as text. `Validate` leaves a relative literal in place for the compiler (`normalizeTemporal` skips it). It reports one that opens like a relative date but doesn't parse, and an ordering against one on a property not declared as a date or datetime. A quoted value is never a relative date, which keeps quoting the way to compare text literally. `RangeValue` carries `MinBareword`/`MaxBareword` for that reason.
 
 The `+tag`/`-tag` shorthand in §10 of the master spec was dropped from v1.c. Composing the tags pack with the filter grammar uses explicit `tagged -> tag/<name>` predicates instead.
 

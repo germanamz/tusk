@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
@@ -267,6 +268,11 @@ type Config struct {
 	Meta          *index.MetaRepo      // optional; nil = no index-not-built check
 	Manifest      *manifest.Manifest
 	Root          string // workspace root; required for Migrate
+
+	// Now is the clock a [rule.<name>] filter's relative dates (today-90d)
+	// and modified-since durations resolve against. Required when one holds
+	// either; the rule fails to run otherwise.
+	Now time.Time
 }
 
 // MigrationReport summarizes a Migrate call.

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
@@ -257,6 +258,7 @@ they are not flagged as missing embeddings.`,
 					Meta:          index.NewMetaRepo(store),
 					Manifest:      loaded,
 					Root:          ws.Root,
+					Now:           time.Now(),
 				}
 
 				result, runErr := doctor.RunWithMigration(doctor.Request{Cfg: cfg, NoMigrate: noMigrate})

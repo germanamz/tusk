@@ -39,7 +39,7 @@ func (collector *validationCollector) checkDeclaredNames(pred *PropertyPredicate
 		return
 	}
 
-	if len(decls) == 1 && (pred.Op == OpEQ || pred.Op == OpNE) {
+	if len(decls) == 1 && (pred.Op == OpEQ || pred.Op == OpNE || pred.Op == OpContains) {
 		collector.checkEnumMember(pred, decls[0].Type == "enum" || (decls[0].Type == "list-of" && decls[0].ItemType == "enum"), decls[0].Values)
 	}
 }
@@ -74,20 +74,18 @@ func (collector *validationCollector) checkDeclaredType(pred *PropertyPredicate)
 	collector.add(pred.Pos, fmt.Sprintf("node type %q not declared in manifest", ref.Type), suggestName(ref.Type, sortedKeys(collector.manifest.NodeTypes)))
 }
 
-// checkEnumMember reports an `=` / `!=` value outside the declared values of
-// an enum or list-of(enum) property.
+// checkEnumMember reports an `=` / `!=` / `~=` value, or a `[a, b]` item,
+// outside the declared values of an enum or list-of(enum) property.
 func (collector *validationCollector) checkEnumMember(pred *PropertyPredicate, isEnum bool, values []string) {
 	if !isEnum {
 		return
 	}
 
-	stringValue, ok := pred.Value.(StringValue)
-
-	if !ok || slices.Contains(values, stringValue.V) {
-		return
+	for _, operand := range comparisonOperands(pred) {
+		if !slices.Contains(values, operand.V) {
+			collector.add(pred.Pos, fmt.Sprintf("%q is not a value of enum property %q", operand.V, pred.Property), "valid values: "+strings.Join(values, ", "))
+		}
 	}
-
-	collector.add(pred.Pos, fmt.Sprintf("%q is not a value of enum property %q", stringValue.V, pred.Property), "valid values: "+strings.Join(values, ", "))
 }
 
 // declaredScopeTypes returns the sorted names in scope that the manifest

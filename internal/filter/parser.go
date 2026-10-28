@@ -318,12 +318,16 @@ func (parser *Parser) parsePropertyPredicate() Expr {
 	op, opOK := opTokenToOp(opToken.Kind)
 
 	if !opOK {
-		parser.appendTokenErr(opToken, "expected comparison operator (= != < <= > >=)")
+		parser.appendTokenErr(opToken, "expected comparison operator (= != ~= < <= > >=)")
 
 		return nil
 	}
 
 	leftValueToken := parser.lexer.NextValue()
+
+	if leftValueToken.Kind == TokenLBracket {
+		return parser.parseListPredicate(identToken, op, leftValueToken)
+	}
 
 	if !hasValue(leftValueToken) {
 		parser.appendTokenErr(leftValueToken, "expected value after operator")
@@ -352,14 +356,33 @@ func (parser *Parser) parsePropertyPredicate() Expr {
 		return &PropertyPredicate{
 			Property: identToken.Value,
 			Op:       OpRange,
-			Value:    RangeValue{Min: leftValueToken.Value, Max: rightValueToken.Value},
-			Pos:      identToken.Pos,
+			Value: RangeValue{
+				Min:         leftValueToken.Value,
+				Max:         rightValueToken.Value,
+				MinBareword: leftValueToken.Kind == TokenBareValue,
+				MaxBareword: rightValueToken.Kind == TokenBareValue,
+			},
+			Pos: identToken.Pos,
 		}
 	}
 
+	_, matchable := patternProperties[identToken.Value]
+
+	// A lone `*` on a property a glob can't match is "has a value". path and
+	// id always have one, so there it keeps its glob meaning.
+	if !matchable && leftValueToken.Kind == TokenBareValue && leftValueToken.Value == "*" {
+		if op != OpEQ && op != OpNE {
+			parser.appendErr(leftValueToken.Pos, "`*` (any value) only works with = or !=")
+
+			return nil
+		}
+
+		return &PropertyPredicate{Property: identToken.Value, Op: op, Value: AnyValue{}, Pos: identToken.Pos}
+	}
+
 	if isPatternToken(leftValueToken) {
-		if _, matchable := patternProperties[identToken.Value]; !matchable {
-			parser.appendErr(leftValueToken.Pos, "wildcards (* and ?) only match path and id; quote the value to compare it literally")
+		if !matchable {
+			parser.appendErr(leftValueToken.Pos, wildcardOnlyOnPaths)
 
 			return nil
 		}
@@ -377,6 +400,70 @@ func (parser *Parser) parsePropertyPredicate() Expr {
 		Value:    StringValue{V: leftValueToken.Value, Bareword: leftValueToken.Kind == TokenBareValue},
 		Pos:      identToken.Pos,
 	}
+}
+
+// wildcardOnlyOnPaths is the error for a glob on a property other than path
+// and id.
+const wildcardOnlyOnPaths = "wildcards (* and ?) only match path and id; quote the value to compare it literally"
+
+// parseListPredicate parses the rest of `p=[a, b]` once NextValue has returned
+// the opening bracket. Each item is a bare or quoted value, never a pattern.
+func (parser *Parser) parseListPredicate(identToken Token, op Op, openToken Token) Expr {
+	savedPos := parser.lexer.pos
+
+	if parser.lexer.NextListSeparator().Kind == TokenRBracket {
+		parser.appendErr(openToken.Pos, "a list needs at least one item")
+
+		return nil
+	}
+
+	parser.lexer.pos = savedPos
+
+	var items []StringValue
+
+	for {
+		itemToken := parser.lexer.NextValue()
+
+		if !hasValue(itemToken) {
+			parser.appendTokenErr(itemToken, "expected a list item")
+
+			return nil
+		}
+
+		if isPatternToken(itemToken) {
+			parser.appendErr(itemToken.Pos, wildcardOnlyOnPaths)
+
+			return nil
+		}
+
+		items = append(items, StringValue{V: itemToken.Value, Bareword: itemToken.Kind == TokenBareValue})
+
+		separator := parser.lexer.NextListSeparator()
+
+		if separator.Kind == TokenRBracket {
+			break
+		}
+
+		if separator.Kind != TokenComma {
+			parser.appendErr(separator.Pos, "expected , or ]")
+
+			return nil
+		}
+	}
+
+	if op != OpEQ && op != OpNE {
+		parser.appendErr(openToken.Pos, "a list only works with = or !=")
+
+		return nil
+	}
+
+	if parser.peek().Kind == TokenDotDot {
+		parser.appendErr(openToken.Pos, "a list can't be a range bound")
+
+		return nil
+	}
+
+	return &PropertyPredicate{Property: identToken.Value, Op: op, Value: ListValue{Items: items}, Pos: identToken.Pos}
 }
 
 func (parser *Parser) parseTraversalShortcut() Expr {
@@ -485,6 +572,8 @@ func opTokenToOp(kind TokenKind) (Op, bool) {
 		return OpGT, true
 	case TokenGE:
 		return OpGE, true
+	case TokenContains:
+		return OpContains, true
 	}
 
 	return 0, false

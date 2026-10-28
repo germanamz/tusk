@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"text/tabwriter"
+	"time"
 
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/render"
@@ -29,10 +30,14 @@ func newNodeListCmd() *cobra.Command {
 The filter is a property and edge-traversal expression. Property
 predicates use comparison operators — = and : (equal), != (not equal),
 < <= > >= (ordering) — written directly after the key (e.g. status=open,
-priority>=2); ranges use key=lo..hi. Ordering and range operators compare
-by the property's declared type: int numerically, date/datetime
-chronologically, enum by declared order (a value name or a 0-based index).
-path and id also take glob patterns with = and !=: * stays inside one
+priority>=2); ranges use key=lo..hi. != and NOT also match a node without
+the property; key=* means it has a value and key!=* that it is missing. A
+list property takes ~= for one item (labels~=bug) and key=[a, b] for every
+listed item, in any order. Ordering and range operators compare by the
+property's declared type: int numerically, date/datetime chronologically,
+enum by declared order (a value name or a 0-based index). A date or
+datetime also takes a relative date: today, today-90d or today+2w (units
+h, d, w, m for months, y), and now-48h for a datetime. path and id also take glob patterns with = and !=: * stays inside one
 folder, ? is one character, and a ** segment crosses folders (e.g.
 path=docs/product/*, path=docs/**, id=**/index); quote the value to match a
 literal *. Edge traversal uses edge-type-> (outgoing) or edge-type<- (incoming) and
@@ -96,6 +101,7 @@ structural-and-semantic ranking, use "tusk query" with --semantic.`,
 				Include:       includeFlag,
 				Fields:        fieldsFlag,
 				WorkspaceRoot: ws.Root,
+				Now:           time.Now(),
 			})
 
 			if runErr != nil {

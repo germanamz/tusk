@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/germanamz/tusk/internal/embed"
 	"github.com/germanamz/tusk/internal/index"
@@ -70,6 +71,7 @@ func (rq *runtimeQuerier) Run(ctx context.Context, in QueryInput) ([]Match, erro
 		Take:                in.Limit,
 		SemanticDefaultTake: in.Limit,
 		WorkspaceRoot:       rq.root,
+		Now:                 time.Now(),
 	}
 
 	result, runErr := query.Run(ctx, rq.deps, req)

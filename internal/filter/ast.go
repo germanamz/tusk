@@ -13,6 +13,8 @@ const (
 	OpGT
 	OpGE
 	OpRange
+	// OpContains is `~=`: the property is a list holding the value.
+	OpContains
 )
 
 // String returns the canonical glyph for op. It is the single source of truth
@@ -33,6 +35,8 @@ func (op Op) String() string {
 		return ">="
 	case OpRange:
 		return ".."
+	case OpContains:
+		return "~="
 	}
 
 	return "?"
@@ -40,7 +44,7 @@ func (op Op) String() string {
 
 // valid reports whether op is one of the declared Op constants.
 func (op Op) valid() bool {
-	return op >= OpEQ && op <= OpRange
+	return op >= OpEQ && op <= OpContains
 }
 
 // Direction is the polarity of an edge predicate.
@@ -118,10 +122,15 @@ type PropertyPredicate struct {
 	// Empty when the property is undeclared in scope or its type is ambiguous.
 	ResolvedType string
 
-	// EnumValues carries the ordered enum members when ResolvedType == "enum",
-	// so the compiler can expand ordering/range operators into an IN-set over
-	// the satisfying value names. Nil otherwise.
+	// EnumValues carries the ordered enum members when ResolvedType == "enum"
+	// (or a list-of whose ItemType is "enum"), so the compiler can expand
+	// ordering/range operators into an IN-set over the satisfying value names.
+	// Nil otherwise.
 	EnumValues []string
+
+	// ItemType is the declared item type when ResolvedType == "list-of", so
+	// the compiler compares each list item in its own domain. Empty otherwise.
+	ItemType string
 }
 
 func (pred *PropertyPredicate) exprNode()     {}
@@ -195,10 +204,27 @@ type StringValue struct {
 
 func (stringValue StringValue) valueNode() {}
 
-// RangeValue holds a min..max range value.
+// RangeValue holds a min..max range value. MinBareword and MaxBareword say
+// whether each bound was written without quotes, as StringValue.Bareword does.
 type RangeValue struct {
-	Min string
-	Max string
+	Min         string
+	Max         string
+	MinBareword bool
+	MaxBareword bool
 }
 
 func (rangeValue RangeValue) valueNode() {}
+
+// AnyValue is a lone unquoted `*`: the property has a value. Absent and null
+// are no value; so is a list with no items. `p!=*` is the property missing.
+type AnyValue struct{}
+
+func (anyValue AnyValue) valueNode() {}
+
+// ListValue holds the items of `[a, b]`: the property is a list holding every
+// one of them, in any order.
+type ListValue struct {
+	Items []StringValue
+}
+
+func (listValue ListValue) valueNode() {}
