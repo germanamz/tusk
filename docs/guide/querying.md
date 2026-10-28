@@ -113,6 +113,42 @@ Each passage gets a BM25 score for the query's words, scaled so the best match a
 
 It's off by default. On tusk's own package docs, replaying the first query an agent sent for each of 40 questions, a weight of 0.5 put the answering section first for 66% of questions instead of 55%, and among the passages an agent sees (five files of three passages each) for 93% instead of 86%. Using each question's full text as the query instead made no measurable difference. Short queries that name identifiers, flags or phrases gain the most. [Benchmarks](benchmarks.md#lexical-fusion) has the numbers and what it did for an agent.
 
+### Matching the title
+
+Passages are embedded without their file's title. A section of `ledger-sync.md` that says "Consumes the payments-settled Kafka topic." never mentions ledger-sync, while an incident write-up that names the service in every paragraph does, so `which topic does ledger-sync consume` can rank eight incident notes above the service that answers it. `[query] title-weight` lifts every passage of a file by how much of the file's title the query names:
+
+```toml
+[query]
+title-weight = 0.5
+```
+
+The title match is the share of the title's words that the query also uses, compared the way the word match compares them, so `ledger-sync`, `Ledger Sync` and `ledger_sync` all meet, and a query naming two of the five words in `internal/lexical — word-match scores` matches it 0.4. A file without a title is matched by its file name. Like the word match, the title match closes its share of the gap to 1, and the two combine: `1 − score = (1 − cosine) × (1 − lexical-weight × lexical) × (1 − title-weight × title)`. A score never drops, so it never costs a result its place above `min_score`. Every passage of the file gets the same lift, so their order inside the file still comes from the passages themselves.
+
+It's on by default at 0.5; set it to 0 to turn it off. On the same 40 questions a weight of 0.5 raised the answering section's MRR@10 from 0.733 to 0.759 with `lexical-weight = 0.5`, and the file's from 0.866 to 0.895. With the word match on as well, notes that repeat the query's words can still outrank the file the query names; a weight around 0.7 holds it above them. [Benchmarks](benchmarks.md#title-match) has the numbers.
+
+### Demoting results
+
+Long write-ups such as incident reports or meeting notes can mention a subject more often than the reference page about it. Weights in `[query.type-weights]` and `[query.path-weights]` push them down:
+
+```toml
+[query.type-weights]
+note = 0.8
+
+[query.path-weights]
+"incidents/**" = 0.6
+```
+
+Each weight, from just above 0 to 1, multiplies the final score of every result in a file of that type or at a matching path, and a passage takes its file's weight. A file's type weight and path weight multiply; a file several path patterns match takes the smallest of them. Types must be declared under `[node-types]`. Path patterns are the filter's `path` globs, matched against the whole workspace-relative path, so `incidents/**` covers everything under `incidents/`. Weights apply before `min_score`, so a demoted result can fall below it.
+
+### Explaining a score
+
+`--explain` (`explain` on `tusk_query`) adds how each result's score was made. Every row shows its `cosine` and its `final` score, the one it ranked by. The others appear only when the ranking computed them: `lexical` when `lexical-weight` is set, `title` when `title-weight` is, `weight` when the manifest declares type or path weights, and `graph` with the hop `dist` when graph expansion ran. In JSON the fields are `cosine_score`, `lexical_score`, `title_score`, `graph_score`, `weight`, `final_score` and `distance`, and each matched passage carries its own.
+
+```bash
+tusk query '' --semantic "which topic does ledger-sync consume" --explain --format compact
+# ledger-sync  service  ledger-sync  score=0.7992  cosine=0.5984 title=1.0000 final=0.7992
+```
+
 ## Hybrid (recommended for agents)
 
 Structural filter narrows the candidate set; semantic similarity ranks within it.

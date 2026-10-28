@@ -12,7 +12,9 @@ Scores how well a set of texts match a query's words, so semantic search can ble
 ## Public surface
 
 - `Scores(query, docs) []float64` — Okapi BM25 (k1 1.2, b 0.75) of each doc against the query, divided by the best doc's score, so the best match scores 1 and a doc sharing no word scores 0. Term rarity and average length come from `docs` alone, so it needs no index. A word repeated in the query counts once. Returns nil when no doc shares a word with the query.
-- `Tokens(text) []string` — the words `Scores` compares: lowercase runs of Unicode letters and digits, minus a short list of English stopwords, each with one common suffix stripped (`ingly`, `edly`, `ing`, `ers`, `er`, `ed`, `ly`, `es`, `s`, keeping at least three bytes). The suffix list is deliberately cruder than a real stemmer; it only has to make "dropped" and "dropping" meet.
+- `Tokens(text) []string` — the words `Scores` compares: lowercase runs of Unicode letters and digits, minus a short list of English stopwords, each with one common suffix stripped (`ingly`, `edly`, `ing`, `ers`, `er`, `ed`, `ly`, `es`, `s`) and then a final `e`, each step keeping at least three bytes. The suffix list is deliberately cruder than a real stemmer; it only has to make "dropped" and "dropping" meet, and the final `e` makes "node" meet "nodes" and "consume" meet "consumes" (#849).
+- `QueryTerms(query) Terms` — the query's distinct words, stemmed as `Tokens` stems them.
+- `(Terms).Coverage(text) float64` — the share of `text`'s distinct words that are among the terms: 1 when the query names every word of `text`, 0 when it names none. `internal/query` uses it for the title match (`[query] title-weight`, #849), where `text` is a file's title.
 
 ## Notes
 

@@ -19,7 +19,7 @@ func TestTokens(test *testing.T) {
 		{
 			name: "lowercases and splits on punctuation",
 			text: "Hub.Broadcast([]byte) fans OUT",
-			want: []string{"hub", "broadcast", "byte", "fan", "out"},
+			want: []string{"hub", "broadcast", "byt", "fan", "out"},
 		},
 		{
 			name: "drops stopwords",
@@ -35,6 +35,11 @@ func TestTokens(test *testing.T) {
 			name: "keeps a stem of at least three bytes",
 			text: "uses bus red",
 			want: []string{"use", "bus", "red"},
+		},
+		{
+			name: "drops a final e so a word meets its plural",
+			text: "node nodes consume consumes consumed types",
+			want: []string{"nod", "nod", "consum", "consum", "consum", "typ"},
 		},
 		{
 			name: "keeps digits and non-ASCII letters",
@@ -144,6 +149,35 @@ func TestScores_NoMatch(test *testing.T) {
 		test.Run(testCase.name, func(test *testing.T) {
 			if scores := lexical.Scores(testCase.query, testCase.docs); scores != nil {
 				test.Errorf("Scores = %v, want nil", scores)
+			}
+		})
+	}
+}
+
+func TestCoverage(test *testing.T) {
+	cases := []struct {
+		name  string
+		query string
+		text  string
+		want  float64
+	}{
+		{name: "query names the whole title", query: "which topic does ledger-sync consume", text: "ledger-sync", want: 1},
+		{name: "separators and case don't matter", query: "Ledger Sync topics", text: "ledger_sync", want: 1},
+		{name: "inflections meet", query: "how are nodes typed", text: "Node types", want: 1},
+		{name: "part of the title", query: "how does lexical fusion score passages", text: "internal/lexical — word-match scores", want: 0.4},
+		{name: "repeated title words count once", query: "sync", text: "sync sync ledger", want: 0.5},
+		{name: "stopwords are not title words", query: "plan", text: "The Plan", want: 1},
+		{name: "no title word in the query", query: "which topic does ledger-sync consume", text: "incident 4", want: 0},
+		{name: "empty title", query: "ledger-sync", text: "", want: 0},
+		{name: "stopword-only query", query: "what is the", text: "the", want: 0},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			got := lexical.QueryTerms(testCase.query).Coverage(testCase.text)
+
+			if math.Abs(got-testCase.want) > 1e-12 {
+				test.Errorf("Coverage(%q, %q) = %v, want %v", testCase.query, testCase.text, got, testCase.want)
 			}
 		})
 	}

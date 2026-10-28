@@ -2,11 +2,14 @@ package query
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/germanamz/tusk/internal/filter"
 	"github.com/germanamz/tusk/internal/graphexpand"
 	"github.com/germanamz/tusk/internal/index"
+	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/typeref"
 )
 
@@ -339,6 +342,146 @@ func dropDanglingCandidates(
 	return keptCandidates, keptEdges, nil
 }
 
+// Trace names the score components a semantic result's explain fields carry,
+// so a renderer prints only what the ranking computed: every row has a cosine
+// and a final score, and the rest depend on the workspace and request.
+type Trace struct {
+	// Lexical is set when [query] lexical-weight is above 0.
+	Lexical bool
+	// Title is set when [query] title-weight is above 0.
+	Title bool
+	// Graph is set when graph expansion ran: the graph score and distance.
+	Graph bool
+	// Weight is set when the manifest declares [query.type-weights] or
+	// [query.path-weights].
+	Weight bool
+}
+
+// newTrace returns the components req's ranking computes, or nil when req
+// didn't ask to explain it.
+func newTrace(deps Deps, req Request) *Trace {
+	if !req.Explain {
+		return nil
+	}
+
+	fusion := fusionWeights(deps)
+
+	return &Trace{
+		Lexical: fusion.Lexical > 0,
+		Title:   fusion.Title > 0,
+		Graph:   req.GraphExpansion != nil && req.GraphExpansion.Enabled,
+		Weight:  !scoreWeights(deps).Empty(),
+	}
+}
+
+// scoreTrace is one row's or unit's explain fields.
+type scoreTrace struct {
+	cosine, lexical, title, graph, weight, final float64
+	distance                                     int
+}
+
+// explainScore builds the trace of a score: inputs carries the cosine,
+// lexical and title inputs of the chunk behind it, blend its graph-expansion
+// trace when blended, weight the type/path multiplier, and final the score it
+// ranked by. A walked-in neighbor (distance > 0) ranks on graph merit alone,
+// since the walker zeroes non-seed relevance, so its inputs show as 0.
+func explainScore(inputs filter.ScoredResult, blend blendedTrace, blended bool, weight, final float64) scoreTrace {
+	trace := scoreTrace{
+		cosine:  inputs.Cosine,
+		lexical: inputs.Lexical,
+		title:   inputs.Title,
+		weight:  weight,
+		final:   final,
+	}
+
+	if blended {
+		trace.graph = blend.Graph
+		trace.distance = blend.Distance
+
+		if blend.Distance > 0 {
+			trace.cosine, trace.lexical, trace.title = 0, 0, 0
+		}
+	}
+
+	return trace
+}
+
+func (row *ScoredRow) setTrace(trace scoreTrace) {
+	row.CosineScore = trace.cosine
+	row.LexicalScore = trace.lexical
+	row.TitleScore = trace.title
+	row.GraphScore = trace.graph
+	row.Weight = trace.weight
+	row.FinalScore = trace.final
+	row.Distance = trace.distance
+}
+
+func (unit *MatchedUnit) setTrace(trace scoreTrace) {
+	unit.CosineScore = trace.cosine
+	unit.LexicalScore = trace.lexical
+	unit.TitleScore = trace.title
+	unit.GraphScore = trace.graph
+	unit.Weight = trace.weight
+	unit.FinalScore = trace.final
+	unit.Distance = trace.distance
+}
+
+// fileWeights resolves the [query] type/path weight of each file a ranking
+// touches, once per file. metaOf returns a file's row when the ranking already
+// holds it; a file it doesn't hold (a walked-in neighbor outside the
+// structural pre-filter) is looked up in nodes. With no weights declared every
+// file weighs 1 and nothing is looked up.
+type fileWeights struct {
+	weights manifest.ScoreWeights
+	metaOf  func(fileID string) (Row, bool)
+	nodes   *index.NodeRepo
+	byFile  map[string]float64
+}
+
+func newFileWeights(deps Deps, metaOf func(fileID string) (Row, bool)) *fileWeights {
+	return &fileWeights{
+		weights: scoreWeights(deps),
+		metaOf:  metaOf,
+		nodes:   deps.Nodes,
+		byFile:  make(map[string]float64),
+	}
+}
+
+// active reports whether the manifest declares any weight; when it doesn't,
+// every file weighs 1 and callers skip the re-scale.
+func (resolver *fileWeights) active() bool {
+	return !resolver.weights.Empty()
+}
+
+// of returns fileID's weight.
+func (resolver *fileWeights) of(fileID string) (float64, error) {
+	if !resolver.active() {
+		return 1, nil
+	}
+
+	if weight, resolved := resolver.byFile[fileID]; resolved {
+		return weight, nil
+	}
+
+	meta, known := resolver.metaOf(fileID)
+
+	if !known && resolver.nodes != nil {
+		nodeRow, getErr := resolver.nodes.Get(fileID)
+
+		switch {
+		case getErr == nil:
+			meta = Row{ID: nodeRow.ID, Type: nodeRow.Type, Path: nodeRow.Path}
+		case !errors.Is(getErr, index.ErrNodeNotFound):
+			return 0, getErr
+		}
+	}
+
+	weight := resolver.weights.Weight(meta.Type, meta.Path)
+	resolver.byFile[fileID] = weight
+
+	return weight, nil
+}
+
 // clipUnitScore clamps a cosine to [0, 1], mirroring graphexpand's blender
 // clip so leaf-level blends stay comparable to file-level FinalScores.
 func clipUnitScore(value float64) float64 {
@@ -351,6 +494,15 @@ func clipUnitScore(value float64) float64 {
 	}
 
 	return value
+}
+
+// sortRanked re-orders ranked by score descending after the type/path
+// weights re-scale it. The sort is stable, so ties keep the order the rank or
+// the graph blend gave them.
+func sortRanked(ranked []filter.ScoredResult) {
+	sort.SliceStable(ranked, func(left, right int) bool {
+		return ranked[left].Score > ranked[right].Score
+	})
 }
 
 // applyMinScore drops candidates scoring below minScore, returning the kept

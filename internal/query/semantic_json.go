@@ -56,7 +56,9 @@ func (row ScoredRow) MarshalJSON() ([]byte, error) {
 	out.MatchedUnits = row.WireUnits()
 	out.CosineScore = RoundScore(row.CosineScore)
 	out.LexicalScore = RoundScore(row.LexicalScore)
+	out.TitleScore = RoundScore(row.TitleScore)
 	out.GraphScore = RoundScore(row.GraphScore)
+	out.Weight = RoundScore(row.Weight)
 	out.FinalScore = RoundScore(row.FinalScore)
 
 	return json.Marshal(out)

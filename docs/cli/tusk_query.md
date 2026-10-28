@@ -130,7 +130,7 @@ tusk query <filter> [flags]
 ### Options
 
 ```
-      --explain               include a per-row score-contribution trace (cosine/lexical/graph/final/distance) in the response when graph expansion or [query] lexical-weight is active
+      --explain               include a per-row score trace: cosine and final, plus lexical, title, graph/distance and weight when the ranking computed them
       --fields strings        project rendered rows to these fields (comma-separated)
       --format string         output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)
       --graph-edges strings   comma-separated edge-type names used by the graph expander; omit to inherit manifest

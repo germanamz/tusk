@@ -867,6 +867,91 @@ func TestTool_Query_ExplainCarriesLexicalScore(test *testing.T) {
 	}
 }
 
+// TestTool_Query_ExplainCarriesOnlyComputedComponents covers #849 finding 13:
+// with neither graph expansion nor lexical fusion on, explain=true still
+// reports the cosine and final score each row ranked by, and leaves out the
+// components the ranking didn't compute. The title match adds title_score.
+func TestTool_Query_ExplainCarriesOnlyComputedComponents(test *testing.T) {
+	cases := []struct {
+		name        string
+		titleWeight float64
+		want        []string
+		absent      []string
+	}{
+		{
+			name:   "cosine alone",
+			want:   []string{"cosine_score", "final_score"},
+			absent: []string{"lexical_score", "title_score", "graph_score", "distance", "weight"},
+		},
+		{
+			name:        "title match",
+			titleWeight: 0.5,
+			want:        []string{"cosine_score", "title_score", "final_score"},
+			absent:      []string{"lexical_score", "graph_score", "distance", "weight"},
+		},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			rt := bootRuntime(test)
+			defer rt.Close()
+
+			rt.Embedder = snippetStubEmbedder{}
+			rt.Manifest.LexicalWeight = 0
+			rt.Manifest.TitleWeight = testCase.titleWeight
+
+			rt.Nodes.Upsert(index.NodeRow{
+				ID: "notes/a", Type: "note", Path: "notes/a.md", Title: "Lease",
+				PropertiesJSON: "{}", LastChecksum: "x",
+			})
+
+			if upsertErr := rt.Embeddings.Upsert(index.EmbeddingRow{
+				NodeID: "notes/a", ChunkIdx: 0, Model: "stub", ContentHash: "h",
+				Vector: []float32{0.6, 0.8, 0}, Dim: 3, Body: "a body",
+			}); upsertErr != nil {
+				test.Fatalf("Upsert: %v", upsertErr)
+			}
+
+			srv := mcp.NewServer(rt)
+
+			body, callErr := callTool(test, srv, "tusk_query", map[string]any{
+				"filter":    "type=note",
+				"semantic":  "lease expiry",
+				"explain":   true,
+				"min_score": 0,
+			})
+
+			if callErr != nil {
+				test.Fatalf("tusk_query: %v", callErr)
+			}
+
+			results, _ := body["results"].([]any)
+
+			if len(results) != 1 {
+				test.Fatalf("len(results) = %d, want 1: %v", len(results), body)
+			}
+
+			first := results[0].(map[string]any)
+
+			for _, key := range testCase.want {
+				if _, present := first[key]; !present {
+					test.Errorf("explain field %q missing: %v", key, first)
+				}
+			}
+
+			for _, key := range testCase.absent {
+				if _, present := first[key]; present {
+					test.Errorf("explain field %q present though the ranking didn't compute it: %v", key, first)
+				}
+			}
+
+			if first["final_score"] != first["score"] || first["cosine_score"] == 0.0 {
+				test.Errorf("cosine_score %v final_score %v, want a cosine and final = score %v", first["cosine_score"], first["final_score"], first["score"])
+			}
+		})
+	}
+}
+
 // TestTool_Query_RejectsInvalidHops asserts hops outside {1,2} surfaces a
 // tool error, mirroring the CLI behaviour.
 func TestTool_Query_RejectsInvalidHops(test *testing.T) {

@@ -76,9 +76,9 @@ sanitizes the result.
   - `LinkRef{ID, Title, Type, EdgeType}` — one entry in a node's reading
     rails (see below).
   - `SearchRequest` / `SearchResponse` / `Match` — the search payload.
-    `Match`'s score-breakdown fields (`CosineScore`, `GraphScore`,
-    `FinalScore`, `Distance`) populate only when the request set
-    `Explain` and graph expansion actually ran.
+    `Match`'s score-breakdown fields populate only when the request set
+    `Explain`: `CosineScore` and `FinalScore` always, `GraphScore` and
+    `Distance` when graph expansion ran too.
   - `RelatedNode{ID, Title, Type, GraphScore, Distance}` /
     `RelatedResponse{Related}` — the Related rail payload.
 - **Dependency interfaces:** `NodeSource`, `EdgeSource` (satisfied by

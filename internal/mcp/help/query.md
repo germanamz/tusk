@@ -109,6 +109,26 @@ passes 1, and whatever cleared `min_score` before still clears it. Queries that 
 after benefit most. `explain=true` adds `lexical_score` (0 to 1) next to
 `cosine_score`.
 
+## Title matches
+
+A query naming a file's title (or its file name when untitled) lifts
+every passage of that file, so `which topic does ledger-sync consume`
+finds `ledger-sync` over notes that only mention it. `[query]
+title-weight` sets how much (default 0.5, 0 = off); `explain=true` adds
+`title_score` (share of the title's words the query names, 0 to 1).
+
+## Demoting results
+
+`[query.type-weights]` (`note = 0.8`) and `[query.path-weights]`
+(`"incidents/**" = 0.6`) multiply a file's final score, passages
+included, before `min_score`. `explain=true` adds `weight`.
+
+## Explain
+
+`explain=true` adds per row: `cosine_score` and `final_score` (the score
+it ranked by) always; `lexical_score`, `title_score`, `weight` when set
+in the manifest; `graph_score` and `distance` when graph expansion ran.
+
 ## Graph expansion
 
 If `[query.graph-expansion]` is enabled in the manifest, `tusk_query`
@@ -120,9 +140,7 @@ call:
 - `hops` (1 or 2) — BFS depth.
 - `graph_weight` ([0,1]) — per-hop weight.
 - `graph_edge_types` ([string]) — edge types to walk.
-- `explain` (bool) — include per-row `cosine_score` / `graph_score` /
-  `final_score` / `distance` trace (plus `lexical_score` when
-  `[query] lexical-weight` is set; explain works with either on).
+- `explain` (bool) — per-row score trace; see Explain.
 
 ## When semantic returns nothing
 

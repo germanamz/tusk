@@ -97,7 +97,7 @@ func (adapter *searcher) Search(ctx context.Context, req SearchRequest) (SearchR
 		return SearchResponse{}, runErr
 	}
 
-	return searchResponseFrom(req, qreq, result), nil
+	return searchResponseFrom(req, result), nil
 }
 
 // graphExpansionOverridesFromSearch converts a SearchRequest's plain
@@ -153,26 +153,27 @@ func graphExpansionOverridesFromSearch(req SearchRequest) manifest.GraphExpansio
 // Matches is always a non-nil, possibly empty slice — the wire contract is
 // [], never null.
 //
-// query_service.go populates ScoredRow's explain fields (CosineScore,
-// GraphScore, FinalScore, Distance) only when Request.Explain is true AND
-// graph expansion produced a trace for the row. The copy here is gated on
-// both req.Explain and expand explicitly, rather than relying on the source
-// fields happening to already be zero when Explain was false.
-func searchResponseFrom(req SearchRequest, qreq query.Request, result *query.Result) SearchResponse {
+// query_service.go populates ScoredRow's explain fields only when
+// Request.Explain is true, and result.Semantic.Trace names the ones it
+// computed: CosineScore and FinalScore always, GraphScore and Distance when
+// graph expansion ran. The copy here follows the trace rather than relying on
+// the source fields happening to be zero.
+func searchResponseFrom(req SearchRequest, result *query.Result) SearchResponse {
 	if req.Q != "" && result.Semantic != nil {
-		expand := qreq.GraphExpansion != nil && qreq.GraphExpansion.Enabled
-		explainActive := req.Explain && expand
-
+		trace := result.Semantic.Trace
 		matches := make([]Match, 0, len(result.Semantic.Ranked))
 
 		for _, ranked := range result.Semantic.Ranked {
 			match := Match{ID: ranked.ID, Title: ranked.Title, Type: ranked.Type, Score: ranked.Score}
 
-			if explainActive {
+			if trace != nil {
 				match.CosineScore = ranked.CosineScore
-				match.GraphScore = ranked.GraphScore
 				match.FinalScore = ranked.FinalScore
-				match.Distance = ranked.Distance
+
+				if trace.Graph {
+					match.GraphScore = ranked.GraphScore
+					match.Distance = ranked.Distance
+				}
 			}
 
 			matches = append(matches, match)

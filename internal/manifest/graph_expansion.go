@@ -181,12 +181,17 @@ type graphExpansionTOML struct {
 	CandidateMultiplier toml.Primitive `toml:"candidate-multiplier"`
 }
 
-// querySection wraps [query]: its lexical-weight key and the
-// [query.graph-expansion] subtable. Kept package-private; consumers read
-// Manifest.LexicalWeight and Manifest.GraphExpansion instead.
+// querySection wraps [query]: its lexical-weight and title-weight keys and
+// the [query.graph-expansion], [query.type-weights] and [query.path-weights]
+// subtables. Kept package-private; consumers read Manifest.LexicalWeight,
+// Manifest.TitleWeight, Manifest.ScoreWeights and Manifest.GraphExpansion
+// instead. TitleWeight is a pointer so an absent key takes the default.
 type querySection struct {
 	LexicalWeight  float64            `toml:"lexical-weight"`
+	TitleWeight    *float64           `toml:"title-weight"`
 	GraphExpansion graphExpansionTOML `toml:"graph-expansion"`
+	TypeWeights    map[string]float64 `toml:"type-weights"`
+	PathWeights    map[string]float64 `toml:"path-weights"`
 }
 
 // decodeGraphExpansionField decodes a single [query.graph-expansion] scalar key

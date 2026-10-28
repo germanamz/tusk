@@ -19,11 +19,14 @@ import (
 //
 //  1. Loads every sub-unit embedding for those files via
 //     `ListSubUnitsForFiles` (one batched query).
-//  2. Ranks leaves by cosine similarity to queryVector.
+//  2. Ranks leaves by cosine similarity to queryVector, raised by the
+//     leaf's word match ([query] lexical-weight) and by how much of its
+//     file's title the query names ([query] title-weight).
 //  3. When graph expansion is enabled, walks the leaf id seed set and
 //     blends per spec §6.1; the blended FinalScore replaces the bare
 //     cosine for both MinScore filtering and the section fold below.
-//  4. Filters by MinScore (against the blended score when expansion ran).
+//  4. Scales each leaf by its file's [query] type/path weight, then
+//     filters by MinScore (against the weighted, blended score).
 //  5. Folds each leaf into its innermost section: one row per section,
 //     scored by its best leaf (a leaf before the first heading is its own
 //     row).
@@ -183,10 +186,13 @@ func runSemanticSubUnits(
 		}
 	}
 
-	lexWeight := lexicalWeight(deps)
-	scoreLexical(candidates, req.Semantic, lexWeight)
+	fusion := fusionWeights(deps)
+	scoreLexical(candidates, req.Semantic, fusion.Lexical)
+	scoreTitles(candidates, req.Semantic, fusion.Title, func(candidateID string) string {
+		return nodeName(fileMeta[fileIDFromSubUnit(candidateID)])
+	})
 
-	ranked := filter.SemanticRank(candidates, queryVector, lexWeight)
+	ranked := filter.SemanticRank(candidates, queryVector, fusion)
 
 	// Graph expansion runs at the FILE level: user-declared edges (wikilink,
 	// ref-derived, direct frontmatter) join file ids, so seeding the walker
@@ -253,6 +259,32 @@ func runSemanticSubUnits(
 		ranked = kept
 	}
 
+	// The [query] type/path weights scale every leaf by its file's weight
+	// before MinScore, so a demoted file's leaves can fall below it.
+	weights := newFileWeights(deps, func(fileID string) (Row, bool) {
+		meta, known := fileMeta[fileID]
+
+		return meta, known
+	})
+
+	var weightByFile map[string]float64
+
+	if weights.active() {
+		weightByFile = make(map[string]float64, len(fileIDs))
+
+		for position := range ranked {
+			fileID := fileIDFromSubUnit(ranked[position].NodeID)
+			weight, weightErr := weights.of(fileID)
+
+			if weightErr != nil {
+				return nil, weightErr
+			}
+
+			weightByFile[fileID] = weight
+			ranked[position].Score *= weight
+		}
+	}
+
 	// Apply MinScore at the leaf level, before leaves fold into their
 	// sections, so a section row only ever reports a passing leaf.
 	ranked, filteredBelowMinScore := applyMinScore(ranked, req.MinScore)
@@ -297,10 +329,9 @@ func runSemanticSubUnits(
 		hasFileLevel     bool
 		fileLevelSnippet string
 		fileLevelBody    string
-		// bestCosine and bestLexical are the inputs of the chunk behind
-		// maxScore, for the row's explain trace.
-		bestCosine  float64
-		bestLexical float64
+		// best is the chunk behind maxScore, whose cosine, lexical and
+		// title inputs make the row's explain trace.
+		best filter.ScoredResult
 	}
 
 	hitsByFile := make(map[string]*fileHit, len(fileIDs))
@@ -329,8 +360,7 @@ func runSemanticSubUnits(
 
 			if scored.Score > bucket.maxScore {
 				bucket.maxScore = scored.Score
-				bucket.bestCosine = scored.Cosine
-				bucket.bestLexical = scored.Lexical
+				bucket.best = scored
 			}
 
 			continue
@@ -379,24 +409,9 @@ func runSemanticSubUnits(
 			unit.Snippet = filter.RenderSnippet(leaf.EmbedPayload.String, 200)
 		}
 
-		if req.Explain && blendedByID != nil {
-			if trace, ok := blendedByID[scored.NodeID]; ok {
-				unit.CosineScore = trace.Cosine
-				unit.GraphScore = trace.Graph
-				unit.FinalScore = trace.Final
-				unit.Distance = trace.Distance
-			}
-		}
-
-		// A leaf of a walked-in file (distance > 0) ranks on graph merit
-		// alone, so its trace keeps the blend's zero cosine.
-		if req.Explain && lexWeight > 0 && unit.Distance == 0 {
-			unit.CosineScore = scored.Cosine
-			unit.LexicalScore = scored.Lexical
-
-			if blendedByID == nil {
-				unit.FinalScore = unit.Score
-			}
+		if req.Explain {
+			blend, blended := blendedByID[scored.NodeID]
+			unit.setTrace(explainScore(scored, blend, blended, weightByFile[fileIDFromSubUnit(scored.NodeID)], unit.Score))
 		}
 
 		if position, seen := bucket.rowIndex[reported.ID]; seen {
@@ -410,8 +425,7 @@ func runSemanticSubUnits(
 
 		if unit.Score > bucket.maxScore {
 			bucket.maxScore = unit.Score
-			bucket.bestCosine = scored.Cosine
-			bucket.bestLexical = scored.Lexical
+			bucket.best = scored
 		}
 	}
 
@@ -429,7 +443,19 @@ func runSemanticSubUnits(
 			continue
 		}
 
-		if req.MinScore > 0 && trace.Final < req.MinScore {
+		weight, weightErr := weights.of(fileID)
+
+		if weightErr != nil {
+			return nil, weightErr
+		}
+
+		if weights.active() {
+			weightByFile[fileID] = weight
+		}
+
+		final := trace.Final * weight
+
+		if req.MinScore > 0 && final < req.MinScore {
 			// A walked-in file whose ranked leaves were all MinScore-dropped
 			// was already counted per leaf by applyMinScore; counting its
 			// bare row again would overstate the recoverable hits.
@@ -440,7 +466,7 @@ func runSemanticSubUnits(
 			continue
 		}
 
-		hitsByFile[fileID] = &fileHit{maxScore: trace.Final}
+		hitsByFile[fileID] = &fileHit{maxScore: final}
 	}
 
 	// Order files by max score, then by id for determinism. Files that
@@ -570,25 +596,12 @@ func runSemanticSubUnits(
 			row.Properties = properties
 		}
 
-		// Row-level explain trace from the file-level blend: seeds carry
-		// their aggregated cosine at dist 0; walked-in neighbors show the
-		// hop distance and graph-derived score that admitted them.
-		if req.Explain && fileBlend != nil {
-			if trace, ok := fileBlend[entry.fileID]; ok {
-				row.CosineScore = trace.Cosine
-				row.GraphScore = trace.Graph
-				row.FinalScore = trace.Final
-				row.Distance = trace.Distance
-			}
-		}
-
-		if req.Explain && lexWeight > 0 && row.Distance == 0 {
-			row.CosineScore = entry.hit.bestCosine
-			row.LexicalScore = entry.hit.bestLexical
-
-			if fileBlend == nil {
-				row.FinalScore = row.Score
-			}
+		// Row-level explain trace: the inputs of the file's best chunk, and
+		// the file-level blend's graph score and the hop distance that
+		// admitted a walked-in neighbor.
+		if req.Explain {
+			blend, blended := fileBlend[entry.fileID]
+			row.setTrace(explainScore(entry.hit.best, blend, blended, weightByFile[entry.fileID], row.Score))
 		}
 
 		row.MatchedUnits, row.UnitsTotal = capUnits(entry.hit.matched, unitsLimit(req.MaxUnits, req.SemanticDefaultMaxUnits))
@@ -612,5 +625,6 @@ func runSemanticSubUnits(
 		Ranked:                scoredRows,
 		Model:                 deps.Embedder.Model(),
 		FilteredBelowMinScore: filteredBelowMinScore,
+		Trace:                 newTrace(deps, req),
 	}, nil
 }

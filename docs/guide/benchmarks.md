@@ -4,7 +4,7 @@ Does an agent spend less to answer a question with `tusk_query` than with grep a
 
 With tusk, the agent cited the right section on every run (91% with grep) and made one tool call fewer per question (2 against 3). It also read 11% more input tokens per question and cost 37% more, and took the same time. On this corpus tusk buys accuracy, not tokens. A query result runs about 8 KB, where a grep result runs under 1 KB, so tusk comes out ahead only on questions where grep has to dig.
 
-Four later changes shifted this. [Lexical fusion](#lexical-fusion) ranks the answer higher, [Smaller results](#smaller-results) halved the size of a query result, [Passage text](#passage-text) puts the matched section's text in the result, so the agent can often skip the Read, and [Per-turn overhead](#per-turn-overhead) trimmed what the tusk MCP server adds to every turn. On the latest full run, on 10-16, tusk read 30% fewer input tokens than grep per question (0.70×, with an interval from 0.58 to 0.83), cost 9% more, within the noise, made one tool call fewer and cited the right section on every run (97% with grep).
+Four later changes shifted this. [Lexical fusion](#lexical-fusion) ranks the answer higher, [Smaller results](#smaller-results) halved the size of a query result, [Passage text](#passage-text) puts the matched section's text in the result, so the agent can often skip the Read, and [Per-turn overhead](#per-turn-overhead) trimmed what the tusk MCP server adds to every turn. A fifth, [Title match](#title-match), ranks a page higher when the query names it, and left what an agent spent here unchanged. On the latest full run, on 10-16, tusk read 30% fewer input tokens than grep per question (0.70×, with an interval from 0.58 to 0.83), cost 9% more, within the noise, made one tool call fewer and cited the right section on every run (97% with grep).
 
 A second, larger corpus came out the other way on tokens. On a private vault of 79 files, tusk read 17% fewer input tokens, made two tool calls fewer and finished 28% faster, and accuracy was about the same. See [A second corpus](#a-second-corpus).
 
@@ -228,6 +228,42 @@ Input tokens fell on 32 of the 40 questions, and by 12% over all 120 runs. The s
 The docs corpus has no typed notes, and 3 of the 130 queries used a filter at all, so this benchmark can't tell whether the shorter filter grammar costs anything on a vault that leans on structural queries.
 
 Against the grep arm of the same run, tusk read 0.70× the input tokens per question (0.58–0.83), less on 30 of the 40 questions, and cost 1.09× (0.93–1.28). The `main` binary, set against the same grep runs, read 0.81× (0.68–0.94). The runs are in [`eval/results/2026-10-16-per-turn-overhead/`](../../eval/results/2026-10-16-per-turn-overhead/) (both arms) and [`eval/results/2026-10-16-per-turn-overhead-main/`](../../eval/results/2026-10-16-per-turn-overhead-main/) (the control).
+
+## Title match
+
+A query that names a page could rank it below longer notes that mention it more often ([#849](https://github.com/germanamz/tusk/issues/849)). Passages are embedded without their file's title. In a workspace with a `ledger-sync` service and eight incident write-ups that name the service in every paragraph, `which topic does ledger-sync consume` ranked all eight incidents (0.71) above the service (0.60), and the service's `Async` section, which holds the answer, scored 0.49. Lexical fusion made it worse, because the incidents use every word of the query.
+
+`[query] title-weight` scores how much of each file's title the query names: the share of the title's words the query also uses, or of the file name when there is no title. Every passage of the file closes that share of its gap to 1, as with the word match. At 0.5 the service ranked first at 0.80. With `lexical-weight = 0.5` as well it stayed ninth (0.83 against 0.86) until the title weight reached 0.7 (0.89).
+
+On tusk's package docs, replaying the 359 first queries agents sent in the 10-15 and 10-16 runs, with this repo's `tusk.toml` (`lexical-weight = 0.5`):
+
+| Replayed first queries | Off | 0.3 | 0.5 | 0.7 |
+| --- | --- | --- | --- | --- |
+| Section MRR@10 | 0.733 | 0.740 | 0.759 (+0.001 to +0.053) | 0.769 (+0.003 to +0.073) |
+| Section ranked first | 66% | 66% | 68% | 68% |
+| Section in the top 10 | 90% | 90% | 94% | 93% |
+| Section in the agent's result | 92% | 92% | 92% | 92% |
+| File MRR@10 | 0.866 | 0.869 | 0.895 (+0.004 to +0.062) | 0.903 (+0.003 to +0.079) |
+
+Without lexical fusion a weight of 0.5 moved section MRR@10 from 0.649 to 0.674 (−0.012 to +0.071) and file MRR@10 from 0.757 to 0.825 (+0.011 to +0.133). Replaying each question's full text instead, the answering section reached the agent's result for 90% of questions instead of 80% (+2.5 to +20 points) at both 0.5 and 0.7.
+
+Here the gain comes from partial matches. Every title reads `internal/<package> — <what it does>`, and an agent's query names the package and maybe one more of the title's words, so it matches 0.2 to 0.4. Squaring the share, to favor queries that name the whole title, left only +0.007 of the gain at 0.5. Partial matches also cost the one question that slipped: in `incoming-links-once` the query says "page", and so does the title of `internal/pathref — workspace paths a page names`, which climbed above the answer and pushed the section from first to second or third on 2 of the question's 9 queries at 0.5 and on 4 at 0.7 (MRR@10 0.94 to 0.81 and 0.70). That is why the default is 0.5 although 0.7 scored higher.
+
+The word match changed in the same release: a final "e" is now dropped after the suffix, so "node" meets "nodes" and "consume" meets "consumes". With the title match off it moved nothing (section MRR@10 0.731).
+
+**What it did for an agent.** The tusk arm ran twice on one day with one copy of the docs and this repo's `tusk.toml`, once with the binary from `main` and once with the title match at its default.
+
+| `tusk_query` and read | `main` | Title match | Title match against `main`, per question |
+| --- | --- | --- | --- |
+| Input tokens | 10,654 | 10,514 | 1.00× (0.98–1.00) |
+| Tool calls | 1 | 1 | 0 (0 to 0) |
+| Tool output | 10.4 KB | 10.2 KB | 1.00× (0.99–1.01) |
+| Time | 7.6 s | 7.9 s | 1.02× (0.85–1.09) |
+| Cost | $0.026 | $0.026 | 0.98× (0.95–1.00) |
+| Cited the right section | 95% | 95% | |
+| Judged correct | 95% | 93% | |
+
+An agent barely noticed. 28 of the 40 questions stayed within 5% of the control, Reads went from 34 to 31 over the 120 runs, and total input tokens fell 0.8% and cost 4.5%. Two more answers were judged wrong, one run each on two questions, within the noise [Lexical fusion](#lexical-fusion) measured between identical runs. On this corpus the agent's first query already finds the right file most of the time, so a better rank rarely saves it a step. The title match is for vaults where notes about a subject outnumber the page on it. The runs are in [`eval/results/2026-10-28-title-match/`](../../eval/results/2026-10-28-title-match/) and [`eval/results/2026-10-28-title-match-main/`](../../eval/results/2026-10-28-title-match-main/) (the control).
 
 ## How it was measured
 

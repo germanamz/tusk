@@ -1,6 +1,7 @@
 package filter_test
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -17,7 +18,7 @@ func TestSemanticRank_OrdersByDescendingCosine(test *testing.T) {
 
 	query := []float32{1, 0, 0}
 
-	ranked := filter.SemanticRank(candidates, query, 0)
+	ranked := filter.SemanticRank(candidates, query, filter.Fusion{})
 
 	if len(ranked) != 3 {
 		test.Fatalf("len = %d", len(ranked))
@@ -33,7 +34,7 @@ func TestSemanticRank_OrdersByDescendingCosine(test *testing.T) {
 }
 
 func TestSemanticRank_HandlesEmptyCandidates(test *testing.T) {
-	ranked := filter.SemanticRank(nil, []float32{1, 0}, 0)
+	ranked := filter.SemanticRank(nil, []float32{1, 0}, filter.Fusion{})
 
 	if len(ranked) != 0 {
 		test.Errorf("len = %d", len(ranked))
@@ -46,7 +47,7 @@ func TestSemanticRank_SkipsCandidatesWithMismatchedDim(test *testing.T) {
 		{NodeID: "bad", Vector: []float32{1, 0, 0}},
 	}
 
-	ranked := filter.SemanticRank(candidates, []float32{1, 0}, 0)
+	ranked := filter.SemanticRank(candidates, []float32{1, 0}, filter.Fusion{})
 
 	if len(ranked) != 1 || ranked[0].NodeID != "good" {
 		test.Errorf("ranked = %+v, want only good", ranked)
@@ -61,7 +62,7 @@ func TestSemanticRank_MaxPerNodeAcrossChunks(test *testing.T) {
 		{NodeID: "bravo", Vector: []float32{0.6, 0.5, 0}}, // slightly stronger
 	}
 
-	ranked := filter.SemanticRank(candidates, []float32{1, 0, 0}, 0)
+	ranked := filter.SemanticRank(candidates, []float32{1, 0, 0}, filter.Fusion{})
 
 	if len(ranked) != 2 {
 		test.Fatalf("expected 2 unique nodes, got %d: %+v", len(ranked), ranked)
@@ -90,7 +91,7 @@ func TestSemanticRank_TracksBestChunkBody(test *testing.T) {
 		{NodeID: "n2", Vector: []float32{0, 1}, Body: "n2 only chunk"},
 	}
 
-	ranked := filter.SemanticRank(candidates, query, 0)
+	ranked := filter.SemanticRank(candidates, query, filter.Fusion{})
 
 	if len(ranked) != 2 {
 		test.Fatalf("len = %d, want 2", len(ranked))
@@ -115,13 +116,13 @@ func TestSemanticRank_LexicalLiftsWeakerCosine(test *testing.T) {
 		{NodeID: "worded", Vector: []float32{0.7, 0.71}, Lexical: 1},
 	}
 
-	unweighted := filter.SemanticRank(candidates, query, 0)
+	unweighted := filter.SemanticRank(candidates, query, filter.Fusion{})
 
 	if unweighted[0].NodeID != "close" {
 		test.Fatalf("weight 0 should rank by cosine alone; got %+v", unweighted)
 	}
 
-	weighted := filter.SemanticRank(candidates, query, 0.5)
+	weighted := filter.SemanticRank(candidates, query, filter.Fusion{Lexical: 0.5})
 
 	if weighted[0].NodeID != "worded" {
 		test.Fatalf("weight 0.5 should lift the lexical match first; got %+v", weighted)
@@ -146,12 +147,44 @@ func TestSemanticRank_LexicalNeverLowersAndStaysAtMostOne(test *testing.T) {
 		for _, vector := range [][]float32{{1, 0}, {0.6, 0.8}, {-0.6, 0.8}} {
 			candidates := []filter.SemanticCandidate{{NodeID: "only", Vector: vector, Lexical: lexicalScore}}
 			cosine := embed.CosineSimilarity(vector, query)
-			score := filter.SemanticRank(candidates, query, 1)[0].Score
+			score := filter.SemanticRank(candidates, query, filter.Fusion{Lexical: 1})[0].Score
 
 			if score < cosine || score > 1 {
 				test.Errorf("cosine %v lexical %v: score %v, want in [cosine, 1]", cosine, lexicalScore, score)
 			}
 		}
+	}
+}
+
+func TestSemanticRank_TitleMatchLiftsNamedNode(test *testing.T) {
+	query := []float32{1, 0}
+
+	candidates := []filter.SemanticCandidate{
+		{NodeID: "mentions", Vector: []float32{0.71, 0.704}, Lexical: 1},
+		{NodeID: "named", Vector: []float32{0.6, 0.8}, Lexical: 0.3, Title: 1},
+	}
+
+	cosineOnly := filter.SemanticRank(candidates, query, filter.Fusion{Lexical: 0.5})
+
+	if cosineOnly[0].NodeID != "mentions" {
+		test.Fatalf("without the title match the closer, wordier node should lead; got %+v", cosineOnly)
+	}
+
+	ranked := filter.SemanticRank(candidates, query, filter.Fusion{Lexical: 0.5, Title: 0.7})
+
+	if ranked[0].NodeID != "named" {
+		test.Fatalf("title weight 0.7 should lift the named node first; got %+v", ranked)
+	}
+
+	cosine := embed.CosineSimilarity(candidates[1].Vector, query)
+	want := 1 - (1-cosine)*(1-0.5*0.3)*(1-0.7*1)
+
+	if math.Abs(ranked[0].Score-want) > 1e-12 {
+		test.Errorf("Score = %v, want %v ((1-score) = product of the gaps)", ranked[0].Score, want)
+	}
+
+	if ranked[0].Title != 1 || ranked[0].Lexical != 0.3 {
+		test.Errorf("Title, Lexical = %v, %v; want 1, 0.3", ranked[0].Title, ranked[0].Lexical)
 	}
 }
 
@@ -163,7 +196,7 @@ func TestSemanticRank_BestChunkByFusedScore(test *testing.T) {
 		{NodeID: "n1", Vector: []float32{0.8, 0.6}, Body: "matching words", Lexical: 1},
 	}
 
-	ranked := filter.SemanticRank(candidates, query, 1)
+	ranked := filter.SemanticRank(candidates, query, filter.Fusion{Lexical: 1})
 
 	if ranked[0].BestChunkBody != "matching words" {
 		test.Errorf("BestChunkBody = %q, want the chunk with the higher fused score", ranked[0].BestChunkBody)
@@ -177,7 +210,7 @@ func TestSemanticRank_DeterministicTieBreakByNodeID(test *testing.T) {
 		{NodeID: "mango", Vector: []float32{1, 0, 0}},
 	}
 
-	ranked := filter.SemanticRank(candidates, []float32{1, 0, 0}, 0)
+	ranked := filter.SemanticRank(candidates, []float32{1, 0, 0}, filter.Fusion{})
 
 	if len(ranked) != 3 {
 		test.Fatalf("len = %d", len(ranked))

@@ -75,6 +75,12 @@ func seedHub(test *testing.T, store *index.Index) {
 func runHub(test *testing.T, lexicalWeight float64, explain bool) []query.ScoredRow {
 	test.Helper()
 
+	return runHubResult(test, lexicalWeight, explain).Ranked
+}
+
+func runHubResult(test *testing.T, lexicalWeight float64, explain bool) *query.SemanticResult {
+	test.Helper()
+
 	store := openTestStore(test)
 	seedHub(test, store)
 
@@ -93,7 +99,7 @@ func runHub(test *testing.T, lexicalWeight float64, explain bool) []query.Scored
 		test.Fatalf("Run: %v", runErr)
 	}
 
-	return result.Semantic.Ranked
+	return result.Semantic
 }
 
 func near(left, right float64) bool {
@@ -169,13 +175,34 @@ func TestQueryRun_LexicalExplainTrace(test *testing.T) {
 	}
 }
 
-func TestQueryRun_LexicalExplainOffWithoutWeight(test *testing.T) {
-	ranked := runHub(test, 0, true)
+// TestQueryRun_ExplainWithCosineAlone pins #849 finding 13: with neither
+// lexical fusion nor graph expansion on, explain still reports the cosine and
+// final score each row ranked by, and the trace names no other component.
+func TestQueryRun_ExplainWithCosineAlone(test *testing.T) {
+	result := runHubResult(test, 0, true)
 
-	for _, row := range ranked {
-		if row.LexicalScore != 0 || row.CosineScore != 0 || row.FinalScore != 0 {
-			test.Errorf("%s: explain trace %+v set with neither graph expansion nor lexical fusion on", row.ID, row)
+	if result.Trace == nil || *result.Trace != (query.Trace{}) {
+		test.Fatalf("Trace = %+v, want cosine and final alone", result.Trace)
+	}
+
+	for _, row := range result.Ranked {
+		if row.CosineScore == 0 || !near(row.CosineScore, row.Score) || !near(row.FinalScore, row.Score) {
+			test.Errorf("%s: cosine %v final %v, want both the score %v", row.ID, row.CosineScore, row.FinalScore, row.Score)
 		}
+
+		if row.LexicalScore != 0 || row.GraphScore != 0 || row.Distance != 0 {
+			test.Errorf("%s: trace %+v carries a component the ranking didn't compute", row.ID, row)
+		}
+
+		for _, unit := range row.MatchedUnits {
+			if !near(unit.CosineScore, unit.Score) || !near(unit.FinalScore, unit.Score) {
+				test.Errorf("%s: cosine %v final %v, want both the score %v", unit.ID, unit.CosineScore, unit.FinalScore, unit.Score)
+			}
+		}
+	}
+
+	if runHubResult(test, 0, false).Trace != nil {
+		test.Errorf("Trace set without explain")
 	}
 }
 

@@ -29,6 +29,8 @@ Loads and validates `tusk.toml`. Decodes `[workspace]`, `[node-types.X]`, `[edge
 - `(*Manifest).LinkCase() wikilink.Case` — the `[workspace] link-case`: whether a wikilink that names a file by name (`[[auth-rfc]]`) matches file names in any letter case (`insensitive`, the default, as in Obsidian) or only the case the file name has (`sensitive`) (#791). `Load` rejects any other value.
 - `(*Manifest).LineNumbering() linenum.Scheme` — the `[workspace] line-numbering` scheme sub-unit line ranges are numbered with (`lf` when unset). `Load` rejects any value other than `lf`, `universal`, or `unicode`.
 - `Manifest.LexicalWeight` — the `[query] lexical-weight`: how much a semantic query's word match raises a passage's cosine score (#812). 0, the default, ranks by cosine alone. `Load` rejects a value outside `[0, 1]`. It changes no stored vector, so a new value applies on the next query.
+- `Manifest.TitleWeight` — the `[query] title-weight`: how much a semantic query that names a file's title raises the scores of that file's passages (#849). An absent key means `DefaultTitleWeight`; 0 turns the title match off. `Load` rejects a value outside `[0, 1]`.
+- `Manifest.ScoreWeights` / `ScoreWeights` — `[query.type-weights]` (node type → weight) and `[query.path-weights]` (path glob → weight), each weight in `(0, 1]` (#849). `(ScoreWeights).Weight(nodeType, path)` is the multiplier on a result's final score: its type's weight times the smallest weight among the path globs that match, 1 when nothing applies. Path globs compile through `internal/pathglob`, anchored to the whole workspace-relative path. `Load` rejects a weight outside `(0, 1]`, an empty pattern, and a type key that names no declared node type. `Empty()` reports that none is declared.
 
 ## Notes
 

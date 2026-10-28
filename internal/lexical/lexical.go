@@ -66,16 +66,18 @@ func isStopword(word string) bool {
 
 // suffixes are stripped from a token, first match wins, so inflections of a
 // word meet: "dropped" and "dropping" both become "dropp", "slowly" becomes
-// "slow". Deliberately cruder than a real stemmer; it only has to make a
-// query word and a text word land on the same string.
+// "slow". A final "e" goes after that, so "node" meets "nodes" (both "nod")
+// and "consume" meets "consumes". Deliberately cruder than a real stemmer; it
+// only has to make a query word and a text word land on the same string.
 var suffixes = []string{"ingly", "edly", "ing", "ers", "er", "ed", "ly", "es", "s"}
 
-// minStem is the shortest stem a suffix may leave behind, so "bus" and "red"
-// stay whole.
+// minStem is the shortest stem a suffix or a final "e" may leave behind, so
+// "bus", "red" and "use" stay whole.
 const minStem = 3
 
 // Tokens splits text into the words Scores compares: lowercase runs of
-// letters and digits, minus stopwords, each with one common suffix stripped.
+// letters and digits, minus stopwords, each with one common suffix and then a
+// final "e" stripped.
 func Tokens(text string) []string {
 	var tokens []string
 
@@ -139,11 +141,65 @@ func eachWord(text string, yield func(string)) {
 func stem(token string) string {
 	for _, suffix := range suffixes {
 		if strings.HasSuffix(token, suffix) && len(token)-len(suffix) >= minStem {
-			return token[:len(token)-len(suffix)]
+			token = token[:len(token)-len(suffix)]
+
+			break
 		}
 	}
 
+	if strings.HasSuffix(token, "e") && len(token)-1 >= minStem {
+		return token[:len(token)-1]
+	}
+
 	return token
+}
+
+// Terms is the set of distinct words of a query, as Tokens stems them.
+type Terms map[string]struct{}
+
+// QueryTerms returns the distinct words of query.
+func QueryTerms(query string) Terms {
+	terms := make(Terms)
+
+	eachWord(query, func(word string) {
+		terms[stem(word)] = struct{}{}
+	})
+
+	return terms
+}
+
+// Coverage returns the share of text's distinct words that are among terms:
+// 1 when the query names every word of text, as "which topic does
+// ledger-sync consume" does the title "ledger-sync", and 0 when it names none
+// or text has no words. Built for short texts such as a node's title.
+func (terms Terms) Coverage(text string) float64 {
+	if len(terms) == 0 {
+		return 0
+	}
+
+	var words []string
+
+	covered := 0
+
+	eachWord(text, func(word string) {
+		token := stem(word)
+
+		if slices.Contains(words, token) {
+			return
+		}
+
+		words = append(words, token)
+
+		if _, named := terms[token]; named {
+			covered++
+		}
+	})
+
+	if len(words) == 0 {
+		return 0
+	}
+
+	return float64(covered) / float64(len(words))
 }
 
 // Scores returns the BM25 score of each doc against query, divided by the
