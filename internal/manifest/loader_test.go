@@ -1738,6 +1738,40 @@ ordered     = true
 	}
 }
 
+// TestLoad_OrderedTrueWithoutOrderPropertyExplains pins the error for the bool
+// form when the implied "order" property is missing (#848): it quotes what the
+// manifest says (ordered = true, not the ordered = "order" it decodes to) and
+// says what ordered does, since it does not keep the order targets are
+// written in.
+func TestLoad_OrderedTrueWithoutOrderPropertyExplains(test *testing.T) {
+	_, loadErr := loadTOMLString(test, `
+[node-types.note]
+properties = []
+
+[edge-types.describes]
+from        = ["note"]
+to          = ["note"]
+cardinality = "many-to-many"
+ordered     = true
+`)
+
+	if loadErr == nil {
+		test.Fatal("expected an error: node-type note declares no order property")
+	}
+
+	message := loadErr.Error()
+
+	for _, want := range []string{"ordered = true", `"order" property`, `node-type "note"`, "tree=", `ordered = "<property>"`} {
+		if !strings.Contains(message, want) {
+			test.Errorf("error %q does not mention %q", message, want)
+		}
+	}
+
+	if strings.Contains(message, `ordered = "order"`) {
+		test.Errorf("error %q quotes the decoded value instead of ordered = true", message)
+	}
+}
+
 func TestLoad_OrderedByExplicitProperty(test *testing.T) {
 	manifest := loadTOMLFromString(test, `
 [node-types.thing]

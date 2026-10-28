@@ -469,6 +469,7 @@ func Rename(
 			Kind:       edge.Kind,
 			Source:     edge.Source,
 			Link:       edge.Link,
+			Position:   edge.Position,
 		})
 	}
 

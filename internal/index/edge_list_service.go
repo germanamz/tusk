@@ -23,6 +23,10 @@ type EdgeListRequest struct {
 	// RequireFilter, when true, makes EdgeListRun return an error if none of
 	// From/To/Type/TypeRef are set. The CLI sets this; the MCP handler does not.
 	RequireFilter bool
+	// FromSubUnits also lists the edges of From's sub-units
+	// (EdgeRepo.ListBySourceFile), so a caller can fold them onto From's own
+	// rows. Only From is affected.
+	FromSubUnits bool
 }
 
 // EdgeListResult is the typed payload returned by EdgeListRun.
@@ -36,7 +40,13 @@ type EdgeListResult struct {
 func EdgeListRun(repo *EdgeRepo, req EdgeListRequest) (*EdgeListResult, error) {
 	switch {
 	case req.From != "":
-		rows, listErr := repo.ListBySource(req.From)
+		list := repo.ListBySource
+
+		if req.FromSubUnits {
+			list = repo.ListBySourceFile
+		}
+
+		rows, listErr := list(req.From)
 
 		if listErr != nil {
 			return nil, listErr

@@ -274,6 +274,7 @@ func resolveOrdered(loaded *Manifest) error {
 		// Default values when `ordered` key is absent.
 		ordered := false
 		orderedBy := ""
+		boolForm := false
 
 		if loaded.Meta.IsDefined("edge-types", edgeName, "ordered") {
 			var asBool bool
@@ -283,6 +284,7 @@ func resolveOrdered(loaded *Manifest) error {
 				if asBool {
 					ordered = true
 					orderedBy = "order"
+					boolForm = true
 				}
 			} else {
 				var asString string
@@ -304,7 +306,7 @@ func resolveOrdered(loaded *Manifest) error {
 		edge.OrderedBy = orderedBy
 
 		if orderedBy != "" {
-			if validateErr := validateOrderedByProperty(loaded, edgeName, edge); validateErr != nil {
+			if validateErr := validateOrderedByProperty(loaded, edgeName, edge, boolForm); validateErr != nil {
 				return validateErr
 			}
 		}
@@ -324,12 +326,22 @@ var sortablePropertyTypes = map[string]struct{}{
 	"datetime": {},
 }
 
-func validateOrderedByProperty(loaded *Manifest, edgeName string, edge EdgeType) error {
+// validateOrderedByProperty checks that edge.OrderedBy names a sortable
+// property on every `from` type. boolForm is true when the manifest wrote
+// ordered = true, which errors quote as written rather than as the "order"
+// property it implies.
+func validateOrderedByProperty(loaded *Manifest, edgeName string, edge EdgeType, boolForm bool) error {
+	spelling := fmt.Sprintf("ordered = %q", edge.OrderedBy)
+
+	if boolForm {
+		spelling = "ordered = true"
+	}
+
 	for _, fromType := range edge.From {
 		if fromType == "*" {
 			return fmt.Errorf(
-				"manifest: edge-types.%s: ordered = %q is not allowed when from contains the wildcard %q; set ordered = false or list explicit node types in from",
-				edgeName, edge.OrderedBy, "*",
+				"manifest: edge-types.%s: %s is not allowed when from contains the wildcard %q; set ordered = false or list explicit node types in from",
+				edgeName, spelling, "*",
 			)
 		}
 
@@ -344,8 +356,8 @@ func validateOrderedByProperty(loaded *Manifest, edgeName string, edge EdgeType)
 
 		if !declared {
 			return fmt.Errorf(
-				"manifest: edge-types.%s: ordered = %q references node-type %q which is not declared",
-				edgeName, edge.OrderedBy, fromType,
+				"manifest: edge-types.%s: %s references node-type %q which is not declared",
+				edgeName, spelling, fromType,
 			)
 		}
 
@@ -358,17 +370,26 @@ func validateOrderedByProperty(loaded *Manifest, edgeName string, edge EdgeType)
 			}
 		}
 
+		if found == nil && boolForm {
+			// ordered = true reads like "keep the order I wrote", which edge
+			// listings already do; say what it does instead (#848).
+			return fmt.Errorf(
+				"manifest: edge-types.%s: ordered = true sorts tree=, parent= and root= results by each node's %q property, which node-type %q does not declare; declare it, set ordered = false, or name another property with ordered = \"<property>\" (edge listings keep the order a file writes its targets in either way)",
+				edgeName, edge.OrderedBy, fromType,
+			)
+		}
+
 		if found == nil {
 			return fmt.Errorf(
-				"manifest: edge-types.%s: ordered = %q references property %q which is not declared on node-type %q",
-				edgeName, edge.OrderedBy, edge.OrderedBy, fromType,
+				"manifest: edge-types.%s: %s references property %q which is not declared on node-type %q",
+				edgeName, spelling, edge.OrderedBy, fromType,
 			)
 		}
 
 		if _, sortable := sortablePropertyTypes[found.Type]; !sortable {
 			return fmt.Errorf(
-				"manifest: edge-types.%s: ordered = %q references property %q on %q whose type %q is not sortable (allowed: string, int, float, date, datetime)",
-				edgeName, edge.OrderedBy, edge.OrderedBy, fromType, found.Type,
+				"manifest: edge-types.%s: %s references property %q on %q whose type %q is not sortable (allowed: string, int, float, date, datetime)",
+				edgeName, spelling, edge.OrderedBy, fromType, found.Type,
 			)
 		}
 	}

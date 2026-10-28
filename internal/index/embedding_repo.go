@@ -209,7 +209,7 @@ func (repo *EmbeddingRepo) GetByNodeID(nodeID string) ([]EmbeddingRow, error) {
 // returns file ids, and the semantic ranker pulls every sub-unit embedding
 // owned by those files in a single batched query.
 //
-// The match is a BINARY prefix range (see index.subUnitIDRange), not GLOB or
+// The match is a BINARY prefix range (see index.SubUnitIDRange), not GLOB or
 // LIKE: it is case-sensitive so it never aliases a sibling (the reason GLOB was
 // once preferred over LIKE's `_` wildcard) and treats every byte literally, so
 // a `[` in a file id no longer reads as a character class and silently drops
@@ -234,7 +234,7 @@ func (repo *EmbeddingRepo) ListSubUnitsForFiles(fileIDs []string) ([]EmbeddingRo
 		args := make([]any, 0, len(chunk)*2)
 
 		for _, fileID := range chunk {
-			lo, hi := subUnitIDRange(fileID)
+			lo, hi := SubUnitIDRange(fileID)
 			conditions = append(conditions, "(ne.node_id >= ? AND ne.node_id < ?)")
 			args = append(args, lo, hi)
 		}
@@ -284,7 +284,7 @@ func (repo *EmbeddingRepo) ExistsSubUnitsForFiles(fileIDs []string) (bool, error
 		args := make([]any, 0, len(chunk)*2)
 
 		for _, fileID := range chunk {
-			lo, hi := subUnitIDRange(fileID)
+			lo, hi := SubUnitIDRange(fileID)
 			conditions = append(conditions, "(ne.node_id >= ? AND ne.node_id < ?)")
 			args = append(args, lo, hi)
 		}

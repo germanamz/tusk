@@ -16,10 +16,13 @@ import (
 
 func newNodeGetCmd() *cobra.Command {
 	var (
-		includeFlag []string
-		fieldsFlag  []string
-		formatFlag  string
-		emitJSON    bool
+		includeFlag   []string
+		fieldsFlag    []string
+		formatFlag    string
+		emitJSON      bool
+		edgeTypeFlag  string
+		directionFlag string
+		subUnitsFlag  bool
 	)
 
 	getCmd := &cobra.Command{
@@ -39,7 +42,15 @@ structured output instead (compact for TTY, JSON otherwise).
 --include paths lists the workspace paths the page names (in inline code,
 links, or a paths-only frontmatter value) under edge types with
 paths = true, each with its lines and a live exists flag, the way
-tusk query --include paths does. It is never part of the default shape.`,
+tusk query --include paths does. It is never part of the default shape.
+
+--include edges lists the node's edges in both directions, the way
+tusk edge list shows them: a link another file writes in a paragraph
+reads as one edge from that file, with units naming the passages that
+hold it, and the node's contains edges to its own sections and
+paragraphs are left out. --edge-type and --direction in|out keep one
+edge type or one direction, and --sub-units lists the stored rows as
+they are. Each of the three implies --include edges.`,
 		Example: `  # Print the raw file
   tusk node get notes/hello
 
@@ -48,6 +59,9 @@ tusk query --include paths does. It is never part of the default shape.`,
 
   # The workspace paths a page names
   tusk node get technical/ledger --include paths
+
+  # Only the files that link to a page
+  tusk node get notes/hello --edge-type references --direction in
 
   # Open in $EDITOR (round-trip through a temp file)
   tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md`,
@@ -70,9 +84,12 @@ tusk query --include paths does. It is never part of the default shape.`,
 			service := node.NewService(ws.Root, index.NewNodeRepo(store))
 
 			result, runErr := node.GetRun(service, node.GetRequest{
-				ID:      args[0],
-				Include: includeFlag,
-				Fields:  fieldsFlag,
+				ID:            args[0],
+				Include:       includeFlag,
+				Fields:        fieldsFlag,
+				EdgeType:      edgeTypeFlag,
+				EdgeDirection: directionFlag,
+				SubUnitEdges:  subUnitsFlag,
 			})
 
 			if runErr != nil {
@@ -93,7 +110,7 @@ tusk query --include paths does. It is never part of the default shape.`,
 				return nil
 			}
 
-			hasShapeFlags := len(includeFlag) > 0 || len(fieldsFlag) > 0
+			hasShapeFlags := result.HasIncludeFilter
 			format, formatErr := resolveFormat(emitJSON, formatFlag, hasShapeFlags)
 
 			if formatErr != nil {
@@ -106,7 +123,11 @@ tusk query --include paths does. It is never part of the default shape.`,
 			// edges table the way `query --include edges` does (both directions,
 			// with titles) rather than emitting the always-nil parse-path map.
 			if result.IncludeEdges {
-				edges, edgeErr := query.LoadEdgesForNode(store.DB(), result.Node.ID)
+				edges, edgeErr := query.LoadEdgesForNode(store.DB(), result.Node.ID, query.EdgeOptions{
+					Type:      edgeTypeFlag,
+					Direction: directionFlag,
+					SubUnits:  subUnitsFlag,
+				})
 
 				if edgeErr != nil {
 					return edgeErr
@@ -141,6 +162,9 @@ tusk query --include paths does. It is never part of the default shape.`,
 	getCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project returned shape to these fields (comma-separated)")
 	getCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact for TTY, json otherwise)")
 	getCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
+	getCmd.Flags().StringVar(&edgeTypeFlag, "edge-type", "", "keep only edges of this type (implies --include edges)")
+	getCmd.Flags().StringVar(&directionFlag, "direction", "", "keep only in or out edges (implies --include edges)")
+	getCmd.Flags().BoolVar(&subUnitsFlag, "sub-units", false, "list sub-unit edges as stored instead of folded onto their file (implies --include edges)")
 
 	return getCmd
 }

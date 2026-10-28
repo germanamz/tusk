@@ -232,6 +232,9 @@ func buildNodeGetRequest(args map[string]any, _ Deps) (any, error) {
 	req := node.GetRequest{ID: id}
 	req.Include = reader.StringSlice("include")
 	req.Fields = reader.StringSlice("fields")
+	req.EdgeType = reader.String("edge-type")
+	req.EdgeDirection = reader.String("direction")
+	req.SubUnitEdges = reader.Bool("sub-units")
 
 	if reader.err != nil {
 		return nil, reader.err
@@ -276,7 +279,11 @@ func runNodeGet(_ context.Context, deps Deps, request any) (any, error) {
 			return nil, fmt.Errorf("node get adapter: Deps.Database is nil")
 		}
 
-		edges, edgeErr := query.LoadEdgesForNode(deps.Database, result.Node.ID)
+		edges, edgeErr := query.LoadEdgesForNode(deps.Database, result.Node.ID, query.EdgeOptions{
+			Type:      typedRequest.EdgeType,
+			Direction: typedRequest.EdgeDirection,
+			SubUnits:  typedRequest.SubUnitEdges,
+		})
 
 		if edgeErr != nil {
 			return nil, edgeErr
@@ -360,10 +367,11 @@ func runQuery(ctx context.Context, deps Deps, request any) (any, error) {
 func buildEdgeListRequest(args map[string]any, _ Deps) (any, error) {
 	reader := &argReader{args: args}
 
-	req := index.EdgeListRequest{}
+	req := query.EdgeListRequest{}
 	req.From = reader.String("from")
 	req.To = reader.String("to")
 	req.Type = reader.String("type")
+	req.SubUnits = reader.Bool("sub-units")
 
 	if reader.err != nil {
 		return nil, reader.err
@@ -373,7 +381,7 @@ func buildEdgeListRequest(args map[string]any, _ Deps) (any, error) {
 }
 
 func runEdgeList(_ context.Context, deps Deps, request any) (any, error) {
-	typedRequest, ok := request.(index.EdgeListRequest)
+	typedRequest, ok := request.(query.EdgeListRequest)
 
 	if !ok {
 		return nil, fmt.Errorf("edge list adapter: bad request type %T", request)
@@ -383,7 +391,11 @@ func runEdgeList(_ context.Context, deps Deps, request any) (any, error) {
 		return nil, fmt.Errorf("edge list adapter: Deps.Edges is nil")
 	}
 
-	return index.EdgeListRun(deps.Edges, typedRequest)
+	if deps.Nodes == nil {
+		return nil, fmt.Errorf("edge list adapter: Deps.Nodes is nil")
+	}
+
+	return query.EdgeListRun(deps.Edges, deps.Nodes, typedRequest)
 }
 
 // --- doctor adapter ---

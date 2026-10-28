@@ -12,7 +12,6 @@ import (
 
 	"github.com/germanamz/tusk/internal/aliasdispatch"
 	"github.com/germanamz/tusk/internal/doctor"
-	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/render"
@@ -217,7 +216,7 @@ func renderAliasResult(out io.Writer, result *aliasdispatch.DispatchResult, form
 		return renderAliasQuery(out, typed, format)
 	case *aliasdispatch.NodeGetResult:
 		return renderAliasNodeGet(out, typed, format)
-	case *index.EdgeListResult:
+	case *query.EdgeListResult:
 		return renderAliasEdgeList(out, typed, format)
 	case *doctor.Result:
 		return renderAliasDoctor(out, typed, format)
@@ -320,19 +319,8 @@ func renderAliasNodeGet(out io.Writer, result *aliasdispatch.NodeGetResult, _ ou
 	return render.CompactNodeRows(out, []render.CompactRow{row}, render.CompactOpts{})
 }
 
-func renderAliasEdgeList(out io.Writer, result *index.EdgeListResult, _ outputFormat) error {
-	entries := make([]render.EdgeListEntry, 0, len(result.Rows))
-
-	for _, row := range result.Rows {
-		entries = append(entries, render.EdgeListEntry{
-			Type:       row.Type,
-			SourceID:   row.SourceID,
-			TargetID:   row.TargetID,
-			SourcePath: row.SourcePath,
-		})
-	}
-
-	return render.CompactEdgeRows(out, entries)
+func renderAliasEdgeList(out io.Writer, result *query.EdgeListResult, _ outputFormat) error {
+	return render.CompactEdgeRows(out, render.EdgeListEntries(result.Rows))
 }
 
 func renderAliasDoctor(out io.Writer, result *doctor.Result, _ outputFormat) error {

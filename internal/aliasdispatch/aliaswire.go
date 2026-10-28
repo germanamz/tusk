@@ -2,7 +2,6 @@ package aliasdispatch
 
 import (
 	"github.com/germanamz/tusk/internal/doctor"
-	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/query"
 	"github.com/germanamz/tusk/internal/status"
 )
@@ -62,7 +61,7 @@ func ResultPayload(result *DispatchResult) any {
 
 		return envelope
 
-	case *index.EdgeListResult:
+	case *query.EdgeListResult:
 		return map[string]any{
 			"rows":  typed.Rows,
 			"count": len(typed.Rows),

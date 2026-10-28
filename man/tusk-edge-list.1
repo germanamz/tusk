@@ -18,6 +18,19 @@ tab-aligned table of source, type, target, attributed source-path. Use
 --format compact|json (or --json) to opt into structured output; the
 default mirrors prior CLI behavior (tab-aligned table for TTY).
 
+.PP
+A link written in a paragraph is stored for the file and again for the
+paragraph and each section around it. The listing shows it once, from
+the file, with UNITS naming the paragraphs, list items or sections the
+link is written in, so you can open the passage with tusk node get. It
+also leaves out each file's contains edges to its own sections and
+paragraphs. --sub-units lists the stored rows as they are. A --from that
+names a sub-unit (notes/x#S1.2P1) lists that sub-unit's own edges.
+
+.PP
+A file's targets of one type are listed in the order the file writes
+them: its frontmatter list first, then body links in reading order.
+
 
 .SH OPTIONS
 \fB--format\fP=""
@@ -34,6 +47,10 @@ default mirrors prior CLI behavior (tab-aligned table for TTY).
 .PP
 \fB--json\fP[=false]
 	emit structured JSON (sugar for --format json)
+
+.PP
+\fB--sub-units\fP[=false]
+	list the stored rows: one per section or paragraph that holds a link, plus each file's contains edges
 
 .PP
 \fB--to\fP=""
@@ -61,6 +78,9 @@ default mirrors prior CLI behavior (tab-aligned table for TTY).
 
   # Every "blocks" edge in the workspace
   tusk edge list --type blocks
+
+  # One row per stored edge, including each section and paragraph's copy
+  tusk edge list --to tickets/T-001 --sub-units
 
   # JSON for piping into jq
   tusk edge list --from tickets/T-001 --json

@@ -15,7 +15,8 @@ MCP server. Bundles the open workspace + index + services into a `Runtime`, regi
 - `(*Runtime).Close()`.
 - `NewServer(*Runtime) *Server` — wraps mcp-go. The initialize response's instructions name the runtime's absolute root, `tusk.toml` and index paths rather than `./`, because under `--workspace` the server runs outside the vault. Clients carry the instructions and `tusk_query`'s definition on every agent turn, so both are terse shorthand written for a model and held under a byte budget (`TestPerTurnBudget`, #815). Guidance only writers need sits in the descriptions of the tools it concerns (`tusk_reload`, `tusk_reset`) and in the `workflow` help topic.
 - `(*Server).RunBackground(ctx) error` — starts the five background goroutines (gated on `Workers > 0`).
-- Tools: `tusk_status`, `tusk_node_get`, `tusk_node_list`, `tusk_query`, `tusk_doctor`, `tusk_node_create`, `tusk_node_modify`, `tusk_node_move`, `tusk_node_delete`, `tusk_edge_add`, `tusk_edge_remove`, `tusk_reindex`, `tusk_reset`.
+- Tools: `tusk_status`, `tusk_node_get`, `tusk_node_list`, `tusk_query`, `tusk_doctor`, `tusk_node_create`, `tusk_node_modify`, `tusk_node_move`, `tusk_node_delete`, `tusk_edge_add`, `tusk_edge_remove`, `tusk_edge_list`, `tusk_reindex`, `tusk_reset`.
+- Edge views (#848): `tusk_edge_list` and `tusk_node_get` fold a link's sub-unit copies onto one row from its file, with `units` naming the passages; `sub_units: true` returns the stored rows. `tusk_node_get` also takes `edge_type` and `direction` (`in` / `out`), and each of the three implies `include` edges. The new arguments are read with `argval`, so a value of the wrong JSON type is an error, not a silent default.
 
 ## Runtime-swap model
 

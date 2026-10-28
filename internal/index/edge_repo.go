@@ -29,6 +29,12 @@ import (
 // re-resolves it whenever the set of files or their headings may have
 // changed. Writers store the link text as TargetID too and leave the lookup
 // to ResolveLinks. Empty (NULL) for every other edge.
+//
+// Position is the 1-based place of TargetID among the file's targets of this
+// type, in the order the file writes them: a frontmatter list first, then body
+// links in reading order (#848). Edge listings sort a source's targets by it.
+// 0 (stored NULL) for sub-unit and structural edges, which have no order of
+// their own.
 type EdgeRow struct {
 	Type       string
 	SourceID   string
@@ -37,6 +43,7 @@ type EdgeRow struct {
 	Kind       string
 	Source     sql.NullString
 	Link       string
+	Position   int
 }
 
 // EdgeRepo persists EdgeRow values in the SQLite index.
@@ -51,11 +58,16 @@ func NewEdgeRepo(idx *Index) *EdgeRepo {
 
 // edgeColumns is the column list shared by every edges-table read and write,
 // in the order EdgeRow's fields are scanned.
-const edgeColumns = "type, source_id, target_id, source_path, kind, source, link"
+const edgeColumns = "type, source_id, target_id, source_path, kind, source, link, position"
 
 // edgeInsertArgs returns the bind arguments for one row, in edgeColumns order.
 func edgeInsertArgs(edge EdgeRow) []any {
-	return []any{edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath, edge.Kind, edge.Source, nullIfEmpty(edge.Link)}
+	return []any{edge.Type, edge.SourceID, edge.TargetID, edge.SourcePath, edge.Kind, edge.Source, nullIfEmpty(edge.Link), nullIfZero(edge.Position)}
+}
+
+// nullIfZero binds 0 as NULL.
+func nullIfZero(value int) sql.NullInt64 {
+	return sql.NullInt64{Int64: int64(value), Valid: value != 0}
 }
 
 // nullIfEmpty binds "" as NULL.
@@ -81,7 +93,7 @@ func (repo *EdgeRepo) UpsertAll(sourceID, sourcePath string, edges []EdgeRow) er
 	for _, edge := range edges {
 		if _, insertErr := tx.Exec(`
 			INSERT INTO edges (`+edgeColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		`, edgeInsertArgs(edge)...); insertErr != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("edgeRepo: insert %s→%s: %w", edge.SourceID, edge.TargetID, insertErr)
@@ -122,7 +134,7 @@ func (repo *EdgeRepo) UpsertContentEdges(sourceID, sourcePath string, edges []Ed
 	for _, edge := range edges {
 		if _, insertErr := tx.Exec(`
 			INSERT INTO edges (`+edgeColumns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		`, edgeInsertArgs(edge)...); insertErr != nil {
 			_ = tx.Rollback()
 
@@ -173,7 +185,7 @@ func (repo *EdgeRepo) UpsertAllMany(batches []EdgeBatch) error {
 		for _, edge := range batch.Edges {
 			if _, insertErr := tx.Exec(`
 				INSERT INTO edges (`+edgeColumns+`)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			`, edgeInsertArgs(edge)...); insertErr != nil {
 				_ = tx.Rollback()
 
@@ -189,15 +201,29 @@ func (repo *EdgeRepo) UpsertAllMany(batches []EdgeBatch) error {
 	return nil
 }
 
-// ListBySource returns all edges where source_id = sourceID, ordered by type then target_id.
+// ListBySource returns all edges where source_id = sourceID, ordered by type,
+// then the order the source writes its targets in, then target_id.
 func (repo *EdgeRepo) ListBySource(sourceID string) ([]EdgeRow, error) {
-	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE source_id = ? ORDER BY type, target_id`, sourceID)
+	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE source_id = ? ORDER BY type, position, target_id`, sourceID)
+}
+
+// ListBySourceFile returns the edges of file fileID and of each of its
+// sub-units (the id range SubUnitIDRange gives), ordered like ListBySource
+// within each source_id. Edge listings read it to fold a file's sub-unit links
+// onto the file's own row.
+func (repo *EdgeRepo) ListBySourceFile(fileID string) ([]EdgeRow, error) {
+	lo, hi := SubUnitIDRange(fileID)
+
+	return repo.queryEdges(
+		`SELECT `+edgeColumns+` FROM edges WHERE source_id = ? OR (source_id >= ? AND source_id < ?) ORDER BY source_id, type, position, target_id`,
+		fileID, lo, hi,
+	)
 }
 
 // ListBySourcePath returns all edges declared by the file at sourcePath, its
-// own and its sub-units', ordered by source_id, type, then target_id.
+// own and its sub-units', ordered by source_id, type, position, then target_id.
 func (repo *EdgeRepo) ListBySourcePath(sourcePath string) ([]EdgeRow, error) {
-	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE source_path = ? ORDER BY source_id, type, target_id`, sourcePath)
+	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE source_path = ? ORDER BY source_id, type, position, target_id`, sourcePath)
 }
 
 // ListByTarget returns all edges where target_id = targetID, ordered by type then source_id.
@@ -222,9 +248,10 @@ func (repo *EdgeRepo) ListByTargetOrSubUnits(nodeID string) ([]EdgeRow, error) {
 	)
 }
 
-// ListByType returns all edges where type = edgeType, ordered by source_id then target_id.
+// ListByType returns all edges where type = edgeType, ordered by source_id,
+// then position, then target_id.
 func (repo *EdgeRepo) ListByType(edgeType string) ([]EdgeRow, error) {
-	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE type = ? ORDER BY source_id, target_id`, edgeType)
+	return repo.queryEdges(`SELECT `+edgeColumns+` FROM edges WHERE type = ? ORDER BY source_id, position, target_id`, edgeType)
 }
 
 // RetargetEdges rewrites the target of every edge pointing at oldID — or at
@@ -303,14 +330,15 @@ func (repo *EdgeRepo) Count() (int, error) {
 }
 
 // ListByEdgeRef returns every edge matching ref's scope semantics, ordered
-// by source_id then target_id. Scope mapping mirrors NeighborsByEdgeRefs:
+// by source_id, position, then target_id. Scope mapping mirrors
+// NeighborsByEdgeRefs:
 //
 //	ScopeAny    → type = ?
 //	ScopeUser   → source IS NULL AND type = ?
 //	ScopeSource → source = ?       AND type = ?
 func (repo *EdgeRepo) ListByEdgeRef(ref typeref.Ref) ([]EdgeRow, error) {
 	const selectClause = "SELECT " + edgeColumns + " FROM edges WHERE "
-	const orderClause = ` ORDER BY source_id, target_id`
+	const orderClause = ` ORDER BY source_id, position, target_id`
 
 	var (
 		whereClause string
@@ -340,12 +368,13 @@ func (repo *EdgeRepo) ListByEdgeRef(ref typeref.Ref) ([]EdgeRow, error) {
 	return scanEdgeRows(rows)
 }
 
-// ListAll returns every edge in the index, ordered by source_id, type, target_id.
+// ListAll returns every edge in the index, ordered by source_id, type,
+// position, target_id.
 func (repo *EdgeRepo) ListAll() ([]EdgeRow, error) {
 	rows, queryErr := repo.db.Query(`
 		SELECT ` + edgeColumns + `
 		FROM edges
-		ORDER BY source_id, type, target_id
+		ORDER BY source_id, type, position, target_id
 	`)
 
 	if queryErr != nil {
@@ -386,7 +415,7 @@ func (repo *EdgeRepo) InsertIgnore(edges []EdgeRow) error {
 		return fmt.Errorf("edgeRepo: insert-ignore begin: %w", beginErr)
 	}
 
-	stmt, prepErr := tx.Prepare(`INSERT OR IGNORE INTO edges (` + edgeColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	stmt, prepErr := tx.Prepare(`INSERT OR IGNORE INTO edges (` + edgeColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 
 	if prepErr != nil {
 		_ = tx.Rollback()
@@ -521,13 +550,17 @@ func scanEdgeRows(rows *sql.Rows) ([]EdgeRow, error) {
 	for rows.Next() {
 		row := EdgeRow{}
 
-		var link sql.NullString
+		var (
+			link     sql.NullString
+			position sql.NullInt64
+		)
 
-		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath, &row.Kind, &row.Source, &link); scanErr != nil {
+		if scanErr := rows.Scan(&row.Type, &row.SourceID, &row.TargetID, &row.SourcePath, &row.Kind, &row.Source, &link, &position); scanErr != nil {
 			return nil, fmt.Errorf("edgeRepo: scan: %w", scanErr)
 		}
 
 		row.Link = link.String
+		row.Position = int(position.Int64)
 
 		results = append(results, row)
 	}

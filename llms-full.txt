@@ -441,6 +441,20 @@ Edges are typed, declared in the manifest, and can be created two ways:
 
 Edge declarations enforce legality (`from`/`to` types), cardinality, ordering, and optional `acyclic = true` (cycles are rejected at write time). A hand-edited file that breaks `from`/`to` or cardinality is still indexed, and `tusk doctor` reports the edge as an error.
 
+### Listing edges
+
+`tusk edge list` and `tusk node get --include edges` (`tusk_edge_list` and `tusk_node_get` over MCP) list edges one per file. A link written in a paragraph is stored for its file and again for the paragraph and each section around it, but a listing shows it once, as an edge from the file. The edge's `units` name the paragraphs, list items or headings the link is written in, in reading order, so `tusk node get` can open the passage. Each file's `contains` edges to its own sections and paragraphs are left out unless you filter on that edge type, and `--sub-units` lists the stored rows as they are.
+
+A file's targets of one type come out in the order the file writes them: its frontmatter list first, then the links in its body, top to bottom.
+
+```bash
+# Which files link to this note, and from which passages?
+tusk node get notes/auth-rfc --edge-type references --direction in
+
+# Every stored row, one per section and paragraph that holds a link
+tusk edge list --to notes/auth-rfc --sub-units
+```
+
 ## Pages name the files they describe
 
 Technical pages name source files, in inline code or as links. Set `paths = true` on an edge type and tusk records, with its line, each inline-code span that is a workspace-relative path (`` `server/ledger/core/service.go` ``, or a bare `Makefile`) and each link or image destination (`[the service](../server/ledger/core/service.go)`, resolved against the page's folder), so a file can find the pages that describe it:
@@ -2156,6 +2170,17 @@ tab-aligned table of source, type, target, attributed source-path. Use
 --format compact|json (or --json) to opt into structured output; the
 default mirrors prior CLI behavior (tab-aligned table for TTY).
 
+A link written in a paragraph is stored for the file and again for the
+paragraph and each section around it. The listing shows it once, from
+the file, with UNITS naming the paragraphs, list items or sections the
+link is written in, so you can open the passage with tusk node get. It
+also leaves out each file's contains edges to its own sections and
+paragraphs. --sub-units lists the stored rows as they are. A --from that
+names a sub-unit (notes/x#S1.2P1) lists that sub-unit's own edges.
+
+A file's targets of one type are listed in the order the file writes
+them: its frontmatter list first, then body links in reading order.
+
 ```
 tusk edge list [flags]
 ```
@@ -2170,6 +2195,9 @@ tusk edge list [flags]
   # Every "blocks" edge in the workspace
   tusk edge list --type blocks
 
+  # One row per stored edge, including each section and paragraph's copy
+  tusk edge list --to tickets/T-001 --sub-units
+
   # JSON for piping into jq
   tusk edge list --from tickets/T-001 --json
 ```
@@ -2181,6 +2209,7 @@ tusk edge list [flags]
       --from string     filter to edges originating from this source id
   -h, --help            help for list
       --json            emit structured JSON (sugar for --format json)
+      --sub-units       list the stored rows: one per section or paragraph that holds a link, plus each file's contains edges
       --to string       filter to edges targeting this id
       --type string     filter by edge type
 ```
@@ -2620,6 +2649,14 @@ links, or a paths-only frontmatter value) under edge types with
 paths = true, each with its lines and a live exists flag, the way
 tusk query --include paths does. It is never part of the default shape.
 
+--include edges lists the node's edges in both directions, the way
+tusk edge list shows them: a link another file writes in a paragraph
+reads as one edge from that file, with units naming the passages that
+hold it, and the node's contains edges to its own sections and
+paragraphs are left out. --edge-type and --direction in|out keep one
+edge type or one direction, and --sub-units lists the stored rows as
+they are. Each of the three implies --include edges.
+
 ```
 tusk node get <node-id> [flags]
 ```
@@ -2636,6 +2673,9 @@ tusk node get <node-id> [flags]
   # The workspace paths a page names
   tusk node get technical/ledger --include paths
 
+  # Only the files that link to a page
+  tusk node get notes/hello --edge-type references --direction in
+
   # Open in $EDITOR (round-trip through a temp file)
   tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md
 ```
@@ -2643,11 +2683,14 @@ tusk node get <node-id> [flags]
 ### Options
 
 ```
-      --fields strings    project returned shape to these fields (comma-separated)
-      --format string     output format: compact|json (default: compact for TTY, json otherwise)
-  -h, --help              help for get
-      --include strings   expand returned shape: body|edges|properties|paths (comma-separated; paths lists the workspace paths the page names)
-      --json              emit structured JSON (sugar for --format json)
+      --direction string   keep only in or out edges (implies --include edges)
+      --edge-type string   keep only edges of this type (implies --include edges)
+      --fields strings     project returned shape to these fields (comma-separated)
+      --format string      output format: compact|json (default: compact for TTY, json otherwise)
+  -h, --help               help for get
+      --include strings    expand returned shape: body|edges|properties|paths (comma-separated; paths lists the workspace paths the page names)
+      --json               emit structured JSON (sugar for --format json)
+      --sub-units          list sub-unit edges as stored instead of folded onto their file (implies --include edges)
 ```
 
 ### Options inherited from parent commands

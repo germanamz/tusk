@@ -1080,6 +1080,11 @@ func (service *Service) resolveTargetType(targetID string) (string, bool) {
 // EdgeRow shape expected by index.EdgeRepo.UpsertAll: one row per edge type and
 // distinct target. Every writer of a file's content edges goes through it.
 //
+// Each row records its Position, the 1-based place of its target among this
+// type's distinct targets in the order the file writes them: parsedNode.Edges
+// keeps a frontmatter list in order and MaterializeWikilinks appends body
+// links after it in reading order (#848).
+//
 // Each row is tagged with `kind`: "derived" when the edge-type name matches a
 // ref-property declared on parsedNode.Type (synthesized by the manifest
 // loader's `synthesizeRefEdgeTypes`); "direct" for every other edge. Source
@@ -1126,6 +1131,7 @@ func EdgeRows(parsedNode *Node, nodeTypes map[string]manifest.NodeType) []index.
 				SourcePath: parsedNode.Path,
 				Kind:       kind,
 				Link:       link,
+				Position:   len(seen),
 			})
 		}
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/germanamz/tusk/internal/aliasdispatch"
+	"github.com/germanamz/tusk/internal/argval"
 	"github.com/germanamz/tusk/internal/behavior/workflow"
 	"github.com/germanamz/tusk/internal/contextcompose"
 	"github.com/germanamz/tusk/internal/doctor"
@@ -345,6 +346,9 @@ func registerNodeGetTool(srv *Server) {
 		mcpgo.WithArray("include", mcpgo.Description("Expand returned shape: body|edges|properties|paths (paths: the workspace paths the page names, with lines and an exists flag; only when asked for)"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithArray("fields", mcpgo.Description("Project returned shape to these field names"), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
+		mcpgo.WithString("edge_type", mcpgo.Description("Keep only edges of this type; implies include edges")),
+		mcpgo.WithString("direction", mcpgo.Description("in|out: keep one edge direction; implies include edges")),
+		mcpgo.WithBoolean("sub_units", mcpgo.Description("true: sub-unit edges as stored (see tusk_edge_list); implies include edges")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
@@ -358,11 +362,13 @@ func registerNodeGetTool(srv *Server) {
 		fields := argStringSlice(request, "fields")
 		format := argStringOptional(request, "format")
 
-		result, runErr := node.GetRun(srv.runtime.NodeService, node.GetRequest{
-			ID:      nodeID,
-			Include: includeRaw,
-			Fields:  fields,
-		})
+		getRequest := node.GetRequest{ID: nodeID, Include: includeRaw, Fields: fields}
+
+		if argErr := readEdgeShapeArgs(request, &getRequest); argErr != nil {
+			return toolError(argErr), nil
+		}
+
+		result, runErr := node.GetRun(srv.runtime.NodeService, getRequest)
 
 		if runErr != nil {
 			return toolError(runErr), nil
@@ -376,7 +382,11 @@ func registerNodeGetTool(srv *Server) {
 		var edges []query.EdgeRef
 
 		if result.IncludeEdges {
-			hydrated, edgeErr := query.LoadEdgesForNode(srv.runtime.Index.DB(), loaded.ID)
+			hydrated, edgeErr := query.LoadEdgesForNode(srv.runtime.Index.DB(), loaded.ID, query.EdgeOptions{
+				Type:      getRequest.EdgeType,
+				Direction: getRequest.EdgeDirection,
+				SubUnits:  getRequest.SubUnitEdges,
+			})
 
 			if edgeErr != nil {
 				return toolError(edgeErr), nil
@@ -587,22 +597,43 @@ func registerNodeListTool(srv *Server) {
 	srv.register(tool, handler)
 }
 
+// readEdgeShapeArgs reads tusk_node_get's edge_type, direction and sub_units
+// into req, rejecting a value of the wrong JSON type. node.GetRun checks the
+// direction's value.
+func readEdgeShapeArgs(request mcpgo.CallToolRequest, req *node.GetRequest) error {
+	args := request.GetArguments()
+
+	var typeErr, directionErr, subUnitsErr error
+
+	req.EdgeType, typeErr = argval.String(args, "edge_type")
+	req.EdgeDirection, directionErr = argval.String(args, "direction")
+	req.SubUnitEdges, subUnitsErr = argval.Bool(args, "sub_units")
+
+	return errors.Join(typeErr, directionErr, subUnitsErr)
+}
+
 func registerEdgeListTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_edge_list",
-		mcpgo.WithDescription("List edges. Provide from, to, or type to narrow. Use format=compact for tab-aligned text output."),
+		mcpgo.WithDescription("List edges. Provide from, to, or type to narrow. Use format=compact for tab-aligned text output. A link a file repeats in its sections and paragraphs is one row from the file, units = the passages holding it."),
 		mcpgo.WithString("from", mcpgo.Description("Source node id")),
 		mcpgo.WithString("to", mcpgo.Description("Target node id")),
 		mcpgo.WithString("type", mcpgo.Description("Edge type")),
 		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
+		mcpgo.WithBoolean("sub_units", mcpgo.Description("true: rows as stored, one per sub-unit holding a link, plus each file's contains edges")),
 	)
 
 	handler := func(ctx context.Context, request mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		format := argStringOptional(request, "format")
 
-		req := index.EdgeListRequest{
-			From: argStringOptional(request, "from"),
-			To:   argStringOptional(request, "to"),
+		subUnits, subUnitsErr := argval.Bool(request.GetArguments(), "sub_units")
+
+		if subUnitsErr != nil {
+			return toolError(subUnitsErr), nil
 		}
+
+		req := query.EdgeListRequest{SubUnits: subUnits}
+		req.From = argStringOptional(request, "from")
+		req.To = argStringOptional(request, "to")
 
 		if typeArg := argStringOptional(request, "type"); typeArg != "" {
 			ref, parseErr := typeref.Parse(typeArg)
@@ -614,27 +645,16 @@ func registerEdgeListTool(srv *Server) {
 			req.TypeRef = &ref
 		}
 
-		result, runErr := index.EdgeListRun(srv.runtime.Edges, req)
+		result, runErr := query.EdgeListRun(srv.runtime.Edges, srv.runtime.Nodes, req)
 
 		if runErr != nil {
 			return toolError(runErr), nil
 		}
 
 		if format == "compact" {
-			entries := make([]render.EdgeListEntry, 0, len(result.Rows))
-
-			for _, row := range result.Rows {
-				entries = append(entries, render.EdgeListEntry{
-					Type:       row.Type,
-					SourceID:   row.SourceID,
-					TargetID:   row.TargetID,
-					SourcePath: row.SourcePath,
-				})
-			}
-
 			var buf bytes.Buffer
 
-			if renderErr := render.CompactEdgeRows(&buf, entries); renderErr != nil {
+			if renderErr := render.CompactEdgeRows(&buf, render.EdgeListEntries(result.Rows)); renderErr != nil {
 				return toolError(renderErr), nil
 			}
 
@@ -644,12 +664,18 @@ func registerEdgeListTool(srv *Server) {
 		results := make([]map[string]any, 0, len(result.Rows))
 
 		for _, row := range result.Rows {
-			results = append(results, map[string]any{
+			entry := map[string]any{
 				"type":        row.Type,
 				"source_id":   row.SourceID,
 				"target_id":   row.TargetID,
 				"source_path": row.SourcePath,
-			})
+			}
+
+			if len(row.Units) > 0 {
+				entry["units"] = row.Units
+			}
+
+			results = append(results, entry)
 		}
 
 		return toolJSON(map[string]any{"results": results, "count": len(results)})
@@ -2163,19 +2189,8 @@ func aliasCompactResult(result *aliasdispatch.DispatchResult) (*mcpgo.CallToolRe
 			}
 		}
 
-	case *index.EdgeListResult:
-		entries := make([]render.EdgeListEntry, 0, len(typed.Rows))
-
-		for _, row := range typed.Rows {
-			entries = append(entries, render.EdgeListEntry{
-				Type:       row.Type,
-				SourceID:   row.SourceID,
-				TargetID:   row.TargetID,
-				SourcePath: row.SourcePath,
-			})
-		}
-
-		if renderErr := render.CompactEdgeRows(&buf, entries); renderErr != nil {
+	case *query.EdgeListResult:
+		if renderErr := render.CompactEdgeRows(&buf, render.EdgeListEntries(typed.Rows)); renderErr != nil {
 			return toolError(renderErr), nil
 		}
 

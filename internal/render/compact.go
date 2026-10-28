@@ -129,7 +129,8 @@ func CompactNodeRows(out io.Writer, rows []CompactRow, opts CompactOpts) error {
 }
 
 // CompactEdgeRows renders a flat slice of edge rows for `tusk edge list`.
-// Compact form: TYPE  SOURCE  TARGET  SOURCE_PATH (tab-separated columns).
+// Compact form: TYPE  SOURCE  TARGET  SOURCE_PATH (space-aligned columns),
+// then units=<id>,<id> when the row folds sub-unit copies of the edge.
 func CompactEdgeRows(out io.Writer, rows []EdgeListEntry) error {
 	if len(rows) == 0 {
 		return nil
@@ -142,11 +143,11 @@ func CompactEdgeRows(out io.Writer, rows []EdgeListEntry) error {
 	var builder strings.Builder
 
 	for _, row := range rows {
-		fmt.Fprintf(&builder, "%-*s  %-*s  %-*s  %s\n",
+		fmt.Fprintf(&builder, "%-*s  %-*s  %-*s  %s%s\n",
 			typeWidth, row.Type,
 			sourceWidth, row.SourceID,
 			targetWidth, row.TargetID,
-			row.SourcePath)
+			row.SourcePath, unitsToken(row.Units))
 	}
 
 	_, writeErr := io.WriteString(out, builder.String())
@@ -161,6 +162,35 @@ type EdgeListEntry struct {
 	SourceID   string
 	TargetID   string
 	SourcePath string
+	Units      []string
+}
+
+// EdgeListEntries converts the rows of a `tusk edge list` result to the
+// entries CompactEdgeRows renders.
+func EdgeListEntries(rows []query.FoldedEdge) []EdgeListEntry {
+	entries := make([]EdgeListEntry, 0, len(rows))
+
+	for _, row := range rows {
+		entries = append(entries, EdgeListEntry{
+			Type:       row.Type,
+			SourceID:   row.SourceID,
+			TargetID:   row.TargetID,
+			SourcePath: row.SourcePath,
+			Units:      row.Units,
+		})
+	}
+
+	return entries
+}
+
+// unitsToken renders the sub-units an edge is written in as a trailing
+// "  units=<id>,<id>" token, or "" when there are none.
+func unitsToken(units []string) string {
+	if len(units) == 0 {
+		return ""
+	}
+
+	return "  units=" + strings.Join(units, ",")
 }
 
 // buildFieldSet returns nil for an empty fields list (meaning "render all
@@ -423,15 +453,13 @@ func writeEdges(builder *strings.Builder, row CompactRow, fieldSet map[string]st
 			arrow = "←"
 		}
 
-		title := edge.TargetTitle
+		line := fmt.Sprintf("  %s %s %s", arrow, edge.Type, edge.TargetID)
 
-		if title != "" {
-			fmt.Fprintf(builder, "  %s %s %s %s\n", arrow, edge.Type, edge.TargetID, title)
-
-			continue
+		if edge.TargetTitle != "" {
+			line += " " + edge.TargetTitle
 		}
 
-		fmt.Fprintf(builder, "  %s %s %s\n", arrow, edge.Type, edge.TargetID)
+		builder.WriteString(line + unitsToken(edge.Units) + "\n")
 	}
 }
 

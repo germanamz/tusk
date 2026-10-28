@@ -309,7 +309,7 @@ func (repo *NodeRepo) ListByParent(parentID string) ([]NodeRow, error) {
 	)
 }
 
-// subUnitIDRange returns the half-open id range [lo, hi) that contains exactly
+// SubUnitIDRange returns the half-open id range [lo, hi) that contains exactly
 // the sub-unit ids of fileID. Sub-unit ids have the form
 // "<fileID>#<address>" (SubUnitIDSeparator), so lo is "<fileID>#" and hi is lo
 // with its final byte incremented — the smallest string strictly greater than
@@ -321,7 +321,7 @@ func (repo *NodeRepo) ListByParent(parentID string) ([]NodeRow, error) {
 // immune to `[`, `]`, `_`, `%`, `?` and `*` appearing in a workspace file id.
 // The earlier GLOB form matched `notes/x[1]#*` as a character class, silently
 // aliasing the sibling `notes/x1` while missing the bracket file itself (#683).
-func subUnitIDRange(fileID string) (lo, hi string) {
+func SubUnitIDRange(fileID string) (lo, hi string) {
 	lo = fileID + SubUnitIDSeparator
 	last := lo[len(lo)-1] + 1
 	hi = lo[:len(lo)-1] + string([]byte{last})
@@ -337,13 +337,13 @@ func subUnitIDRange(fileID string) (lo, hi string) {
 // document order.
 //
 // Sub-units live in the half-open id range [`fileID#`, next-prefix); see
-// subUnitIDRange for why a BINARY range beats GLOB/LIKE here (case-sensitive,
+// SubUnitIDRange for why a BINARY range beats GLOB/LIKE here (case-sensitive,
 // metacharacter-free, index-served).
 //
 // Use this for whole-file sub-unit diffs (sync, doctor); use ListByParent
 // when you only need the immediate children of a single parent.
 func (repo *NodeRepo) ListSubUnitsForFile(fileID string) ([]NodeRow, error) {
-	lo, hi := subUnitIDRange(fileID)
+	lo, hi := SubUnitIDRange(fileID)
 
 	return repo.queryNodes(
 		nodeSelectColumns+` FROM nodes WHERE id >= ? AND id < ? ORDER BY ordinal ASC`,
@@ -405,7 +405,7 @@ func (repo *NodeRepo) ListSubUnitsForFiles(fileIDs []string) ([]NodeRow, error) 
 		args := make([]any, 0, len(chunk)*2)
 
 		for _, fileID := range chunk {
-			lo, hi := subUnitIDRange(fileID)
+			lo, hi := SubUnitIDRange(fileID)
 			conditions = append(conditions, "(id >= ? AND id < ?)")
 			args = append(args, lo, hi)
 		}
