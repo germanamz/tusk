@@ -3,6 +3,10 @@ package manifest
 import (
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/BurntSushi/toml"
 
 	"github.com/germanamz/tusk/internal/cliregistry"
 )
@@ -28,6 +32,57 @@ type Alias struct {
 
 	// Verb is the resolved VerbSpec for Command. Set by ValidateAliases.
 	Verb cliregistry.VerbSpec
+
+	// argsType is the TOML type args was declared with when it is not a
+	// table ("Array", "String", ...). The decoder drops such a value without
+	// an error, leaving Args nil, so validation rejects the alias instead of
+	// letting it run with no arguments (#847).
+	argsType string
+}
+
+// Invocation renders the alias as its command followed by its args in key
+// order, e.g. `query filter="type=ticket AND status!=done" take=20`. A string
+// is quoted when it is empty or holds a space, quote, '=' or ','; a list
+// joins its items with ','.
+func (alias Alias) Invocation() string {
+	keys := make([]string, 0, len(alias.Args))
+
+	for key := range alias.Args {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+
+	parts := append(make([]string, 0, len(keys)+1), alias.Command)
+
+	for _, key := range keys {
+		parts = append(parts, key+"="+invocationValue(alias.Args[key]))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// invocationValue renders one args value for Invocation.
+func invocationValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		if typed == "" || strings.ContainsAny(typed, " \t\"=,") {
+			return strconv.Quote(typed)
+		}
+
+		return typed
+
+	case []any:
+		items := make([]string, 0, len(typed))
+
+		for _, item := range typed {
+			items = append(items, invocationValue(item))
+		}
+
+		return strings.Join(items, ",")
+	}
+
+	return fmt.Sprint(value)
 }
 
 // AliasError is a per-alias validation failure surfaced through doctor.
@@ -150,6 +205,10 @@ func resolveAliasVerb(command string) (cliregistry.VerbSpec, error) {
 // declared positional or flag, or whose TOML-decoded type disagrees with
 // the destination type.
 func validateAliasArgs(alias Alias, verb cliregistry.VerbSpec, introspect VerbIntrospector) []string {
+	if alias.argsType != "" {
+		return []string{argsNotTableMessage(alias, verb)}
+	}
+
 	if len(alias.Args) == 0 {
 		return nil
 	}
@@ -220,6 +279,55 @@ func validateAliasArgs(alias Alias, verb cliregistry.VerbSpec, introspect VerbIn
 	}
 
 	return messages
+}
+
+// tomlTypeNames spells the TOML types MetaData.Type reports the way an error
+// message reads them. Types missing here fall back to their lowercased name.
+var tomlTypeNames = map[string]string{
+	"Array":     "an array",
+	"ArrayHash": "an array of tables",
+	"Bool":      "a boolean",
+	"Float":     "a float",
+	"Integer":   "an integer",
+	"String":    "a string",
+}
+
+// argsTypeOf returns the TOML type of the args value at keyPath when it is
+// declared as anything but a table, or "" when it is a table or absent.
+func argsTypeOf(meta toml.MetaData, keyPath ...string) string {
+	if !meta.IsDefined(keyPath...) {
+		return ""
+	}
+
+	if kind := meta.Type(keyPath...); kind != "Hash" {
+		return kind
+	}
+
+	return ""
+}
+
+// argsNotTableMessage says that args must be a table and shows the header to
+// write, with the verb's first positional as the example key.
+func argsNotTableMessage(alias Alias, verb cliregistry.VerbSpec) string {
+	kind, ok := tomlTypeNames[alias.argsType]
+
+	if !ok {
+		kind = "a " + strings.ToLower(alias.argsType)
+	}
+
+	header := "alias." + alias.Name + ".args"
+
+	if alias.Name == syntheticContextRecentAlias {
+		header = "context.recent.args"
+	}
+
+	example := "one key per flag"
+
+	if len(verb.Positionals) > 0 {
+		example = fmt.Sprintf("one key per flag or positional, e.g. %s = \"...\"", verb.Positionals[0])
+	}
+
+	return fmt.Sprintf("args is %s, but it must be a table: write [%s] with %s", kind, header, example)
 }
 
 // aliasValueMatchesKind reports whether the TOML-decoded value is assignable

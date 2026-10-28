@@ -2,8 +2,10 @@ package contextcompose_test
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/aliasdispatch"
@@ -11,11 +13,22 @@ import (
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/query"
 )
 
 // setupComposeWorkspace builds a tiny on-disk workspace with two indexed
 // notes so pinned + recent + alias paths all have rows to return.
 func setupComposeWorkspace(test *testing.T) (contextcompose.Deps, *manifest.Manifest) {
+	test.Helper()
+
+	deps, loaded, _ := setupComposeWorkspaceStore(test)
+
+	return deps, loaded
+}
+
+// setupComposeWorkspaceStore is setupComposeWorkspace that also returns the
+// index, for tests that seed more rows.
+func setupComposeWorkspaceStore(test *testing.T) (contextcompose.Deps, *manifest.Manifest, *index.Index) {
 	test.Helper()
 
 	root := test.TempDir()
@@ -87,7 +100,7 @@ Beta body.
 		Database:      store.DB(),
 	}
 
-	return composeDeps, loaded
+	return composeDeps, loaded, store
 }
 
 func writeNode(test *testing.T, root, relPath, body string) {
@@ -388,6 +401,62 @@ func TestCompose_RecentAliasIncludeWinsOverDefault(test *testing.T) {
 	for _, row := range result.Recent {
 		if row.Body != "" {
 			test.Errorf("row %q has body %q; alias declared include=[edges] only, default must not override", row.ID, row.Body)
+		}
+	}
+}
+
+// A pinned or recent node's edges to sub-units repeat what the digest already
+// shows: `contains` lists the node's own sections and paragraphs, and a link
+// from another file's paragraph repeats that file's own file-level link
+// (#847). Only the file-to-file edges reach the digest.
+func TestCompose_DropsSubUnitEdges(test *testing.T) {
+	deps, loaded, store := setupComposeWorkspaceStore(test)
+
+	if upsertErr := index.NewNodeRepo(store).BulkUpsert([]index.NodeRow{
+		{ID: "notes/alpha#S1", Type: "section", Path: "notes/alpha.md", Title: "Alpha", PropertiesJSON: "{}", LastChecksum: "c", ParentID: sql.NullString{String: "notes/alpha", Valid: true}},
+		{ID: "notes/beta#S1P1", Type: "paragraph", Path: "notes/beta.md", Title: "Beta body.", PropertiesJSON: "{}", LastChecksum: "d", ParentID: sql.NullString{String: "notes/beta", Valid: true}},
+	}, "markdown"); upsertErr != nil {
+		test.Fatalf("BulkUpsert: %v", upsertErr)
+	}
+
+	if insertErr := index.NewEdgeRepo(store).InsertIgnore([]index.EdgeRow{
+		{Type: "contains", SourceID: "notes/alpha", TargetID: "notes/alpha#S1", SourcePath: "notes/alpha.md", Kind: "structural", Source: sql.NullString{String: "subunit", Valid: true}},
+		{Type: "references", SourceID: "notes/beta#S1P1", TargetID: "notes/alpha", SourcePath: "notes/beta.md", Kind: "direct"},
+		{Type: "references", SourceID: "notes/beta", TargetID: "notes/alpha", SourcePath: "notes/beta.md", Kind: "direct"},
+	}); insertErr != nil {
+		test.Fatalf("InsertIgnore: %v", insertErr)
+	}
+
+	loaded.Aliases = map[string]manifest.Alias{
+		"recent-notes": {
+			Name:    "recent-notes",
+			Command: "node list",
+			Args:    map[string]any{"filter": "id='notes/alpha'"},
+		},
+	}
+
+	recent := loaded.Aliases["recent-notes"]
+
+	loaded.Context = &manifest.Context{
+		Pinned: []string{"notes/alpha"},
+		Recent: &recent,
+	}
+
+	result, err := contextcompose.Compose(context.Background(), deps, contextcompose.Request{})
+
+	if err != nil {
+		test.Fatalf("Compose: %v", err)
+	}
+
+	want := []query.EdgeRef{{Type: "references", Direction: "in", TargetID: "notes/beta", TargetTitle: "Beta"}}
+
+	for section, rows := range map[string][]query.ListRow{"pinned": result.Pinned, "recent": result.Recent} {
+		if len(rows) != 1 {
+			test.Fatalf("%s rows = %+v, want notes/alpha alone", section, rows)
+		}
+
+		if !reflect.DeepEqual(rows[0].Edges, want) {
+			test.Errorf("%s edges = %+v, want %+v", section, rows[0].Edges, want)
 		}
 	}
 }

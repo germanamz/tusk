@@ -160,6 +160,31 @@ command = "no-such-verb"
 	}
 }
 
+// An args list used to decode as no args, so the alias ran unfiltered and
+// returned the whole index (#847). It now fails with the table form to write.
+func TestRun_ArgsListAlias_ReportsTableForm(test *testing.T) {
+	root := setupTempWorkspace(test)
+	appendAliasBlock(test, root, `[alias.billing]
+command = "query"
+args    = ["type=note"]
+`)
+
+	chdir(test, root)
+	defer chdir(test, "")
+
+	out, runErr := runCLI("run", "billing")
+
+	if runErr == nil {
+		test.Fatalf("expected error, got nil: %s", out)
+	}
+
+	want := `alias "billing" is invalid: args is an array, but it must be a table: write [alias.billing.args] with one key per flag or positional, e.g. filter = "..."`
+
+	if runErr.Error() != want {
+		test.Errorf("error = %q, want %q", runErr, want)
+	}
+}
+
 // TestRun_DoctorAlias_AcquiresLock confirms that dispatching a `doctor`
 // alias through `tusk run` succeeds end-to-end. The dispatch path wraps
 // the store-open and doctor.RunWithMigration call inside

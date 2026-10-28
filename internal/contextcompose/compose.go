@@ -3,7 +3,8 @@
 //
 //   - Pinned nodes (manifest.Context.Pinned): always-present nodes the agent
 //     should hold in context, loaded via the read-verb service layer with
-//     body and edges expanded by default.
+//     body and edges expanded by default. Pinned and recent rows keep only
+//     their file-to-file edges.
 //   - Recent activity (manifest.Context.Recent): the result of a single
 //     manifest-declared alias dispatched through aliasdispatch.
 //   - Named aliases (manifest.Context.Include): a fan-out of alias
@@ -122,6 +123,9 @@ func Compose(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		result.Recent = recentRows
 	}
 
+	dropSubUnitEdges(result.Pinned)
+	dropSubUnitEdges(result.Recent)
+
 	if len(cfg.Include) > 0 {
 		aliasResults, aliasErr := dispatchIncludes(ctx, deps, cfg.Include)
 
@@ -133,6 +137,16 @@ func Compose(ctx context.Context, deps Deps, req Request) (*Result, error) {
 	}
 
 	return result, nil
+}
+
+// dropSubUnitEdges keeps only the file-to-file edges of each row. A node's
+// `contains` edges and the links from other files' paragraphs repeat what its
+// body and those files' own links already say, and on a real vault they took
+// a quarter of the session block's budget (#847).
+func dropSubUnitEdges(rows []query.ListRow) {
+	for index := range rows {
+		rows[index].Edges = query.FileEdges(rows[index].Edges)
+	}
 }
 
 // loadPinned fetches the pinned nodes via a single ListRequest with an

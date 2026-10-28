@@ -195,7 +195,9 @@ func decodeAliases(body string, loaded *Manifest) error {
 		Alias map[string]aliasTOML `toml:"alias"`
 	}
 
-	if _, aliasDecodeErr := toml.Decode(body, &wrapper); aliasDecodeErr != nil {
+	meta, aliasDecodeErr := toml.Decode(body, &wrapper)
+
+	if aliasDecodeErr != nil {
 		return aliasDecodeErr
 	}
 
@@ -212,6 +214,7 @@ func decodeAliases(body string, loaded *Manifest) error {
 			Command:     raw.Command,
 			Description: raw.Description,
 			Args:        raw.Args,
+			argsType:    argsTypeOf(meta, "alias", name, "args"),
 		}
 	}
 

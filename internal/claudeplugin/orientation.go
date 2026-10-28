@@ -27,11 +27,24 @@ type Snapshot struct {
 	NodeTypes    map[string]int
 	EdgeTypes    []string
 	EdgeCount    int
-	Aliases      []string
+	Aliases      []Alias
 	Index        IndexState
 	ReindexQueue int
 	EmbedQueue   int
 }
+
+// Alias is one manifest alias as the orientation lists it, so an agent can
+// pick one without running it.
+type Alias struct {
+	Name string
+	// Summary says what the alias does: its description, or its command and
+	// arguments when it has none.
+	Summary string
+}
+
+// aliasSummaryMax caps an alias summary, in runes. The orientation is never
+// cut, so one long description or filter must not crowd it.
+const aliasSummaryMax = 100
 
 // Orientation renders the always-present head of the context block: what
 // the vault is, what it holds and whether its index is current. The MCP
@@ -48,7 +61,16 @@ func Orientation(snap Snapshot) string {
 	}
 
 	if len(snap.Aliases) > 0 {
-		builder.WriteString("Aliases: " + strings.Join(sortedCopy(snap.Aliases), ", ") + " (run with tusk_run)\n")
+		builder.WriteString("Aliases (tusk_run):\n")
+
+		aliases := append([]Alias(nil), snap.Aliases...)
+		sort.Slice(aliases, func(left, right int) bool {
+			return aliases[left].Name < aliases[right].Name
+		})
+
+		for _, alias := range aliases {
+			builder.WriteString("  " + alias.Name + ": " + capRunes(alias.Summary, aliasSummaryMax) + "\n")
+		}
 	}
 
 	builder.WriteString("Index: " + indexLine(snap) + "\n")
@@ -137,6 +159,17 @@ func indexLine(snap Snapshot) string {
 	}
 
 	return strings.Join(parts, " · ")
+}
+
+// capRunes shortens text to limit runes, the last one an ellipsis.
+func capRunes(text string, limit int) string {
+	runes := []rune(text)
+
+	if len(runes) <= limit {
+		return text
+	}
+
+	return string(runes[:limit-1]) + "…"
 }
 
 func sortedCopy(values []string) []string {

@@ -335,6 +335,108 @@ command = "no-such-verb"
 	}
 }
 
+// A list or a string under args used to decode as no args at all, so the
+// alias ran with no filter and returned the whole index (#847). It is now an
+// invalid alias whose message shows the table form.
+func TestValidateAliases_RejectsArgsThatAreNotATable(test *testing.T) {
+	cases := []struct {
+		name string
+		args string
+		want string
+	}{
+		{name: "list", args: `args = ["type=service AND domain=billing"]`, want: "args is an array"},
+		{name: "string", args: `args = "type=service AND domain=billing"`, want: "args is a string"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			body := "[workspace]\nname = \"brain\"\n\n[alias.billing]\ncommand = \"query\"\n" + testCase.args + "\n"
+
+			loaded, loadErr := manifest.Load(writeAliasManifest(test, body))
+
+			if loadErr != nil {
+				test.Fatalf("Load: %v", loadErr)
+			}
+
+			manifest.ValidateAliases(loaded, fixtureIntrospector(defaultFixtureFlags()))
+
+			if _, ok := loaded.Aliases["billing"]; ok {
+				test.Errorf("Aliases[billing] kept after validate; want removed")
+			}
+
+			if len(loaded.AliasErrors) != 1 {
+				test.Fatalf("AliasErrors = %v, want one", loaded.AliasErrors)
+			}
+
+			message := loaded.AliasErrors[0].Message
+
+			for _, want := range []string{testCase.want, "[alias.billing.args]", `filter = "..."`} {
+				if !contains(message, want) {
+					test.Errorf("AliasErrors[0] = %q, want it to contain %q", message, want)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateAliases_AcceptsInlineTableArgs(test *testing.T) {
+	body := `[workspace]
+name = "brain"
+
+[alias.billing]
+command = "query"
+args = { filter = "type=service AND domain=billing", take = 5 }
+`
+
+	loaded, loadErr := manifest.Load(writeAliasManifest(test, body))
+
+	if loadErr != nil {
+		test.Fatalf("Load: %v", loadErr)
+	}
+
+	manifest.ValidateAliases(loaded, fixtureIntrospector(defaultFixtureFlags()))
+
+	alias, ok := loaded.Aliases["billing"]
+
+	if !ok {
+		test.Fatalf("Aliases[billing] missing; AliasErrors = %v", loaded.AliasErrors)
+	}
+
+	if alias.Args["filter"] != "type=service AND domain=billing" {
+		test.Errorf("Args[filter] = %v", alias.Args["filter"])
+	}
+}
+
+func TestAlias_Invocation(test *testing.T) {
+	cases := []struct {
+		name  string
+		alias manifest.Alias
+		want  string
+	}{
+		{name: "no args", alias: manifest.Alias{Command: "status"}, want: "status"},
+		{
+			name: "args in key order",
+			alias: manifest.Alias{Command: "query", Args: map[string]any{
+				"take":    int64(20),
+				"filter":  "type=ticket AND status!=done",
+				"include": []any{"body", "edges"},
+				"sort":    "-modified",
+			}},
+			want: `query filter="type=ticket AND status!=done" include=body,edges sort=-modified take=20`,
+		},
+		{name: "empty string", alias: manifest.Alias{Command: "node list", Args: map[string]any{"filter": ""}}, want: `node list filter=""`},
+		{name: "bool", alias: manifest.Alias{Command: "doctor", Args: map[string]any{"no-migrate": true}}, want: "doctor no-migrate=true"},
+	}
+
+	for _, testCase := range cases {
+		test.Run(testCase.name, func(test *testing.T) {
+			if got := testCase.alias.Invocation(); got != testCase.want {
+				test.Errorf("Invocation() = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
 func contains(haystack, needle string) bool {
 	if needle == "" {
 		return true
