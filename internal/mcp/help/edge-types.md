@@ -45,7 +45,17 @@ blocks:
 - **`hierarchy = "<alias>"`** — marks this edge type as a hierarchy.
   Unlocks `tree=`/`parent=`/`root=` filter shortcuts (and their
   qualified `tree:<alias>=` forms). See
-  `tusk_help(topic: "filter")`.
+  `tusk_help(topic: "filter")`. The child names its parent by
+  default; set **`parent-is-source = true`** when the parent names its
+  children (`has-part: [a, b]`). **`max-depth = N`** stops `tree=` and
+  `root=` N levels out; unset, they walk the whole tree.
+
+- **`inverse = "<label>"`** — names this edge walked backwards. Filters
+  take the label as an edge type (`blocked-by->` is `blocks<-`), and
+  `tusk_edge_list` takes it as `type`, swapping `from` and `to`. The
+  edge is still written on its source, so `tusk_edge_add` and
+  `tusk_edge_remove` refuse the label and name the write to make. A
+  label can't also be an edge type, and two edge types can't share one.
 
 - **`wikilinks = true`** — body wikilinks (`[[path/to/target]]`)
   materialize as edges of this type. A navigational shorthand useful

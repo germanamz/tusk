@@ -26,7 +26,10 @@ from        = ["ticket"]
 to          = ["ticket"]
 cardinality = "many-to-many" # one-to-one | one-to-many | many-to-one | many-to-many
 ordered     = "order"        # optional; sort siblings by this property
+inverse     = "blocked-by"   # optional; filters walk the edge backwards by this name
 hierarchy   = "wbs"          # optional; enables tree=/parent=/root= shortcuts
+parent-is-source = true      # optional; the parent names its children (default: child names parent)
+max-depth   = 10             # optional; tree=/root= stop this many levels out (default: whole tree)
 wikilinks   = true           # optional; [[wikilinks]] in body produce this edge
 paths       = true           # optional; workspace paths in inline code and links become path refs
 # See tusk_help(topic: "edge-types").

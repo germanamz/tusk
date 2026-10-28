@@ -272,7 +272,26 @@ func Validate(loaded *Manifest) error {
 		return validateErr
 	}
 
+	if validateErr := validateInverses(loaded); validateErr != nil {
+		return validateErr
+	}
+
+	inheritClusterParentIsSource(loaded)
+
 	return validateBehaviors(loaded)
+}
+
+// inheritClusterParentIsSource gives a [graph.cluster] ancestor walk the
+// direction its edge type declares with parent-is-source, unless
+// [graph.cluster] sets parent-is-source itself.
+func inheritClusterParentIsSource(loaded *Manifest) {
+	if loaded.graphClusterParentIsSourceSet {
+		return
+	}
+
+	if edge, declared := loaded.EdgeTypes[loaded.GraphCluster.Edge]; declared && edge.ParentIsSource {
+		loaded.GraphCluster.ParentIsSource = true
+	}
 }
 
 // resolveOrdered decodes the polymorphic OrderedRaw into Ordered + OrderedBy
@@ -770,9 +789,17 @@ func validateHierarchies(loaded *Manifest) error {
 	var defaultEdge string
 
 	for edgeName, edge := range loaded.EdgeTypes {
+		if edge.MaxDepth < 0 {
+			return fmt.Errorf("edge %q: max-depth must be at least 1, or left out to walk the whole tree", edgeName)
+		}
+
 		if edge.Hierarchy == "" {
 			if edge.HierarchyDefault {
 				return fmt.Errorf("edge %q: hierarchy-default requires hierarchy alias", edgeName)
+			}
+
+			if edge.MaxDepth > 0 {
+				return fmt.Errorf("edge %q: max-depth requires hierarchy alias", edgeName)
 			}
 
 			continue

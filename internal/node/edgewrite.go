@@ -2,7 +2,6 @@ package node
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,8 +18,9 @@ import (
 // return when the edge type is absent from the manifest. Callers match it with
 // errors.Is to add context — the MCP tools append a "call tusk_reload" hint
 // because their schema is cached, while the CLI (which reloads the manifest each
-// run) surfaces it plainly.
-var ErrEdgeTypeNotDeclared = errors.New("not declared in manifest")
+// run) surfaces it plainly. It is manifest.ErrEdgeTypeNotDeclared, which edge
+// list returns too.
+var ErrEdgeTypeNotDeclared = manifest.ErrEdgeTypeNotDeclared
 
 // AddEdge validates and writes a typed edge from sourceID to targetID, then
 // reindexes the source. It owns the full edge-add pipeline — edge-type check,
@@ -33,7 +33,7 @@ func (service *Service) AddEdge(edgeType, sourceID, targetID string) error {
 	edgeDef, declared := service.edgeTypes[edgeType]
 
 	if !declared {
-		return fmt.Errorf("edge type %q %w", edgeType, ErrEdgeTypeNotDeclared)
+		return undeclaredEdgeError(service.edgeTypes, "add", edgeType, sourceID, targetID)
 	}
 
 	sourceRow, sourceErr := service.repo.Get(sourceID)
@@ -78,13 +78,26 @@ func (service *Service) AddEdge(edgeType, sourceID, targetID string) error {
 	return ReindexSource(service.root, service.repo, service.edges, service.refs, service.edgeTypes, service.nodeTypes, sourceID, service.lineNumbering, service.manifest.LinkCase())
 }
 
+// undeclaredEdgeError explains why AddEdge or RemoveEdge (verb) can't write an
+// edge of a type the manifest doesn't declare. An inverse label names its edge
+// type walked backwards, so the edge it means lives in the other node's
+// frontmatter; the error names the write to make instead rather than editing a
+// file the caller didn't name.
+func undeclaredEdgeError(edgeTypes manifest.EdgeTypes, verb, edgeType, sourceID, targetID string) error {
+	if forward, isInverse := manifest.InverseOf(edgeTypes, edgeType); isInverse {
+		return fmt.Errorf("edge type %q is the inverse of %q, and an edge is written on its source; %s %s from %s to %s instead", edgeType, forward, verb, forward, targetID, sourceID)
+	}
+
+	return fmt.Errorf("edge type %q %w", edgeType, ErrEdgeTypeNotDeclared)
+}
+
 // RemoveEdge removes the (edgeType, sourceID, targetID) edge from the source's
 // frontmatter, reindexes, and sweeps any legacy __cli__/__mcp__ sentinel row for
 // the same triple. Owns the full edge-remove pipeline so both the CLI and MCP
 // handlers reduce to marshal+call+format.
 func (service *Service) RemoveEdge(edgeType, sourceID, targetID string) error {
 	if _, declared := service.edgeTypes[edgeType]; !declared {
-		return fmt.Errorf("edge type %q %w", edgeType, ErrEdgeTypeNotDeclared)
+		return undeclaredEdgeError(service.edgeTypes, "remove", edgeType, sourceID, targetID)
 	}
 
 	sourceType := indexedType(service.repo, index.FilePathForID(sourceID))

@@ -218,12 +218,21 @@ func TestCompile_TraversalShortcutTreeUsesRecursiveCTE(test *testing.T) {
 		test.Errorf("expected recursive CTE for tree=: %s", sql)
 	}
 
-	if !strings.Contains(sql, "depth < 5") {
-		test.Errorf("expected depth bound of 5: %s", sql)
+	// With no max-depth the walk has no depth bound; UNION, not UNION ALL,
+	// ends it when it reaches a node it has already seen (#850).
+	if strings.Contains(sql, "depth <") || strings.Contains(sql, "UNION ALL") || !strings.Contains(sql, "UNION") {
+		test.Errorf("expected an unbounded UNION walk: %s", sql)
 	}
 
 	if !reflect.DeepEqual(params, []any{"tickets/foo", "parent", "parent"}) {
 		test.Errorf("params = %v, want [tickets/foo parent parent]", params)
+	}
+
+	capped := &filter.TraversalShortcut{Kind: filter.ShortcutTree, NodeID: "tickets/foo", EdgeType: "parent", MaxDepth: 5}
+	cappedSQL, _, _ := filter.Compile(capped, filter.CompileOptions{})
+
+	if !strings.Contains(cappedSQL, "depth < 5") {
+		test.Errorf("expected depth bound of 5 from MaxDepth: %s", cappedSQL)
 	}
 }
 

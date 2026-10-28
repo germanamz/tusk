@@ -34,6 +34,11 @@ tab-aligned table of source, type, target, attributed source-path. Use
 --format compact|json (or --json) to opt into structured output; the
 default mirrors prior CLI behavior (tab-aligned table for TTY).
 
+--type also takes an edge type's inverse label: --type depended-on-by
+--from c lists the depends-on edges into c, under their own type. A
+--type tusk.toml doesn't declare is an error when nothing matches it;
+edges of a type you've since removed from tusk.toml still list.
+
 A link written in a paragraph is stored for the file and again for the
 paragraph and each section around it. The listing shows it once, from
 the file, with UNITS naming the paragraphs, list items or sections the
@@ -78,7 +83,8 @@ them: its frontmatter list first, then body links in reading order.`,
 					Type:          typeFilter,
 					RequireFilter: true,
 				},
-				SubUnits: subUnits,
+				SubUnits:  subUnits,
+				EdgeTypes: loaded.EdgeTypes,
 			})
 
 			if runErr != nil {
@@ -104,7 +110,7 @@ them: its frontmatter list first, then body links in reading order.`,
 
 	listCmd.Flags().StringVar(&fromFilter, "from", "", "filter to edges originating from this source id")
 	listCmd.Flags().StringVar(&toFilter, "to", "", "filter to edges targeting this id")
-	listCmd.Flags().StringVar(&typeFilter, "type", "", "filter by edge type")
+	listCmd.Flags().StringVar(&typeFilter, "type", "", "filter by edge type, or its inverse label")
 	listCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: legacy table)")
 	listCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 	listCmd.Flags().BoolVar(&subUnits, "sub-units", false, "list the stored rows: one per section or paragraph that holds a link, plus each file's contains edges")

@@ -40,9 +40,24 @@ tusk query 'domain=product references-> NOT domain=product'   # product notes li
 # Multi-hop
 tusk query 'type=ticket parent->parent->title="auth-epic"'
 
+# Any depth, or a hop count; a cycle ends the walk
+tusk query 'type=service depends-on->+ id=payments'       # depends on payments, directly or not
+tusk query 'type=service depends-on->{1,2} id=payments'   # within two hops
+
+# An inverse label walks its edge type backwards
+tusk query 'type=service depended-on-by-> id=checkout'    # what checkout depends on
+
+# Hierarchy shortcuts
+tusk query 'type=ticket tree=epics/auth'                  # everything below the epic
+tusk query 'type=ticket parent=epics/auth'                # its direct children
+
 # Sort + pagination
 tusk query 'type=ticket status=active' --sort '+priority,-due' --take 10
 ```
+
+`->+` follows the edge type one or more times and `->{2}`, `->{1,3}` or `->{2,}` that many times, up to 50. The walk visits each node once, so a dependency cycle ends it instead of looping. An `inverse` declared on an edge type is its name walked backwards: with `inverse = "depended-on-by"` on `depends-on`, `depended-on-by->` is `depends-on<-`, and `tusk edge list --type depended-on-by` lists the `depends-on` edges.
+
+`tree=`, `parent=` and `root=` follow the edge type declared with `hierarchy = "<alias>"`. By default the child names its parent (`parent: epics/auth`). When the parent names its children instead (`has-part: [a, b]`), set `parent-is-source = true` on the edge type. `tree=` and `root=` walk the whole tree; `max-depth = N` on the edge type stops them N levels out.
 
 ## Semantic search
 

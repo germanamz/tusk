@@ -651,9 +651,24 @@ tusk query 'domain=product references-> NOT domain=product'   # product notes li
 # Multi-hop
 tusk query 'type=ticket parent->parent->title="auth-epic"'
 
+# Any depth, or a hop count; a cycle ends the walk
+tusk query 'type=service depends-on->+ id=payments'       # depends on payments, directly or not
+tusk query 'type=service depends-on->{1,2} id=payments'   # within two hops
+
+# An inverse label walks its edge type backwards
+tusk query 'type=service depended-on-by-> id=checkout'    # what checkout depends on
+
+# Hierarchy shortcuts
+tusk query 'type=ticket tree=epics/auth'                  # everything below the epic
+tusk query 'type=ticket parent=epics/auth'                # its direct children
+
 # Sort + pagination
 tusk query 'type=ticket status=active' --sort '+priority,-due' --take 10
 ```
+
+`->+` follows the edge type one or more times and `->{2}`, `->{1,3}` or `->{2,}` that many times, up to 50. The walk visits each node once, so a dependency cycle ends it instead of looping. An `inverse` declared on an edge type is its name walked backwards: with `inverse = "depended-on-by"` on `depends-on`, `depended-on-by->` is `depends-on<-`, and `tusk edge list --type depended-on-by` lists the `depends-on` edges.
+
+`tree=`, `parent=` and `root=` follow the edge type declared with `hierarchy = "<alias>"`. By default the child names its parent (`parent: epics/auth`). When the parent names its children instead (`has-part: [a, b]`), set `parent-is-source = true` on the edge type. `tree=` and `root=` walk the whole tree; `max-depth = N` on the edge type stops them N levels out.
 
 ## Semantic search
 
@@ -1499,7 +1514,8 @@ CONFIGURATION
     [node-types.<name>]      typed properties a node may/must set
     [edge-types.<name>]      from / to / cardinality / ordered / inverse /
                              acyclic / hierarchy / hierarchy-default /
-                             wikilinks for typed relationships
+                             parent-is-source / max-depth / wikilinks
+                             for typed relationships
     [embeddings]             provider = "ollama", model, endpoint, dim,
                              api-key, workers, timeout-seconds — enables
                              semantic search; query-prefix, document-prefix,
@@ -2242,6 +2258,11 @@ tab-aligned table of source, type, target, attributed source-path. Use
 --format compact|json (or --json) to opt into structured output; the
 default mirrors prior CLI behavior (tab-aligned table for TTY).
 
+--type also takes an edge type's inverse label: --type depended-on-by
+--from c lists the depends-on edges into c, under their own type. A
+--type tusk.toml doesn't declare is an error when nothing matches it;
+edges of a type you've since removed from tusk.toml still list.
+
 A link written in a paragraph is stored for the file and again for the
 paragraph and each section around it. The listing shows it once, from
 the file, with UNITS naming the paragraphs, list items or sections the
@@ -2283,7 +2304,7 @@ tusk edge list [flags]
       --json            emit structured JSON (sugar for --format json)
       --sub-units       list the stored rows: one per section or paragraph that holds a link, plus each file's contains edges
       --to string       filter to edges targeting this id
-      --type string     filter by edge type
+      --type string     filter by edge type, or its inverse label
 ```
 
 ### Options inherited from parent commands
@@ -2804,9 +2825,14 @@ path=docs/product/*, path=docs/**, id=**/index); quote the value to match a
 literal *. Edge traversal uses edge-type-> (outgoing) or edge-type<- (incoming) and
 may chain multi-hop. The one term after the arrow (a predicate, NOT term,
 or parenthesized group) constrains the linked node, e.g.
-blocks-> (status=open OR status=wip). Traversal shortcuts: tree=id,
-parent=id, root=id, each optionally qualified by a hierarchy alias (e.g.
-tree:wbs=id) set via hierarchy on an edge type in tusk.toml. Recency
+blocks-> (status=open OR status=wip). ->+ repeats the hop to any depth
+and ->{2}, ->{1,3} or ->{2,} a number of times, stopping on cycles. An
+edge type's inverse label walks it backwards (depended-on-by-> is
+depends-on<-). Traversal shortcuts: tree=id, parent=id, root=id, each
+optionally qualified by a hierarchy alias (e.g. tree:wbs=id) set via
+hierarchy on an edge type in tusk.toml; parent-is-source = true there
+means the parent names its children, and max-depth caps tree= and
+root=. Recency
 shortcut: modified-since: a duration or ISO date (e.g. modified-since:7d,
 modified-since:2026-05-23). Combine with AND, OR, NOT, and parens. (Both
 : and = bind property comparisons; pick whichever reads better.) Output
@@ -3156,10 +3182,14 @@ Three modes, all driven by the same command:
     the value to match a literal *. Edge traversal uses edge-type-> (outgoing) or edge-type<-
     (incoming) and may chain multi-hop. The one term after the arrow (a
     predicate, NOT term, or parenthesized group) constrains the linked
-    node, e.g. blocks-> (status=open OR status=wip). Traversal shortcuts:
-    tree=id, parent=id, root=id, each optionally qualified by a hierarchy
-    alias (e.g. tree:wbs=id) set via hierarchy on an edge type in
-    tusk.toml. Recency shortcut: modified-since: a duration or ISO date
+    node, e.g. blocks-> (status=open OR status=wip). ->+ repeats the hop
+    to any depth and ->{2}, ->{1,3} or ->{2,} a number of times, stopping
+    on cycles (e.g. depends-on->+ id=payments). An edge type's inverse
+    label walks it backwards (depended-on-by-> is depends-on<-).
+    Traversal shortcuts: tree=id, parent=id, root=id, each optionally
+    qualified by a hierarchy alias (e.g. tree:wbs=id) set via hierarchy
+    on an edge type in tusk.toml; parent-is-source = true there means the
+    parent names its children, and max-depth caps tree= and root=. Recency shortcut: modified-since: a duration or ISO date
     (e.g. modified-since:7d, modified-since:2026-05-23). Path refs:
     names-path=<path> finds the pages that name a workspace path (in
     inline code, a link, or a paths-only frontmatter value), or a

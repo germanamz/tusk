@@ -136,6 +136,10 @@ type Manifest struct {
 	// Populated by the loader's resolveGraphCluster finaliser; defaults
 	// match DefaultGraphCluster (by = "type") when the block is absent.
 	GraphCluster GraphCluster `toml:"-"`
+
+	// graphClusterParentIsSourceSet records that [graph.cluster] sets
+	// parent-is-source itself, so its edge type's own setting isn't inherited.
+	graphClusterParentIsSourceSet bool `toml:"-"`
 }
 
 // queryDecode is the BurntSushi/toml wrapper used by the loader to decode the
@@ -322,6 +326,18 @@ type EdgeType struct {
 	// HierarchyDefault marks this edge as the target of unqualified
 	// shortcuts. At most one edge per workspace may set this true.
 	HierarchyDefault bool `toml:"hierarchy-default"`
+
+	// ParentIsSource says the edge runs from parent to child: the parent's
+	// frontmatter names its children, as has-part does. The hierarchy
+	// shortcuts, and a [graph.cluster] ancestor walk that doesn't set its own,
+	// then find a node's parent at the edge's source. False is child→parent,
+	// where the child names its parent. omitempty keeps SchemaFingerprint
+	// unchanged for manifests that don't set it.
+	ParentIsSource bool `toml:"parent-is-source" json:",omitempty"`
+
+	// MaxDepth caps how many levels tree= and root= walk along this
+	// hierarchy. Zero walks the whole tree.
+	MaxDepth int `toml:"max-depth" json:",omitempty"`
 
 	// Wikilinks, when true, makes the indexer materialize body [[wikilinks]]
 	// into edges of this type. Replaces the hardcoded "references" special

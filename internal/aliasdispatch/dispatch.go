@@ -395,6 +395,10 @@ func runEdgeList(_ context.Context, deps Deps, request any) (any, error) {
 		return nil, fmt.Errorf("edge list adapter: Deps.Nodes is nil")
 	}
 
+	if deps.Manifest != nil {
+		typedRequest.EdgeTypes = deps.Manifest.EdgeTypes
+	}
+
 	return query.EdgeListRun(deps.Edges, deps.Nodes, typedRequest)
 }
 
