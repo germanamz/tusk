@@ -95,10 +95,11 @@ func TestServerInstructions_NameTheVault(test *testing.T) {
 // carries the server instructions and the definitions of the tools it may
 // call, and tusk_query is the one every reader has. Raise a budget on
 // purpose, with a benchmark run behind it, not as a side effect of one more
-// sentence.
+// sentence. #851 raised tusk_query's from 1850 to 1980 for its count and
+// group_by arguments and the properties.<name> fields example.
 func TestPerTurnBudget(test *testing.T) {
 	const instructionsBudget = 360
-	const queryToolBudget = 1850
+	const queryToolBudget = 1980
 
 	runtime := &Runtime{
 		Root:         "/vaults/notes",

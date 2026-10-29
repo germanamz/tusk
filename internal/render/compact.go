@@ -67,9 +67,10 @@ const defaultMatchedUnitsLimit = 20
 
 // CompactOpts narrows the renderer's behavior.
 type CompactOpts struct {
-	// Fields, when non-empty, projects each row to the named fields. The
-	// renderer is permissive: unknown field names are ignored. The default
-	// (empty Fields) renders id/type/title plus any populated expansions.
+	// Fields, when non-empty, projects each row to the named fields
+	// (query.ParseFields): properties.<name> keeps one property, and an
+	// unknown name is an error. The default (empty Fields) renders
+	// id/type/title plus any populated expansions.
 	Fields []string
 }
 
@@ -96,32 +97,36 @@ func CompactNodeRows(out io.Writer, rows []CompactRow, opts CompactOpts) error {
 		return nil
 	}
 
-	fieldSet := buildFieldSet(opts.Fields)
+	fields, parseErr := query.ParseFields(opts.Fields)
+
+	if parseErr != nil {
+		return parseErr
+	}
 
 	// Column widths over the record lines (id, type, title). Computed up
 	// front so every record uses the same widths.
 	var idWidth, typeWidth, titleWidth int
 
-	if showField(fieldSet, "id") {
+	if fields.Has("id") {
 		idWidth = maxWidth(rows, func(row CompactRow) string { return row.ID })
 	}
 
-	if showField(fieldSet, "type") {
+	if fields.Has("type") {
 		typeWidth = maxWidth(rows, func(row CompactRow) string { return row.Type })
 	}
 
-	if showField(fieldSet, "title") {
+	if fields.Has("title") {
 		titleWidth = maxWidth(rows, func(row CompactRow) string { return row.Title })
 	}
 
 	var builder strings.Builder
 
 	for _, row := range rows {
-		writeRecordLine(&builder, row, fieldSet, idWidth, typeWidth, titleWidth)
-		writeBody(&builder, row, fieldSet)
-		writeEdges(&builder, row, fieldSet)
-		writePaths(&builder, row, fieldSet)
-		writeMatchedUnits(&builder, row, fieldSet)
+		writeRecordLine(&builder, row, fields, idWidth, typeWidth, titleWidth)
+		writeBody(&builder, row, fields)
+		writeEdges(&builder, row, fields)
+		writePaths(&builder, row, fields)
+		writeMatchedUnits(&builder, row, fields)
 	}
 
 	_, writeErr := io.WriteString(out, builder.String())
@@ -194,54 +199,25 @@ func unitsToken(units []string) string {
 	return "  units=" + strings.Join(units, ",")
 }
 
-// buildFieldSet returns nil for an empty fields list (meaning "render all
-// applicable columns"), or a set of allowed field names.
-func buildFieldSet(fields []string) map[string]struct{} {
-	if len(fields) == 0 {
-		return nil
-	}
-
-	set := make(map[string]struct{}, len(fields))
-
-	for _, name := range fields {
-		set[name] = struct{}{}
-	}
-
-	return set
-}
-
-// showField returns true when the field should be rendered: either no
-// projection is in effect (set == nil) or the field is listed in the
-// projection set.
-func showField(set map[string]struct{}, name string) bool {
-	if set == nil {
-		return true
-	}
-
-	_, present := set[name]
-
-	return present
-}
-
 // writeRecordLine emits the id/type/title/score/properties part of a record.
-func writeRecordLine(builder *strings.Builder, row CompactRow, fieldSet map[string]struct{}, idWidth, typeWidth, titleWidth int) {
+func writeRecordLine(builder *strings.Builder, row CompactRow, fields query.Fields, idWidth, typeWidth, titleWidth int) {
 	var parts []string
 
-	if showField(fieldSet, "id") {
+	if fields.Has("id") {
 		parts = append(parts, padRight(row.ID, idWidth))
 	}
 
-	if showField(fieldSet, "type") {
+	if fields.Has("type") {
 		parts = append(parts, padRight(row.Type, typeWidth))
 	}
 
-	if showField(fieldSet, "title") {
+	if fields.Has("title") {
 		parts = append(parts, padRight(row.Title, titleWidth))
 	}
 
 	line := strings.Join(parts, "  ")
 
-	if showField(fieldSet, "score") && row.HasScore {
+	if fields.Has("score") && row.HasScore {
 		line = appendToken(line, fmt.Sprintf("score=%.4f", row.Score))
 	}
 
@@ -249,8 +225,10 @@ func writeRecordLine(builder *strings.Builder, row CompactRow, fieldSet map[stri
 		line = appendToken(line, explainTokens(row))
 	}
 
-	if showField(fieldSet, "properties") && len(row.Properties) > 0 {
-		line = appendToken(line, formatProperties(row.Properties))
+	if fields.Has("properties") {
+		if properties := formatProperties(row.Properties, fields); properties != "" {
+			line = appendToken(line, properties)
+		}
 	}
 
 	// Strip trailing whitespace so the last column is not padded with
@@ -293,8 +271,8 @@ func explainTokens(row CompactRow) string {
 
 // writeBody emits each line of row.Body with a two-space indent. A trailing
 // newline on the body is preserved (callers typically include one).
-func writeBody(builder *strings.Builder, row CompactRow, fieldSet map[string]struct{}) {
-	if !showField(fieldSet, "body") || row.Body == "" {
+func writeBody(builder *strings.Builder, row CompactRow, fields query.Fields) {
+	if !fields.Has("body") || row.Body == "" {
 		return
 	}
 
@@ -319,8 +297,8 @@ func writeBody(builder *strings.Builder, row CompactRow, fieldSet map[string]str
 // (structural path), the trailing score column is omitted. Long lists
 // collapse to `(N more)` past defaultMatchedUnitsLimit to keep agent output
 // bounded; the count includes units a max-units cap already removed.
-func writeMatchedUnits(builder *strings.Builder, row CompactRow, fieldSet map[string]struct{}) {
-	if !showField(fieldSet, "matched_units") && fieldSet != nil {
+func writeMatchedUnits(builder *strings.Builder, row CompactRow, fields query.Fields) {
+	if !fields.Has("matched_units") {
 		return
 	}
 
@@ -464,8 +442,8 @@ func formatMatchedUnit(unit query.MatchedUnit) matchedUnitDisplay {
 }
 
 // writeEdges emits one indented line per edge using the spec §4.4 arrow form.
-func writeEdges(builder *strings.Builder, row CompactRow, fieldSet map[string]struct{}) {
-	if !showField(fieldSet, "edges") || len(row.Edges) == 0 {
+func writeEdges(builder *strings.Builder, row CompactRow, fields query.Fields) {
+	if !fields.Has("edges") || len(row.Edges) == 0 {
 		return
 	}
 
@@ -490,8 +468,8 @@ func writeEdges(builder *strings.Builder, row CompactRow, fieldSet map[string]st
 // where the page names it, and "(not on disk)" when the path is gone:
 //
 //	⇢ describes server/ledger/core/service.go  lines 40-41 (Core service)
-func writePaths(builder *strings.Builder, row CompactRow, fieldSet map[string]struct{}) {
-	if !showField(fieldSet, "paths") || len(row.Paths) == 0 {
+func writePaths(builder *strings.Builder, row CompactRow, fields query.Fields) {
+	if !fields.Has("paths") || len(row.Paths) == 0 {
 		return
 	}
 
@@ -530,17 +508,18 @@ func appendToken(line, token string) string {
 	return line + "  " + token
 }
 
-// formatProperties renders properties as `key=value` tokens space-separated.
-// Keys are emitted in sorted order for byte-stable output. Values are passed
-// through fmt's default verb; complex values (slices/maps) are rendered with
-// Go's default formatting — adequate for compact-line display.
-func formatProperties(properties map[string]any) string {
+// formatProperties renders the properties fields keeps as `key=value`
+// tokens space-separated. Keys are emitted in sorted order for byte-stable
+// output. Values are passed through fmt's default verb; complex values
+// (slices/maps) are rendered with Go's default formatting — adequate for
+// compact-line display.
+func formatProperties(properties map[string]any, fields query.Fields) string {
 	keys := make([]string, 0, len(properties))
 
 	for key := range properties {
 		// Skip the reserved frontmatter keys that already appear as
 		// id / type / title in the compact line.
-		if key == "type" || key == "title" {
+		if key == "type" || key == "title" || !fields.KeepsProperty(key) {
 			continue
 		}
 

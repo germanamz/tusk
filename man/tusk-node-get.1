@@ -21,7 +21,9 @@ it (page.html has id "page.html").
 By default (no flags) the command prints the raw file to stdout
 verbatim — useful for piping into editors, less, or another tusk command.
 When --include, --fields, --format, or --json is passed the command emits
-structured output instead (compact for TTY, JSON otherwise).
+structured output instead (compact for TTY, JSON otherwise). --fields keeps
+only the named fields, as on tusk query: properties. keeps one
+property, and an unknown name is an error.
 
 .PP
 --include paths lists the workspace paths the page names (in inline code,
@@ -49,7 +51,7 @@ they are. Each of the three implies --include edges.
 
 .PP
 \fB--fields\fP=[]
-	project returned shape to these fields (comma-separated)
+	keep only these fields (comma-separated; properties. for one property)
 
 .PP
 \fB--format\fP=""

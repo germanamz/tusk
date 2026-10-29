@@ -57,12 +57,24 @@ Three modes, all driven by the same command:
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
 results, --skip M to paginate. Use --include to expand each row with
 body, edges, properties, units or paths (comma-separated; for semantic
-results body gives every row's best unit its text). Use --fields to project
-the rendered shape.
+results body gives every row's best unit its text). Use --fields to keep
+only the named fields of each row, in compact and JSON output alike: id,
+type, path, title, parent_id, score, snippet, body, properties, edges, paths
+or matched_units (units for short), or properties.<name> for one property.
+Naming an expandable field loads it without --include, matched_units brings
+units_total, and --explain keeps its scores. An unknown name is an error.
 Use --format to pick compact or JSON output: with no --include/--fields
 the default is the tab-aligned table, and once a shape flag is set it is
 compact at a TTY and JSON when piped. --json (or --format json) forces
 JSON regardless.
+
+Counting: --count prints how many nodes the filter matches in place of the
+rows ({"count": N} in JSON). It counts every match: --take, --skip and
+--sort don't apply, and it doesn't combine with --semantic. --group-by type
+or --group-by <property> counts per value, largest first (and implies
+--count): a list property counts a node once under each of its items, and
+nodes with no value (missing, null or an empty list) count under (none),
+null in JSON.
 
 Matched units: semantic rows always carry matched_units, the passages that
 matched. Each scored passage folds into its innermost section, so one finding
@@ -113,6 +125,13 @@ tusk query <filter> [flags]
   # Expand bodies and edges in one round-trip
   tusk query 'type=ticket' --include body,edges
 
+  # Only each ticket's id and owner
+  tusk query 'type=ticket' --json --fields id,properties.owner
+
+  # How many open tickets, and how many per owner
+  tusk query 'type=ticket AND status=open' --count
+  tusk query 'type=ticket AND status=open' --group-by owner
+
   # Which pages describe this file (or a directory above it), and where
   tusk query 'names-path=server/ledger/core/service.go' --include paths
 
@@ -134,12 +153,14 @@ tusk query <filter> [flags]
 ### Options
 
 ```
+      --count                 print how many nodes match instead of the rows (ignores --take, --skip and --sort)
       --explain               include a per-row score trace: cosine and final, plus lexical, title, graph/distance and weight when the ranking computed them
-      --fields strings        project rendered rows to these fields (comma-separated)
+      --fields strings        keep only these fields of each row (comma-separated; properties.<name> for one property)
       --format string         output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)
       --graph-edges strings   comma-separated edge-type names used by the graph expander; omit to inherit manifest
       --graph-expand          enable graph-expanded retrieval for this call (overrides [query.graph-expansion] enabled=false)
       --graph-weight float    per-hop weight applied to expanded candidates in [0,1]; omit to inherit manifest (default inherit)
+      --group-by string       count matches per value of type or a property (implies --count)
   -h, --help                  help for query
       --hops int              graph-expansion BFS depth (1 or 2; omit to inherit manifest)
       --include strings       expand rows: body|edges|properties|units|paths (comma-separated; units lists each file's sub-units, paths the workspace paths each page names)

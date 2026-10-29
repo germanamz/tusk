@@ -248,11 +248,13 @@ func buildNodeGetRequest(args map[string]any, _ Deps) (any, error) {
 // nil on an index read) and the node package cannot import query to project
 // them — an embed→node→query import cycle — so the adapter hydrates both here,
 // in the shapes `query --include edges,paths` returns. ResultPayload projects
-// them onto the "edges" and "paths" envelope keys.
+// them onto the "edges" and "paths" envelope keys. Fields is the request's
+// parsed fields projection, which node.GetRun has no package to parse with.
 type NodeGetResult struct {
 	Result *node.GetResult
 	Edges  []query.EdgeRef
 	Paths  []query.PathRef
+	Fields query.Fields
 }
 
 func runNodeGet(_ context.Context, deps Deps, request any) (any, error) {
@@ -266,13 +268,19 @@ func runNodeGet(_ context.Context, deps Deps, request any) (any, error) {
 		return nil, fmt.Errorf("node get adapter: Deps.NodeService is nil")
 	}
 
+	fields, fieldsErr := query.ParseFields(typedRequest.Fields)
+
+	if fieldsErr != nil {
+		return nil, fieldsErr
+	}
+
 	result, runErr := node.GetRun(deps.NodeService, typedRequest)
 
 	if runErr != nil {
 		return nil, runErr
 	}
 
-	wrapped := &NodeGetResult{Result: result}
+	wrapped := &NodeGetResult{Result: result, Fields: fields}
 
 	if result.IncludeEdges {
 		if deps.Database == nil {
@@ -329,6 +337,8 @@ func buildQueryRequest(args map[string]any, deps Deps) (any, error) {
 	req.MaxUnits = reader.Int("max-units")
 	req.Include = reader.StringSlice("include")
 	req.Fields = reader.StringSlice("fields")
+	req.Count = reader.Bool("count")
+	req.GroupBy = reader.String("group-by")
 
 	if reader.err != nil {
 		return nil, reader.err

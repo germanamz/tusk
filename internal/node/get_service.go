@@ -3,6 +3,7 @@ package node
 import (
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // GetRequest configures GetRun.
@@ -80,14 +81,16 @@ func GetRun(service *Service, req GetRequest) (*GetResult, error) {
 	}
 
 	for _, name := range slices.Concat(req.Include, req.Fields) {
-		switch name {
-		case "body":
+		switch {
+		case name == "body":
 			result.IncludeBody = true
-		case "edges":
+		case name == "edges":
 			result.IncludeEdges = true
-		case "properties":
+		case name == "properties", strings.HasPrefix(name, "properties."):
+			// properties.<name> is a fields projection of one property
+			// (query.ParseFields, which the adapters validate fields with).
 			result.IncludeProperties = true
-		case "paths":
+		case name == "paths":
 			result.IncludePaths = true
 		}
 	}

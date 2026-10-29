@@ -179,3 +179,36 @@ Add `--json` to any query for structured output that's easy to pipe into an LLM 
 ```bash
 tusk query 'type=decision' --semantic "storage backend" --take 3 --json
 ```
+
+`--fields` keeps only the fields you name, in that order, in JSON and compact output alike. `properties.<name>` keeps one property, so a list of owners doesn't carry every other property along:
+
+```bash
+tusk query 'type=ticket AND status=open' --json --fields id,properties.owner
+# [{"id": "tickets/login-bug", "properties": {"owner": "dana"}}, ...]
+```
+
+The names are `id`, `type`, `path`, `title`, `parent_id`, `score`, `snippet`, `body`, `properties`, `edges`, `paths` and `matched_units` (or `units`). Naming an expandable field loads it, so `--fields id,body` needs no `--include body`. `matched_units` brings `units_total` with it, and `--explain` keeps its scores. A row without a field leaves it out, and a misspelled name is an error. `tusk node list`, `tusk node get`, their MCP tools and `tusk run` aliases take the same names.
+
+## Counting
+
+`--count` prints how many nodes the filter matches instead of listing them. It counts every match: `--take`, `--skip` and `--sort` don't apply, and on MCP neither does the 50-row page.
+
+```bash
+tusk query 'type=service AND NOT describes<-' --count
+# 12
+```
+
+`--group-by` counts per value of `type` or of a property, largest group first, and implies `--count`. A list property counts a node once under each of its items. Nodes with no value (the property is missing, null or an empty list) count under `(none)`, which is `null` in JSON.
+
+```bash
+tusk query 'type=service' --group-by domain
+# DOMAIN    COUNT
+# billing   7
+# checkout  4
+# (none)    1
+
+tusk query 'type=service' --group-by domain --json
+# {"count":12,"group_by":"domain","groups":[{"value":"billing","count":7},...]}
+```
+
+A count covers whatever the filter matches, sub-units included, so `tusk query '' --group-by type` counts sections and paragraphs too. A count can't be ranked, so `--semantic` with `--count` is an error. On MCP the arguments are `count` and `group_by`; in an alias they are `count` and `group-by`.

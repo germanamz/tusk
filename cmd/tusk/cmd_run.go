@@ -250,10 +250,14 @@ func renderAliasNodeList(out io.Writer, result *query.ListResult, _ outputFormat
 		compactRows = append(compactRows, listRowToCompactBasic(row))
 	}
 
-	return render.CompactNodeRows(out, compactRows, render.CompactOpts{})
+	return render.CompactNodeRows(out, compactRows, render.CompactOpts{Fields: result.Fields.Names()})
 }
 
 func renderAliasQuery(out io.Writer, result *query.Result, _ outputFormat) error {
+	if result.Count != nil {
+		return render.Counts(out, result.Count)
+	}
+
 	if result.Semantic != nil {
 		compactRows := make([]render.CompactRow, 0, len(result.Semantic.Ranked))
 
@@ -270,7 +274,7 @@ func renderAliasQuery(out io.Writer, result *query.Result, _ outputFormat) error
 			})
 		}
 
-		return render.CompactNodeRows(out, compactRows, render.CompactOpts{})
+		return render.CompactNodeRows(out, compactRows, render.CompactOpts{Fields: result.Fields.Names()})
 	}
 
 	compactRows := make([]render.CompactRow, 0, len(result.Rows))
@@ -286,7 +290,7 @@ func renderAliasQuery(out io.Writer, result *query.Result, _ outputFormat) error
 		})
 	}
 
-	return render.CompactNodeRows(out, compactRows, render.CompactOpts{})
+	return render.CompactNodeRows(out, compactRows, render.CompactOpts{Fields: result.Fields.Names()})
 }
 
 func renderAliasNodeGet(out io.Writer, result *aliasdispatch.NodeGetResult, _ outputFormat) error {
@@ -316,7 +320,7 @@ func renderAliasNodeGet(out io.Writer, result *aliasdispatch.NodeGetResult, _ ou
 		row.Paths = result.Paths
 	}
 
-	return render.CompactNodeRows(out, []render.CompactRow{row}, render.CompactOpts{})
+	return render.CompactNodeRows(out, []render.CompactRow{row}, render.CompactOpts{Fields: result.Fields.Names()})
 }
 
 func renderAliasEdgeList(out io.Writer, result *query.EdgeListResult, _ outputFormat) error {

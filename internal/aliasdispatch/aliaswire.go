@@ -14,21 +14,25 @@ func ResultPayload(result *DispatchResult) any {
 	switch typed := result.Result.(type) {
 	case *query.ListResult:
 		return map[string]any{
-			"rows":  typed.Rows,
+			"rows":  query.ProjectRows(typed.Fields, typed.Rows),
 			"count": len(typed.Rows),
 		}
 
 	case *query.Result:
+		if typed.Count != nil {
+			return typed.Count
+		}
+
 		if typed.Semantic != nil {
 			return map[string]any{
-				"results": typed.Semantic.Ranked,
+				"results": query.ProjectRows(typed.Fields, typed.Semantic.Ranked),
 				"count":   len(typed.Semantic.Ranked),
 				"model":   typed.Semantic.Model,
 			}
 		}
 
 		return map[string]any{
-			"rows":  typed.Rows,
+			"rows":  query.ProjectRows(typed.Fields, typed.Rows),
 			"count": len(typed.Rows),
 		}
 
@@ -59,7 +63,7 @@ func ResultPayload(result *DispatchResult) any {
 			envelope["paths"] = typed.Paths
 		}
 
-		return envelope
+		return query.ProjectRow(typed.Fields, envelope)
 
 	case *query.EdgeListResult:
 		return map[string]any{
