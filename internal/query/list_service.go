@@ -46,6 +46,9 @@ type ListRequest struct {
 // ListResult is the typed payload returned by ListRun.
 type ListResult struct {
 	Rows []ListRow
+
+	// Fields is the request's parsed fields projection, for the renderers.
+	Fields Fields
 }
 
 // ListRow is the per-row projection ListRun returns. Includes the index
@@ -118,7 +121,14 @@ func ListRun(database *sql.DB, loadedManifest *manifest.Manifest, req ListReques
 		return nil, parseIncludeErr
 	}
 
-	includeSet = MergeInclude(includeSet, IncludeFromFields(req.Fields))
+	fields, parseFieldsErr := ParseFields(req.Fields)
+
+	if parseFieldsErr != nil {
+		return nil, parseFieldsErr
+	}
+
+	result.Fields = fields
+	includeSet = MergeInclude(includeSet, fields.Include())
 
 	if expandErr := ExpandListRows(result.Rows, includeSet, req.WorkspaceRoot, database); expandErr != nil {
 		return nil, expandErr

@@ -17,6 +17,7 @@ MCP server. Bundles the open workspace + index + services into a `Runtime`, regi
 - `(*Server).RunBackground(ctx) error` — starts the five background goroutines (gated on `Workers > 0`).
 - Tools: `tusk_status`, `tusk_node_get`, `tusk_node_list`, `tusk_query`, `tusk_doctor`, `tusk_node_create`, `tusk_node_modify`, `tusk_node_move`, `tusk_node_delete`, `tusk_edge_add`, `tusk_edge_remove`, `tusk_edge_list`, `tusk_reindex`, `tusk_reset`.
 - Edge views (#848): `tusk_edge_list` and `tusk_node_get` fold a link's sub-unit copies onto one row from its file, with `units` naming the passages; `sub_units: true` returns the stored rows. `tusk_node_get` also takes `edge_type` and `direction` (`in` / `out`), and each of the three implies `include` edges. The new arguments are read with `argval`, so a value of the wrong JSON type is an error, not a silent default.
+- Fields and counts (#851): `fields` projects the JSON rows of `tusk_query`, `tusk_node_list`, `tusk_node_get` and `tusk_run` through `query.ProjectRows`/`ProjectRow`, as it already did their compact output; an unknown name is an error. `tusk_query` takes `count` (boolean) and `group_by` (string), read with `argval`; a count returns the `query.CountResult` JSON, or `render.Counts` text when `format` is `"compact"`, and ignores the 50-row structural page.
 
 ## Runtime-swap model
 

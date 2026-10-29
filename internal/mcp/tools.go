@@ -328,6 +328,23 @@ func toolError(err error) *mcpgo.CallToolResult {
 	return mcpgo.NewToolResultError(err.Error())
 }
 
+// countResult returns a count query's result: its JSON ({"count": N} plus
+// any groups), or the text table render.Counts writes when format is
+// "compact".
+func countResult(count *query.CountResult, format string) (*mcpgo.CallToolResult, error) {
+	if format != "compact" {
+		return toolJSON(count)
+	}
+
+	var buf bytes.Buffer
+
+	if renderErr := render.Counts(&buf, count); renderErr != nil {
+		return toolError(renderErr), nil
+	}
+
+	return mcpgo.NewToolResultText(buf.String()), nil
+}
+
 // toolJSON marshals payload to JSON and returns it as a text CallToolResult.
 func toolJSON(payload any) (*mcpgo.CallToolResult, error) {
 	body, marshalErr := json.Marshal(payload)
@@ -361,6 +378,12 @@ func registerNodeGetTool(srv *Server) {
 		includeRaw := argStringSlice(request, "include")
 		fields := argStringSlice(request, "fields")
 		format := argStringOptional(request, "format")
+
+		projection, fieldsErr := query.ParseFields(fields)
+
+		if fieldsErr != nil {
+			return toolError(fieldsErr), nil
+		}
 
 		getRequest := node.GetRequest{ID: nodeID, Include: includeRaw, Fields: fields}
 
@@ -458,7 +481,7 @@ func registerNodeGetTool(srv *Server) {
 			return mcpgo.NewToolResultText(buf.String()), nil
 		}
 
-		return toolJSON(payload)
+		return toolJSON(query.ProjectRow(projection, payload))
 	}
 
 	srv.register(tool, handler)
@@ -589,7 +612,7 @@ func registerNodeListTool(srv *Server) {
 		}
 
 		return toolJSON(map[string]any{
-			"results": results,
+			"results": query.ProjectRows(result.Fields, results),
 			"count":   len(results),
 		})
 	}
@@ -715,8 +738,10 @@ func registerQueryTool(srv *Server) {
 		mcpgo.WithNumber("min_score", mcpgo.Description("Final-score floor (default 0.5); lower on a miss.")),
 		mcpgo.WithArray("include", mcpgo.Description(`Subset of ["body","edges","properties","units","paths"]. Semantic "body" = every row's best-section text.`), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithNumber("max_units", mcpgo.Description("Units per row (semantic default 2).")),
-		mcpgo.WithArray("fields", mcpgo.Description("Field projection."), mcpgo.Items(map[string]any{"type": "string"})),
+		mcpgo.WithArray("fields", mcpgo.Description(`Keys to keep, e.g. ["id","properties.x"].`), mcpgo.Items(map[string]any{"type": "string"})),
 		mcpgo.WithString("format", mcpgo.Description(`"json" (default) or "compact".`)),
+		mcpgo.WithBoolean("count", mcpgo.Description("Total only, no rows.")),
+		mcpgo.WithString("group_by", mcpgo.Description(`Count per "type" or property.`)),
 		mcpgo.WithBoolean("graph_expand", mcpgo.Description("Graph expansion on/off (default: manifest).")),
 		mcpgo.WithNumber("hops", mcpgo.Description("Graph hops, 1|2.")),
 		mcpgo.WithNumber("graph_weight", mcpgo.Description("Per-hop weight, 0-1.")),
@@ -771,6 +796,18 @@ func registerQueryTool(srv *Server) {
 			return toolError(fmt.Errorf("max_units: must be >= 0 (got %d); omit it or pass 0 for the default", maxUnits)), nil
 		}
 
+		count, countErr := argval.Bool(request.GetArguments(), "count")
+
+		if countErr != nil {
+			return toolError(countErr), nil
+		}
+
+		groupBy, groupByErr := argval.String(request.GetArguments(), "group_by")
+
+		if groupByErr != nil {
+			return toolError(groupByErr), nil
+		}
+
 		result, runErr := query.Run(ctx, query.Deps{
 			Database:   srv.runtime.Index.DB(),
 			Manifest:   srv.runtime.Manifest,
@@ -798,10 +835,16 @@ func registerQueryTool(srv *Server) {
 			WorkspaceRoot:           srv.runtime.Root,
 			GraphExpansion:          graphExpansion,
 			Explain:                 explain,
+			Count:                   count,
+			GroupBy:                 groupBy,
 		})
 
 		if runErr != nil {
 			return toolError(runErr), nil
+		}
+
+		if result.Count != nil {
+			return countResult(result.Count, format)
 		}
 
 		if format == "compact" {
@@ -899,7 +942,7 @@ func registerQueryTool(srv *Server) {
 				results = append(results, entry)
 			}
 
-			return toolJSON(map[string]any{"results": results, "count": len(results)})
+			return toolJSON(map[string]any{"results": query.ProjectRows(result.Fields, results), "count": len(results)})
 		}
 
 		semantic := result.Semantic
@@ -975,7 +1018,7 @@ func registerQueryTool(srv *Server) {
 		}
 
 		response := map[string]any{
-			"results": ranking,
+			"results": query.ProjectRows(result.Fields, ranking),
 			"count":   len(ranking),
 			"model":   semantic.Model,
 		}
@@ -2155,12 +2198,16 @@ func aliasCompactResult(result *aliasdispatch.DispatchResult) (*mcpgo.CallToolRe
 			compactRows = append(compactRows, listRowToCompact(row))
 		}
 
-		if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
+		if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{Fields: typed.Fields.Names()}); renderErr != nil {
 			return toolError(renderErr), nil
 		}
 
 	case *query.Result:
-		if typed.Semantic != nil {
+		if typed.Count != nil {
+			if renderErr := render.Counts(&buf, typed.Count); renderErr != nil {
+				return toolError(renderErr), nil
+			}
+		} else if typed.Semantic != nil {
 			compactRows := make([]render.CompactRow, 0, len(typed.Semantic.Ranked))
 
 			for _, scored := range typed.Semantic.Ranked {
@@ -2177,7 +2224,7 @@ func aliasCompactResult(result *aliasdispatch.DispatchResult) (*mcpgo.CallToolRe
 				})
 			}
 
-			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
+			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{Fields: typed.Fields.Names()}); renderErr != nil {
 				return toolError(renderErr), nil
 			}
 		} else {
@@ -2195,7 +2242,7 @@ func aliasCompactResult(result *aliasdispatch.DispatchResult) (*mcpgo.CallToolRe
 				})
 			}
 
-			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{}); renderErr != nil {
+			if renderErr := render.CompactNodeRows(&buf, compactRows, render.CompactOpts{Fields: typed.Fields.Names()}); renderErr != nil {
 				return toolError(renderErr), nil
 			}
 		}

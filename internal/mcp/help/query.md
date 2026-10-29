@@ -40,8 +40,20 @@ tusk_query(filter="type=note AND kind=design",
   `paths` lists the workspace paths each page names (see "Path refs").
 - `max_units` — keep at most N matched units per file. Defaults to 2
   on semantic rows; the `include=units` outline is uncapped unless set.
-- `fields` — project the rendered shape to a subset of fields.
+- `fields` — keep only these keys of each row, in order:
+  `["id","properties.owner"]`. Names: `id`, `type`, `path`, `title`,
+  `parent_id`, `score`, `snippet`, `body`, `properties`, `edges`,
+  `paths`, `matched_units` (or `units`), and `properties.<name>` for one
+  property. An expandable name loads without `include`;
+  `matched_units` brings `units_total`, and `explain` scores stay. An
+  unknown name is an error.
 - `format` — `"json"` (default) or `"compact"`.
+- `count` — `true` returns `{"count": N}`, the total of every match, in
+  place of the rows. `take` and `skip` don't apply; no `semantic`.
+- `group_by` — `"type"` or a property name: counts per value,
+  largest first, as `{"count": N, "group_by": "...", "groups":
+  [{"value": ..., "count": n}]}`. A list property counts a node under
+  each item; no value (missing, null, empty list) is `"value": null`.
 - `min_score` — minimum similarity score for semantic results
   (MCP default 0.5). Lower this when a query returns no hits.
 

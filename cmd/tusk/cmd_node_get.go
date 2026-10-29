@@ -37,7 +37,9 @@ it (page.html has id "page.html").
 By default (no flags) the command prints the raw file to stdout
 verbatim — useful for piping into editors, less, or another tusk command.
 When --include, --fields, --format, or --json is passed the command emits
-structured output instead (compact for TTY, JSON otherwise).
+structured output instead (compact for TTY, JSON otherwise). --fields keeps
+only the named fields, as on tusk query: properties.<name> keeps one
+property, and an unknown name is an error.
 
 --include paths lists the workspace paths the page names (in inline code,
 links, or a paths-only frontmatter value) under edge types with
@@ -67,6 +69,12 @@ they are. Each of the three implies --include edges.`,
   tusk node get notes/hello > /tmp/hello.md && $EDITOR /tmp/hello.md`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			fields, fieldsErr := query.ParseFields(fieldsFlag)
+
+			if fieldsErr != nil {
+				return fieldsErr
+			}
+
 			ws, loaded, resolveErr := resolveWorkspace(cmd)
 
 			if resolveErr != nil {
@@ -147,7 +155,7 @@ they are. Each of the three implies --include edges.`,
 			}
 
 			if format == formatJSON {
-				return writeJSON(cmd.OutOrStdout(), payload)
+				return writeJSON(cmd.OutOrStdout(), query.ProjectRow(fields, payload))
 			}
 
 			// Both formatCompact and formatLegacy render through the
@@ -159,7 +167,7 @@ they are. Each of the three implies --include edges.`,
 	}
 
 	getCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand returned shape: body|edges|properties|paths (comma-separated; paths lists the workspace paths the page names)")
-	getCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project returned shape to these fields (comma-separated)")
+	getCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "keep only these fields (comma-separated; properties.<name> for one property)")
 	getCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: compact for TTY, json otherwise)")
 	getCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 	getCmd.Flags().StringVar(&edgeTypeFlag, "edge-type", "", "keep only edges of this type (implies --include edges)")

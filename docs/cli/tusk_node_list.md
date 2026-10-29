@@ -41,7 +41,9 @@ is a tab-aligned table of id, type, title, path.
 
 Use --sort to order by one or more keys (prefix +/-), --take N to limit,
 and --skip M to paginate. Use --include to expand each row with body, edges,
-or properties (comma-separated). Use --fields to project the rendered shape.
+or properties (comma-separated). Use --fields to keep only the named fields
+of each row in compact and JSON output (properties.<name> keeps one
+property; an unknown name is an error, as on tusk query).
 Use --format to pick compact or JSON output: the bare default is the
 tab-aligned table above, and once --include/--fields is set it is compact
 at a TTY and JSON when piped. --json (or --format json) forces JSON. For
@@ -73,7 +75,7 @@ tusk node list [filter] [flags]
 ### Options
 
 ```
-      --fields strings    project rendered rows to these fields (comma-separated)
+      --fields strings    keep only these fields of each row (comma-separated; properties.<name> for one property)
       --format string     output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)
   -h, --help              help for list
       --include strings   expand rows: body|edges|properties|paths (comma-separated)

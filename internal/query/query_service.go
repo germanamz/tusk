@@ -82,6 +82,13 @@ type Request struct {
 	// `modified-since:<duration>` resolve against. Required when the filter
 	// holds one.
 	Now time.Time
+
+	// Count asks for the number of matches in place of the rows (#851).
+	// GroupBy, when set, counts per value of type or a property and implies
+	// Count. A count covers every match: Take, Skip, Sort and the default
+	// page sizes don't apply, and Semantic is rejected.
+	Count   bool
+	GroupBy string
 }
 
 // Row is a single structural result.
@@ -178,6 +185,12 @@ type Result struct {
 	Rows []Row
 
 	Semantic *SemanticResult
+
+	// Count is set, and Rows left empty, when the request asked for a count.
+	Count *CountResult
+
+	// Fields is the request's parsed fields projection, for the renderers.
+	Fields Fields
 }
 
 // SemanticResult is the semantic-rank payload. Model is the embedder model
@@ -231,9 +244,22 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 	// dropping the genuinely top-ranked rows. This is acute when the filter
 	// admits sub-unit types (#560): each file contributes many sub-unit rows,
 	// so a small LIMIT can slice off whole files before they are ever ranked.
-	structTake, structSkip := req.Take, req.Skip
+	structTake, structSkip, sortSpec := req.Take, req.Skip, req.Sort
+	counting := req.Count || req.GroupBy != ""
 
-	if req.Semantic != "" {
+	if counting {
+		if req.Semantic != "" {
+			return nil, errCountSemantic
+		}
+
+		if groupErr := validateGroupBy(req.GroupBy); groupErr != nil {
+			return nil, groupErr
+		}
+
+		// A count is the total of every match, so no window, page size or
+		// order applies.
+		structTake, structSkip, sortSpec = 0, 0, ""
+	} else if req.Semantic != "" {
 		structTake, structSkip = 0, 0
 
 		// Semantic re-windows after ranking, so the structural compiler never
@@ -256,7 +282,7 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		structTake = req.StructuralDefaultTake
 	}
 
-	rows, compileErr := compileAndQuery(deps.Database, deps.Manifest, req.Filter, req.Sort, structTake, structSkip, req.Now)
+	rows, compileErr := compileAndQuery(deps.Database, deps.Manifest, req.Filter, sortSpec, structTake, structSkip, req.Now)
 
 	if compileErr != nil {
 		return nil, compileErr
@@ -301,9 +327,25 @@ func Run(ctx context.Context, deps Deps, req Request) (*Result, error) {
 		return nil, parseIncludeErr
 	}
 
-	includeSet = MergeInclude(includeSet, IncludeFromFields(req.Fields))
+	fields, parseFieldsErr := ParseFields(req.Fields)
 
-	result := &Result{Rows: structural}
+	if parseFieldsErr != nil {
+		return nil, parseFieldsErr
+	}
+
+	if counting {
+		count, countErr := countRows(structural, req.GroupBy)
+
+		if countErr != nil {
+			return nil, countErr
+		}
+
+		return &Result{Count: count, Fields: fields}, nil
+	}
+
+	includeSet = MergeInclude(includeSet, fields.Include())
+
+	result := &Result{Rows: structural, Fields: fields}
 
 	subUnitsEnabled := deps.Manifest != nil && deps.Manifest.SubUnitsEnabled()
 

@@ -39,6 +39,8 @@ func newQueryCmd() *cobra.Command {
 		graphWeight   float64
 		graphEdges    []string
 		explainFlag   bool
+		countFlag     bool
+		groupBy       string
 	)
 
 	queryCmd := &cobra.Command{
@@ -93,12 +95,24 @@ Three modes, all driven by the same command:
 Use --sort to order by one or more keys (prefix +/-), --take N to limit
 results, --skip M to paginate. Use --include to expand each row with
 body, edges, properties, units or paths (comma-separated; for semantic
-results body gives every row's best unit its text). Use --fields to project
-the rendered shape.
+results body gives every row's best unit its text). Use --fields to keep
+only the named fields of each row, in compact and JSON output alike: id,
+type, path, title, parent_id, score, snippet, body, properties, edges, paths
+or matched_units (units for short), or properties.<name> for one property.
+Naming an expandable field loads it without --include, matched_units brings
+units_total, and --explain keeps its scores. An unknown name is an error.
 Use --format to pick compact or JSON output: with no --include/--fields
 the default is the tab-aligned table, and once a shape flag is set it is
 compact at a TTY and JSON when piped. --json (or --format json) forces
 JSON regardless.
+
+Counting: --count prints how many nodes the filter matches in place of the
+rows ({"count": N} in JSON). It counts every match: --take, --skip and
+--sort don't apply, and it doesn't combine with --semantic. --group-by type
+or --group-by <property> counts per value, largest first (and implies
+--count): a list property counts a node once under each of its items, and
+nodes with no value (missing, null or an empty list) count under (none),
+null in JSON.
 
 Matched units: semantic rows always carry matched_units, the passages that
 matched. Each scored passage folds into its innermost section, so one finding
@@ -140,6 +154,13 @@ the document is restructured.`,
 
   # Expand bodies and edges in one round-trip
   tusk query 'type=ticket' --include body,edges
+
+  # Only each ticket's id and owner
+  tusk query 'type=ticket' --json --fields id,properties.owner
+
+  # How many open tickets, and how many per owner
+  tusk query 'type=ticket AND status=open' --count
+  tusk query 'type=ticket AND status=open' --group-by owner
 
   # Which pages describe this file (or a directory above it), and where
   tusk query 'names-path=server/ledger/core/service.go' --include paths
@@ -238,10 +259,24 @@ the document is restructured.`,
 				WorkspaceRoot:       ws.Root,
 				GraphExpansion:      graphExpansion,
 				Explain:             explainFlag,
+				Count:               countFlag,
+				GroupBy:             groupBy,
 			})
 
 			if runErr != nil {
 				return runErr
+			}
+
+			if result.Count != nil {
+				// A count is a number, not rows, so the shape flags don't
+				// pick its format: text unless JSON is asked for.
+				countFormat, formatErr := resolveFormat(emitJSON, formatFlag, false)
+
+				if formatErr != nil {
+					return formatErr
+				}
+
+				return renderQueryCount(cmd.OutOrStdout(), result.Count, countFormat)
 			}
 
 			hasShapeFlags := len(includeFlag) > 0 || len(fieldsFlag) > 0
@@ -252,10 +287,10 @@ the document is restructured.`,
 			}
 
 			if result.Semantic != nil {
-				return renderQuerySemantic(cmd, result.Semantic, format, fieldsFlag)
+				return renderQuerySemantic(cmd, result.Semantic, format, result.Fields)
 			}
 
-			return renderQueryStructural(cmd, result.Rows, format, fieldsFlag)
+			return renderQueryStructural(cmd, result.Rows, format, result.Fields)
 		},
 	}
 
@@ -267,7 +302,7 @@ the document is restructured.`,
 	queryCmd.Flags().Float64Var(&minScore, "min-score", 0, "drop semantic results below this similarity score (default 0 = no filter; MCP tusk_query defaults to 0.5). When graph expansion is active, this filters the blended final score, not the bare cosine.")
 	queryCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties|units|paths (comma-separated; units lists each file's sub-units, paths the workspace paths each page names)")
 	queryCmd.Flags().IntVar(&maxUnits, "max-units", 0, "keep at most N matched units per file (0 = all); units_total reports the count before the cut")
-	queryCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
+	queryCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "keep only these fields of each row (comma-separated; properties.<name> for one property)")
 	queryCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)")
 	queryCmd.Flags().BoolVar(&graphExpand, "graph-expand", false, "enable graph-expanded retrieval for this call (overrides [query.graph-expansion] enabled=false)")
 	queryCmd.Flags().BoolVar(&graphNoExpand, "no-graph-expand", false, "disable graph-expanded retrieval for this call (beats [query.graph-expansion] enabled=true)")
@@ -277,6 +312,8 @@ the document is restructured.`,
 	// "inherit" so the help does not advertise a passable negative default.
 	queryCmd.Flags().Lookup("graph-weight").DefValue = "inherit"
 	queryCmd.Flags().StringSliceVar(&graphEdges, "graph-edges", nil, "comma-separated edge-type names used by the graph expander; omit to inherit manifest")
+	queryCmd.Flags().BoolVar(&countFlag, "count", false, "print how many nodes match instead of the rows (ignores --take, --skip and --sort)")
+	queryCmd.Flags().StringVar(&groupBy, "group-by", "", "count matches per value of type or a property (implies --count)")
 	queryCmd.Flags().BoolVar(&explainFlag, "explain", false, "include a per-row score trace: cosine and final, plus lexical, title, graph/distance and weight when the ranking computed them")
 
 	return queryCmd
@@ -416,21 +453,21 @@ func buildCLIEmbedder(loaded *manifest.Manifest, semanticQuery string) (embed.Em
 // branch emits the matching rows as a JSON array; the compact branch falls
 // back to the legacy tab-aligned table when no include / fields are set so
 // existing scripts keep working.
-func renderQueryStructural(cmd *cobra.Command, rows []query.Row, format outputFormat, fields []string) error {
+func renderQueryStructural(cmd *cobra.Command, rows []query.Row, format outputFormat, fields query.Fields) error {
 	switch format {
 	case formatJSON:
-		// Emit the matching rows as a JSON array. Each row carries at least
-		// id/type/path/title (plus any requested expansions). A genuinely
-		// empty result is an empty array `[]`, not the legacy sentinel that
-		// emitted `[]` even when rows matched — which made agents read a
-		// matching query as "no results".
+		// Emit the matching rows as a JSON array. Each row carries
+		// id/type/path/title (plus any requested expansions), or only the
+		// fields --fields names. A genuinely empty result is an empty array
+		// `[]`, not the legacy sentinel that emitted `[]` even when rows
+		// matched — which made agents read a matching query as "no results".
 		if rows == nil {
 			rows = []query.Row{}
 		}
 
-		return writeJSON(cmd.OutOrStdout(), rows)
+		return writeJSON(cmd.OutOrStdout(), query.ProjectRows(fields, rows))
 	case formatCompact:
-		return renderStructuralCompact(cmd.OutOrStdout(), rows, fields)
+		return renderStructuralCompact(cmd.OutOrStdout(), rows, fields.Names())
 	}
 
 	// formatLegacy: tab-aligned table.
@@ -467,15 +504,16 @@ func renderStructuralCompact(out io.Writer, rows []query.Row, fields []string) e
 
 // renderQuerySemantic emits the ranked-result rendering for --semantic
 // queries. JSON output is a flat array of ScoredRow in its wire shape (see
-// ScoredRow.MarshalJSON); the table view shows id/score/snippet; the compact
-// view shows the full §4.4 form including expanded body/edges. With
-// --explain (semantic.Trace set) both views add the score breakdown.
-func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, format outputFormat, fields []string) error {
+// ScoredRow.MarshalJSON), projected to --fields; the table view shows
+// id/score/snippet; the compact view shows the full §4.4 form including
+// expanded body/edges. With --explain (semantic.Trace set) both views add the
+// score breakdown.
+func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, format outputFormat, fields query.Fields) error {
 	switch format {
 	case formatJSON:
 		encoder := json.NewEncoder(cmd.OutOrStdout())
 
-		return encoder.Encode(semantic.Ranked)
+		return encoder.Encode(query.ProjectRows(fields, semantic.Ranked))
 	case formatCompact:
 		compactRows := make([]render.CompactRow, 0, len(semantic.Ranked))
 
@@ -503,7 +541,7 @@ func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, for
 			})
 		}
 
-		return render.CompactNodeRows(cmd.OutOrStdout(), compactRows, render.CompactOpts{Fields: fields})
+		return render.CompactNodeRows(cmd.OutOrStdout(), compactRows, render.CompactOpts{Fields: fields.Names()})
 	}
 
 	// formatLegacy: tab-aligned id/score/snippet table.
@@ -530,4 +568,14 @@ func renderQuerySemantic(cmd *cobra.Command, semantic *query.SemanticResult, for
 	}
 
 	return tab.Flush()
+}
+
+// renderQueryCount emits a --count / --group-by result: {"count": N} plus its
+// groups in JSON, the bare total or a value / count table otherwise.
+func renderQueryCount(out io.Writer, count *query.CountResult, format outputFormat) error {
+	if format == formatJSON {
+		return json.NewEncoder(out).Encode(count)
+	}
+
+	return render.Counts(out, count)
 }

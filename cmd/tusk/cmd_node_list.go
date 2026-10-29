@@ -58,7 +58,9 @@ is a tab-aligned table of id, type, title, path.
 
 Use --sort to order by one or more keys (prefix +/-), --take N to limit,
 and --skip M to paginate. Use --include to expand each row with body, edges,
-or properties (comma-separated). Use --fields to project the rendered shape.
+or properties (comma-separated). Use --fields to keep only the named fields
+of each row in compact and JSON output (properties.<name> keeps one
+property; an unknown name is an error, as on tusk query).
 Use --format to pick compact or JSON output: the bare default is the
 tab-aligned table above, and once --include/--fields is set it is compact
 at a TTY and JSON when piped. --json (or --format json) forces JSON. For
@@ -122,7 +124,7 @@ structural-and-semantic ranking, use "tusk query" with --semantic.`,
 
 			switch format {
 			case formatJSON:
-				return writeJSON(cmd.OutOrStdout(), result.Rows)
+				return writeJSON(cmd.OutOrStdout(), query.ProjectRows(result.Fields, result.Rows))
 			case formatCompact:
 				return renderListCompact(cmd.OutOrStdout(), result.Rows, fieldsFlag)
 			}
@@ -144,7 +146,7 @@ structural-and-semantic ranking, use "tusk query" with --semantic.`,
 	listCmd.Flags().IntVar(&take, "take", 0, "limit results to N rows")
 	listCmd.Flags().IntVar(&skip, "skip", 0, "skip the first M rows (requires --take)")
 	listCmd.Flags().StringSliceVar(&includeFlag, "include", nil, "expand rows: body|edges|properties|paths (comma-separated)")
-	listCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "project rendered rows to these fields (comma-separated)")
+	listCmd.Flags().StringSliceVar(&fieldsFlag, "fields", nil, "keep only these fields of each row (comma-separated; properties.<name> for one property)")
 	listCmd.Flags().StringVar(&formatFlag, "format", "", "output format: compact|json (default: tab-aligned table; with --include/--fields, compact for TTY and json when piped)")
 	listCmd.Flags().BoolVar(&emitJSON, "json", false, "emit structured JSON (sugar for --format json)")
 

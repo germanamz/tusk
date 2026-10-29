@@ -17,7 +17,9 @@ it (page.html has id "page.html").
 By default (no flags) the command prints the raw file to stdout
 verbatim — useful for piping into editors, less, or another tusk command.
 When --include, --fields, --format, or --json is passed the command emits
-structured output instead (compact for TTY, JSON otherwise).
+structured output instead (compact for TTY, JSON otherwise). --fields keeps
+only the named fields, as on tusk query: properties.<name> keeps one
+property, and an unknown name is an error.
 
 --include paths lists the workspace paths the page names (in inline code,
 links, or a paths-only frontmatter value) under edge types with
@@ -60,7 +62,7 @@ tusk node get <node-id> [flags]
 ```
       --direction string   keep only in or out edges (implies --include edges)
       --edge-type string   keep only edges of this type (implies --include edges)
-      --fields strings     project returned shape to these fields (comma-separated)
+      --fields strings     keep only these fields (comma-separated; properties.<name> for one property)
       --format string      output format: compact|json (default: compact for TTY, json otherwise)
   -h, --help               help for get
       --include strings    expand returned shape: body|edges|properties|paths (comma-separated; paths lists the workspace paths the page names)
