@@ -43,9 +43,14 @@ path=docs/product/*, path=docs/**, id=**/index); quote the value to match a
 literal *. Edge traversal uses edge-type-> (outgoing) or edge-type<- (incoming) and
 may chain multi-hop. The one term after the arrow (a predicate, NOT term,
 or parenthesized group) constrains the linked node, e.g.
-blocks-> (status=open OR status=wip). Traversal shortcuts: tree=id,
-parent=id, root=id, each optionally qualified by a hierarchy alias (e.g.
-tree:wbs=id) set via hierarchy on an edge type in tusk.toml. Recency
+blocks-> (status=open OR status=wip). ->+ repeats the hop to any depth
+and ->{2}, ->{1,3} or ->{2,} a number of times, stopping on cycles. An
+edge type's inverse label walks it backwards (depended-on-by-> is
+depends-on<-). Traversal shortcuts: tree=id, parent=id, root=id, each
+optionally qualified by a hierarchy alias (e.g. tree:wbs=id) set via
+hierarchy on an edge type in tusk.toml; parent-is-source = true there
+means the parent names its children, and max-depth caps tree= and
+root=. Recency
 shortcut: modified-since: a duration or ISO date (e.g. modified-since:7d,
 modified-since:2026-05-23). Combine with AND, OR, NOT, and parens. (Both
 : and = bind property comparisons; pick whichever reads better.) Output

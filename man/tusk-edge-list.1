@@ -19,6 +19,12 @@ tab-aligned table of source, type, target, attributed source-path. Use
 default mirrors prior CLI behavior (tab-aligned table for TTY).
 
 .PP
+--type also takes an edge type's inverse label: --type depended-on-by
+--from c lists the depends-on edges into c, under their own type. A
+--type tusk.toml doesn't declare is an error when nothing matches it;
+edges of a type you've since removed from tusk.toml still list.
+
+.PP
 A link written in a paragraph is stored for the file and again for the
 paragraph and each section around it. The listing shows it once, from
 the file, with UNITS naming the paragraphs, list items or sections the
@@ -58,7 +64,7 @@ them: its frontmatter list first, then body links in reading order.
 
 .PP
 \fB--type\fP=""
-	filter by edge type
+	filter by edge type, or its inverse label
 
 
 .SH OPTIONS INHERITED FROM PARENT COMMANDS

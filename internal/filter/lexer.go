@@ -28,6 +28,10 @@ func (lex *Lexer) Next() Token {
 	startPos := lex.pos
 
 	if op := lex.tryOperator(); op != nil {
+		if op.kind == TokenArrowOut || op.kind == TokenArrowIn {
+			return Token{Kind: op.kind, Value: lex.hopSuffix(), Pos: startPos}
+		}
+
 		return Token{Kind: op.kind, Pos: startPos}
 	}
 
@@ -178,6 +182,36 @@ func (lex *Lexer) tryOperator() *operatorMatch {
 	}
 
 	return nil
+}
+
+// hopSuffix consumes the hop count written right after an arrow, `+` or a
+// braced `{…}`, and returns it as written for the parser to read. It returns ""
+// when the arrow has none. A brace runs to the next `}`, or to the end of the
+// input when there is none, so the parser can report the malformed count.
+func (lex *Lexer) hopSuffix() string {
+	if lex.pos >= len(lex.input) {
+		return ""
+	}
+
+	switch lex.input[lex.pos] {
+	case '+':
+		lex.pos++
+
+		return "+"
+	case '{':
+		end := strings.IndexByte(lex.input[lex.pos:], '}')
+
+		if end < 0 {
+			end = len(lex.input) - lex.pos - 1
+		}
+
+		suffix := lex.input[lex.pos : lex.pos+end+1]
+		lex.pos += end + 1
+
+		return suffix
+	}
+
+	return ""
 }
 
 func (lex *Lexer) lexString() Token {

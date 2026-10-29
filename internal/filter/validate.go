@@ -135,13 +135,7 @@ func (collector *validationCollector) walk(expr Expr, scope typeScope) {
 			collector.checkDeclaredNames(typed, scope)
 		}
 	case *EdgePredicate:
-		ref, parseErr := typeref.Parse(typed.EdgeType)
-
-		if parseErr != nil {
-			collector.add(typed.Pos, fmt.Sprintf("edge type %q is not a valid type reference", typed.EdgeType), "")
-		} else if _, declared := collector.manifest.EdgeTypes[ref.Type]; !declared {
-			collector.add(typed.Pos, fmt.Sprintf("edge type %q not declared in manifest", ref.Type), suggestName(ref.Type, sortedKeys(collector.manifest.EdgeTypes)))
-		}
+		collector.resolveEdgeType(typed)
 
 		if typed.Inner != nil {
 			// The inner predicate constrains the edge's target node, a different
@@ -155,6 +149,45 @@ func (collector *validationCollector) walk(expr Expr, scope typeScope) {
 	case *NamesPathPredicate:
 		collector.validateNamesPath(typed)
 	}
+}
+
+// resolveEdgeType checks an edge predicate's type against the manifest. An
+// inverse label is rewritten to the edge type that declares it, keeping any
+// source qualifier, and the direction is flipped, so `depended-on-by->` walks
+// as `depends-on<-`. A name that is neither is reported, with a near spelling
+// among the edge types and inverse labels.
+func (collector *validationCollector) resolveEdgeType(pred *EdgePredicate) {
+	ref, parseErr := typeref.Parse(pred.EdgeType)
+
+	if parseErr != nil {
+		collector.add(pred.Pos, fmt.Sprintf("edge type %q is not a valid type reference", pred.EdgeType), "")
+
+		return
+	}
+
+	edgeTypes := collector.manifest.EdgeTypes
+
+	if _, declared := edgeTypes[ref.Type]; declared {
+		return
+	}
+
+	if forward, isInverse := manifest.InverseOf(edgeTypes, ref.Type); isInverse {
+		ref.Type = forward
+		pred.EdgeType = ref.String()
+		pred.Direction = pred.Direction.reversed()
+
+		return
+	}
+
+	candidates := sortedKeys(edgeTypes)
+
+	for label := range manifest.InverseLabels(edgeTypes) {
+		candidates = append(candidates, label)
+	}
+
+	sort.Strings(candidates)
+
+	collector.add(pred.Pos, fmt.Sprintf("edge type %q not declared in manifest", ref.Type), suggestName(ref.Type, candidates))
 }
 
 // conjunctiveTypes collects the node-type names named by `type=<name>`
@@ -764,14 +797,16 @@ func (collector *validationCollector) resolveShortcut(shortcut *TraversalShortcu
 	collector.add(shortcut.Pos, "no default hierarchy and multiple are declared", fmt.Sprintf("use tree:<alias>=<id> or set hierarchy-default = true on one of: %s", formatAliasList(aliasToEdge)))
 }
 
-// assignEdge stamps the resolved edge name onto the shortcut and, when the
-// edge type declares an ordering property, also copies OrderedBy so the
-// compiler can emit a default ORDER BY clause.
+// assignEdge stamps the resolved edge name onto the shortcut and copies what
+// the compiler reads from the edge type: OrderedBy for a default ORDER BY,
+// and the hierarchy's direction and depth cap.
 func (collector *validationCollector) assignEdge(shortcut *TraversalShortcut, edgeName string) {
 	shortcut.EdgeType = edgeName
 
 	if edgeDef, ok := collector.manifest.EdgeTypes[edgeName]; ok {
 		shortcut.OrderedBy = edgeDef.OrderedBy
+		shortcut.ParentIsSource = edgeDef.ParentIsSource
+		shortcut.MaxDepth = edgeDef.MaxDepth
 	}
 }
 

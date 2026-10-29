@@ -45,7 +45,8 @@ CONFIGURATION
     [node-types.<name>]      typed properties a node may/must set
     [edge-types.<name>]      from / to / cardinality / ordered / inverse /
                              acyclic / hierarchy / hierarchy-default /
-                             wikilinks for typed relationships
+                             parent-is-source / max-depth / wikilinks
+                             for typed relationships
     [embeddings]             provider = "ollama", model, endpoint, dim,
                              api-key, workers, timeout-seconds — enables
                              semantic search; query-prefix, document-prefix,

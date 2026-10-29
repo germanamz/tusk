@@ -41,6 +41,36 @@ func TestServiceRemoveEdge_UndeclaredReturnsSentinel(test *testing.T) {
 	}
 }
 
+// TestServiceEdgeWrite_InverseLabelNamesTheWriteToMake pins that an inverse
+// label is refused with the forward write spelled out, not reported as an
+// undeclared type with a reload hint, and not written into the other node's
+// file (#850).
+func TestServiceEdgeWrite_InverseLabelNamesTheWriteToMake(test *testing.T) {
+	edgeTypes := manifest.EdgeTypes{"depends-on": {From: []string{"*"}, To: []string{"*"}, Cardinality: manifest.CardinalityManyToMany, Inverse: "depended-on-by"}}
+	service := node.NewServiceWithManifest(test.TempDir(), nil, nil, edgeTypes)
+
+	cases := []struct {
+		verb string
+		run  func(string, string, string) error
+	}{
+		{"add", service.AddEdge},
+		{"remove", service.RemoveEdge},
+	}
+
+	for _, testCase := range cases {
+		writeErr := testCase.run("depended-on-by", "svc/c", "svc/b")
+		want := `edge type "depended-on-by" is the inverse of "depends-on", and an edge is written on its source; ` + testCase.verb + ` depends-on from svc/b to svc/c instead`
+
+		if writeErr == nil || writeErr.Error() != want {
+			test.Errorf("%s: err = %v, want %q", testCase.verb, writeErr, want)
+		}
+
+		if errors.Is(writeErr, node.ErrEdgeTypeNotDeclared) {
+			test.Errorf("%s: an inverse label is reported as undeclared, which earns it a reload hint", testCase.verb)
+		}
+	}
+}
+
 // TestAddEdgeToFrontmatter_CanonicalizesUnquotedDate guards the leak found in
 // review: a node hand-authored with an unquoted date (`due: 2026-06-11`, which
 // yaml parses to a time.Time) must not make edge add fail in renderMarkdown.

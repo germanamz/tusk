@@ -7,7 +7,7 @@ status: stable
 
 # internal/filter
 
-Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk node list <expr>` and the `tusk_query` MCP tool. Supports property predicates (`=`/`:`, `!=`, `<`, `<=`, `>`, `>=`, range `lo..hi`, presence `=*`/`!=*`, list membership `~=` and `=[a, b]`, relative dates `today-90d`/`now-48h`), glob patterns on `path` and `id` (`path=docs/product/*`), edge traversal (`edge-type->`, `edge-type<-`) whose inner term can be anything the grammar accepts, traversal shortcuts (`tree=id`, `parent=id`, `root=id`, plus their qualified forms `tree:<alias>=id`, `parent:<alias>=id`, `root:<alias>=id`), path refs (`names-path=<path|glob>`), boolean composition (`AND`/`OR`/`NOT`/parens), and multi-hop paths.
+Filter grammar for the index. Lexer → AST → SQL compiler that powers `tusk node list <expr>` and the `tusk_query` MCP tool. Supports property predicates (`=`/`:`, `!=`, `<`, `<=`, `>`, `>=`, range `lo..hi`, presence `=*`/`!=*`, list membership `~=` and `=[a, b]`, relative dates `today-90d`/`now-48h`), glob patterns on `path` and `id` (`path=docs/product/*`), edge traversal (`edge-type->`, `edge-type<-`) whose inner term can be anything the grammar accepts, repeated hops (`edge-type->+`, `edge-type->{1,3}`), inverse labels (`depended-on-by->` for `depends-on<-`), traversal shortcuts (`tree=id`, `parent=id`, `root=id`, plus their qualified forms `tree:<alias>=id`, `parent:<alias>=id`, `root:<alias>=id`), path refs (`names-path=<path|glob>`), boolean composition (`AND`/`OR`/`NOT`/parens), and multi-hop paths.
 
 ## Public surface
 
@@ -95,4 +95,14 @@ The arrow takes the single next term (`parseNot`), the same way `AND` binds: a p
 - `tree:<alias>=<id>` (qualified) walks the edge whose `hierarchy = "<alias>"`.
 - `tree=<id>` (unqualified) walks the edge with `hierarchy-default = true`, or the sole hierarchy edge if only one is declared, or the bare `parent` edge under the back-compat synthesis. If none of these resolve, validation fails with the declared aliases listed.
 
-Hierarchy resolution happens in `Validate` (against the manifest); `Compile` reads the resolved edge name from the AST and emits `type = ?` SQL bound to that name.
+Hierarchy resolution happens in `Validate` (against the manifest), which also copies the edge type's `parent-is-source` and `max-depth` onto the shortcut; `Compile` reads them from the AST and emits `type = ?` SQL bound to the resolved name. By default the child names its parent, so an edge's source is the child; `parent-is-source` swaps which column holds the parent (`hierarchyColumns`). `tree=` and `root=` are recursive CTEs joined with `UNION`, so a node the walk reaches twice adds a row the CTE has already seen and a cycle ends it. With no `max-depth` they walk the whole tree; with one they stop that many levels out. `root=` collects the ancestors with no parent of their own (plus the topmost ones `max-depth` reached) and walks down from them and from the seed, so a seed on a loop with no root still returns its own subtree, and a node with two roots returns both trees.
+
+### Repeated hops
+
+The lexer hands the arrow's suffix to the parser in the arrow token's `Value`: `+`, or a braced count up to the closing `}`. `parseHopCount` turns it into `EdgePredicate.MinHops`/`MaxHops`: `->+` is {1, 0} (no upper bound), `->{2}` {2, 2}, `->{1,3}` {1, 3}, `->{2,}` {2, 0}; a plain arrow, and `->{1}`, is one hop. Counts run from 1 to `MaxHopCount` (50), and the suffix must touch the arrow. A repeated arrow counts as one hop toward `MaxTraversalDepth`.
+
+`compileRepeatedEdge` emits one uncorrelated recursive CTE per repeated arrow, so it runs once per query rather than per row. It starts one edge away from the nodes the inner term matches (from every edge of the type when there is none) and steps toward the row through the far end's index. The CTE carries `(node_id, depth)` under `UNION`: a bounded walk counts depth up to the maximum, and an unbounded one counts only up to the minimum (`MIN(depth + 1, m)`), so its rows stay finite and a cycle ends the walk. A row matches when it is in the CTE at `depth >= m`. The inner term compiles inside the CTE at depth+1; its params, and any CTE it needs, go ahead of the WHERE params (#704).
+
+### Inverse labels
+
+`Validate` rewrites an edge predicate whose type is an `inverse` label (`manifest.InverseOf`) to the edge type that declares it, keeping a source qualifier, and flips its direction. A declared edge type wins over an inverse of the same name, which the manifest loader rejects anyway. The "not declared" hint suggests inverse labels as well as edge types.

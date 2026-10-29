@@ -115,38 +115,34 @@ type compileState struct {
 	now time.Time
 }
 
-// recursiveAncestorsCTE returns the recursive-CTE body that walks `type` edges
-// from a seed node UP to its ancestors, to depth 5. Hierarchy edges are
-// child→parent (the property lives on the child, e.g. `parent: <id>`, so the
-// edge points from the child source to the parent target), so following
-// source→target climbs toward the root. The seed's parent is its edge target;
-// each recursion joins the next parent on source_id. ShortcutRoot uses this to
-// find a node's topmost ancestor. Result column: target_id (the ancestor ids).
-func recursiveAncestorsCTE(name string) string {
-	return fmt.Sprintf(`%s AS (
-    SELECT target_id, 1 AS depth FROM edges WHERE source_id = ? AND type = ?
-    UNION ALL
-    SELECT edges.target_id, %s.depth + 1 FROM %s
-        JOIN edges ON edges.source_id = %s.target_id
-        WHERE edges.type = ? AND %s.depth < 5
-)`, name, name, name, name, name)
+// walkStep returns what the recursive step of a walk CTE named name selects as
+// the next row's depth, and the condition that stops it. A bounded walk counts
+// hops up to maxHops. An unbounded one counts only up to minHops, as far as the
+// final `depth >= minHops` test needs, so the depth stops growing: a node the
+// walk reaches again is a row the CTE's UNION has already seen, and the walk
+// ends even on a cycle.
+func walkStep(name string, minHops, maxHops int) (depth, stop string) {
+	if maxHops > 0 {
+		return name + ".depth + 1", fmt.Sprintf(" AND %s.depth < %d", name, maxHops)
+	}
+
+	if minHops <= 1 {
+		return "1", ""
+	}
+
+	return fmt.Sprintf("MIN(%s.depth + 1, %d)", name, minHops), ""
 }
 
-// recursiveDescendantsCTE returns the recursive-CTE body that walks `type` edges
-// from a seed node DOWN to its descendants, to depth 5. For child→parent
-// hierarchy edges, a node's children are the edge sources whose target is that
-// node, so descending follows target→source: the seed's children are the
-// sources of edges whose target is the seed, and each recursion joins the next
-// generation on target_id. ShortcutTree uses this. Result column: node_id (the
-// descendant ids).
-func recursiveDescendantsCTE(name string) string {
-	return fmt.Sprintf(`%s AS (
-    SELECT source_id AS node_id, 1 AS depth FROM edges WHERE target_id = ? AND type = ?
-    UNION ALL
-    SELECT edges.source_id, %s.depth + 1 FROM %s
-        JOIN edges ON edges.target_id = %s.node_id
-        WHERE edges.type = ? AND %s.depth < 5
-)`, name, name, name, name, name)
+// hierarchyColumns returns the edges columns that hold a hierarchy edge's
+// child and parent: the source names its parent by default (`parent: <id>`
+// points child→parent), and parentIsSource turns that around for edges such as
+// has-part, where the parent names its children.
+func hierarchyColumns(parentIsSource bool) (child, parent string) {
+	if parentIsSource {
+		return "target_id", "source_id"
+	}
+
+	return "source_id", "target_id"
 }
 
 // compileBinary compiles the two operands of an AND/OR node on the same state —
@@ -864,6 +860,10 @@ func enumOrderExpression(property string, values []string) string {
 // the same depth reuse the alias names, which is safe because each sits in its
 // own EXISTS subquery.
 func (state *compileState) compileEdgePredicate(predicate *EdgePredicate, depth int) (string, []any, error) {
+	if predicate.repeated() {
+		return state.compileRepeatedEdge(predicate, depth)
+	}
+
 	edgeAlias := fmt.Sprintf("e%d", depth)
 	nodeAlias := fmt.Sprintf("n%d", depth)
 	parentRef := rowRef(depth)
@@ -914,6 +914,80 @@ func (state *compileState) compileEdgePredicate(predicate *EdgePredicate, depth 
 	return sql, params, nil
 }
 
+// compileRepeatedEdge compiles `->+` and `->{m,n}` (and their `<-` forms) as a
+// recursive CTE walked back from the far end: it starts at the nodes one edge
+// away from a node the inner term matches, or from any edge of the type when
+// there is no inner term, and steps one edge further toward the row each round.
+// A row matches when the walk reaches it within the hop count. The CTE is
+// uncorrelated, so it runs once for the whole query, and the inner term
+// compiles inside it at depth+1 like a single hop's does. Its params, the inner
+// term's included, travel with the CTE (see compileState.cteParams); any CTE
+// the inner term needs is emitted first.
+func (state *compileState) compileRepeatedEdge(predicate *EdgePredicate, depth int) (string, []any, error) {
+	edgeAlias := fmt.Sprintf("e%d", depth)
+	nodeAlias := fmt.Sprintf("n%d", depth)
+
+	// near is the edge's end toward the row, far the end toward the inner
+	// term. The step finds the next edge by its far end, through that column's
+	// index (#838).
+	near, far, farIndex := "source_id", "target_id", "edges_target_idx"
+
+	if predicate.Direction == DirectionIncoming {
+		near, far, farIndex = "target_id", "source_id", "edges_source_target_idx"
+	}
+
+	seedTypeClause, seedTypeParams, seedTypeErr := compileTypeRef(predicate.EdgeType, edgeAlias+".", OpEQ)
+
+	if seedTypeErr != nil {
+		return "", nil, seedTypeErr
+	}
+
+	params := append([]any{}, seedTypeParams...)
+	seed := fmt.Sprintf("SELECT %s.%s, 1 FROM edges %s WHERE %s", edgeAlias, near, edgeAlias, seedTypeClause)
+
+	if predicate.Inner != nil {
+		innerSQL, innerParams, innerErr := state.compileWhere(predicate.Inner, depth+1)
+
+		if innerErr != nil {
+			return "", nil, innerErr
+		}
+
+		seed = fmt.Sprintf("SELECT %s.%s, 1 FROM edges %s JOIN nodes %s ON %s.id = %s.%s WHERE %s AND (%s)",
+			edgeAlias, near, edgeAlias, nodeAlias, nodeAlias, edgeAlias, far, seedTypeClause, innerSQL)
+		params = append(params, innerParams...)
+	}
+
+	stepTypeClause, stepTypeParams, stepTypeErr := compileTypeRef(predicate.EdgeType, edgeAlias+".", OpEQ)
+
+	if stepTypeErr != nil {
+		return "", nil, stepTypeErr
+	}
+
+	params = append(params, stepTypeParams...)
+
+	state.cteCounter++
+	name := fmt.Sprintf("hops_%d", state.cteCounter)
+	minHops := max(predicate.MinHops, 1)
+	stepDepth, stop := walkStep(name, minHops, predicate.MaxHops)
+
+	state.ctes = append(state.ctes, fmt.Sprintf(`%s(node_id, depth) AS (
+    %s
+    UNION
+    SELECT %s.%s, %s FROM %s
+        JOIN edges %s INDEXED BY %s ON %s.%s = %s.node_id
+        WHERE %s%s
+)`, name, seed, edgeAlias, near, stepDepth, name, edgeAlias, farIndex, edgeAlias, far, name, stepTypeClause, stop))
+	state.cteParams = append(state.cteParams, params...)
+
+	reached := "SELECT node_id FROM " + name
+
+	if minHops > 1 {
+		reached += fmt.Sprintf(" WHERE depth >= %d", minHops)
+	}
+
+	return fmt.Sprintf("%s.id IN (%s)", rowRef(depth), reached), nil, nil
+}
+
 // compileTraversalShortcut returns a WHERE-clause fragment, a slice of CTE
 // definition strings, the CTE bodies' bind params, and the WHERE fragment's own
 // bind params. The caller stitches the CTE definitions into a single WITH
@@ -926,6 +1000,10 @@ func (state *compileState) compileEdgePredicate(predicate *EdgePredicate, depth 
 // params in the CTE bodies (whereParams nil), while the inline ShortcutParentOf
 // has no CTE (cteParams nil). Interleaving them in AST-traversal order is what
 // misbound the recursive shortcuts when they were not the leftmost leaf.
+//
+// shortcut.ParentIsSource picks which end of the edge is the parent (see
+// hierarchyColumns), and shortcut.MaxDepth caps tree= and root= walks; both
+// come from the edge type through Validate.
 //
 // rowRef names the node row the shortcut constrains: "nodes" at the top level,
 // or an edge predicate's target alias when the shortcut follows an arrow.
@@ -940,41 +1018,59 @@ func compileTraversalShortcut(shortcut *TraversalShortcut, rowRef string, counte
 	}
 
 	edge := shortcut.EdgeType
+	child, parent := hierarchyColumns(shortcut.ParentIsSource)
 
 	switch shortcut.Kind {
 	case ShortcutParentOf:
-		whereClause := fmt.Sprintf("EXISTS (SELECT 1 FROM edges WHERE source_id = %s.id AND type = ? AND target_id = ?)", rowRef)
+		whereClause := fmt.Sprintf("EXISTS (SELECT 1 FROM edges WHERE %s = %s.id AND type = ? AND %s = ?)", child, rowRef, parent)
 
 		return whereClause, nil, nil, []any{edge, shortcut.NodeID}, nil
 	case ShortcutTree:
 		cteName := fmt.Sprintf("descendants_%d", counter)
-		cteBody := recursiveDescendantsCTE(cteName)
+		cteBody := hierarchyWalkCTE(cteName, fmt.Sprintf("SELECT %s, 1 FROM edges WHERE %s = ? AND type = ?", child, parent), parent, child, shortcut.MaxDepth)
 
 		whereClause := fmt.Sprintf("%s.id IN (SELECT node_id FROM %s)", rowRef, cteName)
 
 		return whereClause, []string{cteBody}, []any{shortcut.NodeID, edge, edge}, nil, nil
 	case ShortcutRoot:
-		ascendantsName := fmt.Sprintf("ascendants_%d", counter)
-		descendantsName := fmt.Sprintf("from_root_%d", counter)
-		ascendantsBody := recursiveAncestorsCTE(ascendantsName)
+		ancestorsName := fmt.Sprintf("ancestors_%d", counter)
+		fromRootName := fmt.Sprintf("from_root_%d", counter)
+		ancestorsBody := hierarchyWalkCTE(ancestorsName, fmt.Sprintf("SELECT %s, 1 FROM edges WHERE %s = ? AND type = ?", parent, child), child, parent, shortcut.MaxDepth)
 
-		// Seed from the seed node's topmost ancestor (deepest ascendant) — or
-		// the seed itself when it is already a root — then descend the whole
-		// tree from there (target→source, matching recursiveDescendantsCTE).
-		descendantsBody := fmt.Sprintf(`%s AS (
-    SELECT id AS node_id, 1 AS depth FROM nodes
-        WHERE id IN (SELECT target_id FROM %s ORDER BY depth DESC LIMIT 1)
-            OR id = ?
-    UNION ALL
-    SELECT edges.source_id, %s.depth + 1 FROM %s
-        JOIN edges ON edges.target_id = %s.node_id
-        WHERE edges.type = ? AND %s.depth < 5
-)`, descendantsName, ascendantsName, descendantsName, descendantsName, descendantsName, descendantsName)
+		// The roots are the ancestors with no parent of their own, plus the
+		// topmost ones max-depth let the walk reach. The tree is walked down
+		// from them and from the seed itself, so a seed that is its own root,
+		// or sits on a loop with no root, still returns its own subtree.
+		top := fmt.Sprintf("NOT EXISTS (SELECT 1 FROM edges up WHERE up.%s = %s.node_id AND up.type = ?)", child, ancestorsName)
 
-		whereClause := fmt.Sprintf("%s.id IN (SELECT node_id FROM %s)", rowRef, descendantsName)
+		if shortcut.MaxDepth > 0 {
+			top = fmt.Sprintf("(%s OR %s.depth >= %d)", top, ancestorsName, shortcut.MaxDepth)
+		}
 
-		return whereClause, []string{ascendantsBody, descendantsBody}, []any{shortcut.NodeID, edge, edge, shortcut.NodeID, edge}, nil, nil
+		seed := fmt.Sprintf("SELECT id, 0 FROM nodes WHERE id = ? OR id IN (SELECT node_id FROM %s WHERE %s)", ancestorsName, top)
+		fromRootBody := hierarchyWalkCTE(fromRootName, seed, parent, child, shortcut.MaxDepth)
+
+		whereClause := fmt.Sprintf("%s.id IN (SELECT node_id FROM %s)", rowRef, fromRootName)
+
+		return whereClause, []string{ancestorsBody, fromRootBody}, []any{shortcut.NodeID, edge, edge, shortcut.NodeID, edge, edge}, nil, nil
 	}
 
 	return "", nil, nil, nil, fmt.Errorf("compile: unknown traversal shortcut kind %v", shortcut.Kind)
+}
+
+// hierarchyWalkCTE returns a recursive CTE named name over (node_id, depth):
+// the rows of seed, then each node an edge of the shortcut's type leads to
+// from a node already found, joining on the edge's from column and taking its
+// to column. Its recursive step binds one param, the edge type. maxDepth stops
+// the walk that many levels from the seed's first row; zero walks to the end.
+func hierarchyWalkCTE(name, seed, from, to string, maxDepth int) string {
+	depth, stop := walkStep(name, 1, maxDepth)
+
+	return fmt.Sprintf(`%s(node_id, depth) AS (
+    %s
+    UNION
+    SELECT edges.%s, %s FROM %s
+        JOIN edges ON edges.%s = %s.node_id
+        WHERE edges.type = ?%s
+)`, name, seed, to, depth, name, from, name, stop)
 }

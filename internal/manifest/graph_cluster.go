@@ -166,6 +166,8 @@ func resolveGraphCluster(loaded *Manifest) error {
 			if decodeErr := meta.PrimitiveDecode(raw.ParentIsSource, &resolved.ParentIsSource); decodeErr != nil {
 				return fmt.Errorf("graph.cluster: parent-is-source: %w", decodeErr)
 			}
+
+			loaded.graphClusterParentIsSourceSet = true
 		}
 
 		if meta.IsDefined("graph", "cluster", "huddle") {

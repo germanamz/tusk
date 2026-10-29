@@ -55,6 +55,16 @@ const (
 	DirectionIncoming
 )
 
+// reversed returns the other direction: an inverse label walks its edge type
+// the opposite way.
+func (direction Direction) reversed() Direction {
+	if direction == DirectionOutgoing {
+		return DirectionIncoming
+	}
+
+	return DirectionOutgoing
+}
+
 // ShortcutKind identifies a graph-traversal shortcut.
 type ShortcutKind int
 
@@ -137,11 +147,25 @@ func (pred *PropertyPredicate) exprNode()     {}
 func (pred *PropertyPredicate) Position() int { return pred.Pos }
 
 // EdgePredicate represents a traversal through a named edge type.
+//
+// MinHops and MaxHops bound a repeated traversal: `->+` is {1, 0}, `->{2}`
+// is {2, 2}, `->{1,3}` is {1, 3} and `->{2,}` is {2, 0}. MaxHops zero with
+// MinHops set means no upper bound. Both zero is a single hop, the plain
+// arrow. Validate rewrites an inverse label in EdgeType to the edge type it
+// names and flips Direction.
 type EdgePredicate struct {
 	EdgeType  string
 	Direction Direction
+	MinHops   int
+	MaxHops   int
 	Inner     Expr
 	Pos       int
+}
+
+// repeated reports whether the predicate follows anything but exactly one hop:
+// both zero and `->{1}` are the plain arrow.
+func (pred *EdgePredicate) repeated() bool {
+	return pred.MinHops != pred.MaxHops || pred.MaxHops > 1
 }
 
 func (pred *EdgePredicate) exprNode()     {}
@@ -159,6 +183,12 @@ type TraversalShortcut struct {
 	EdgeType  string // resolved by Validate; the compiler refuses an empty value
 	OrderedBy string // resolved by Validate from the edge type's OrderedBy; empty when the edge is not ordered
 	Pos       int
+
+	// ParentIsSource and MaxDepth are copied by Validate from the edge type:
+	// the edge runs parent→child, and tree=/root= stop that many levels out
+	// (zero walks the whole tree).
+	ParentIsSource bool
+	MaxDepth       int
 }
 
 func (shortcut *TraversalShortcut) exprNode()     {}

@@ -617,7 +617,7 @@ func registerEdgeListTool(srv *Server) {
 		mcpgo.WithDescription("List edges. Provide from, to, or type to narrow. Use format=compact for tab-aligned text output. A link a file repeats in its sections and paragraphs is one row from the file, units = the passages holding it."),
 		mcpgo.WithString("from", mcpgo.Description("Source node id")),
 		mcpgo.WithString("to", mcpgo.Description("Target node id")),
-		mcpgo.WithString("type", mcpgo.Description("Edge type")),
+		mcpgo.WithString("type", mcpgo.Description("Edge type, or its inverse label (swaps from/to)")),
 		mcpgo.WithString("format", mcpgo.Description("Output format: json (default) or compact")),
 		mcpgo.WithBoolean("sub_units", mcpgo.Description("true: rows as stored, one per sub-unit holding a link, plus each file's contains edges")),
 	)
@@ -645,10 +645,12 @@ func registerEdgeListTool(srv *Server) {
 			req.TypeRef = &ref
 		}
 
+		req.EdgeTypes = srv.runtime.Manifest.EdgeTypes
+
 		result, runErr := query.EdgeListRun(srv.runtime.Edges, srv.runtime.Nodes, req)
 
 		if runErr != nil {
-			return toolError(runErr), nil
+			return toolError(edgeStaleSchemaHint(runErr)), nil
 		}
 
 		if format == "compact" {
@@ -704,7 +706,7 @@ func registerQueryTool(srv *Server) {
 	// had agents send "include": body, which fails to parse as JSON and
 	// costs a retry (22% of queries in the #815 benchmark).
 	tool := mcpgo.NewTool("tusk_query",
-		mcpgo.WithDescription(`Structural filter, semantic kNN ranking, or both. Filter DSL: type=ticket AND priority>=2; status!=done OR NOT owner=me; path=docs/** (glob); blocks-> type=epic (out-edge; blocks<- in); tree=<id>; modified-since:7d; owner!=* (missing); labels~=bug; due<today-90d. Semantic: top-5 files, each with its best sections (heading, line range); the top hit's best section includes its text. Structural: top-50. Grammar: tusk_help(topic:"filter"); output: tusk_help(topic:"query").`),
+		mcpgo.WithDescription(`Structural filter, semantic kNN ranking, or both. Filter DSL: type=ticket AND priority>=2; status!=done OR NOT owner=me; path=docs/** (glob); blocks-> type=epic (out-edge; blocks<- in; blocks->+ any depth); tree=<id>; modified-since:7d; owner!=* (missing); labels~=bug; due<today-90d. Semantic: top-5 files, each with its best sections (heading, line range); the top hit's best section includes its text. Structural: top-50. Grammar: tusk_help(topic:"filter"); output: tusk_help(topic:"query").`),
 		mcpgo.WithString("filter", mcpgo.Required(), mcpgo.Description(`Filter DSL; "" = all.`)),
 		mcpgo.WithString("sort", mcpgo.Description(`e.g. "+priority,-due"`)),
 		mcpgo.WithNumber("take", mcpgo.Description("Limit (default 50; semantic 5).")),

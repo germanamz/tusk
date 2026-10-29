@@ -2,6 +2,8 @@ package filter
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/germanamz/tusk/internal/pathglob"
 )
@@ -197,9 +199,19 @@ func (parser *Parser) parseEdgePredicate() Expr {
 		return nil
 	}
 
+	minHops, maxHops, hopsErr := parseHopCount(arrowToken.Value)
+
+	if hopsErr != "" {
+		parser.appendErr(arrowToken.Pos+2, hopsErr)
+
+		return nil
+	}
+
 	pred := &EdgePredicate{
 		EdgeType:  canonical,
 		Direction: direction,
+		MinHops:   minHops,
+		MaxHops:   maxHops,
 		Pos:       edgePos,
 	}
 
@@ -223,6 +235,69 @@ func (parser *Parser) parseEdgePredicate() Expr {
 	parser.appendTokenErr(next, "expected inner predicate or end of edge predicate")
 
 	return pred
+}
+
+// MaxHopCount is the largest hop count `->{m,n}` accepts.
+const MaxHopCount = 50
+
+// hopCountHint is the error for a braced hop count the parser can't read.
+const hopCountHint = "expected a hop count like {2}, {1,3} or {2,}"
+
+// parseHopCount reads the suffix an arrow token carries (see
+// Lexer.hopSuffix) into EdgePredicate's MinHops and MaxHops: "" is a single
+// hop {0, 0}, "+" is one or more {1, 0}, and "{m}", "{m,n}" and "{m,}" are
+// m exactly, m to n, and m or more. It returns a parse error message instead
+// for a count it can't read or one out of range.
+func parseHopCount(suffix string) (minHops, maxHops int, message string) {
+	switch {
+	case suffix == "":
+		return 0, 0, ""
+	case suffix == "+":
+		return 1, 0, ""
+	case !strings.HasPrefix(suffix, "{") || !strings.HasSuffix(suffix, "}"):
+		return 0, 0, hopCountHint
+	}
+
+	low, high, ranged := strings.Cut(suffix[1:len(suffix)-1], ",")
+
+	minHops, minErr := strconv.Atoi(strings.TrimSpace(low))
+
+	if minErr != nil {
+		return 0, 0, hopCountHint
+	}
+
+	maxHops = minHops
+
+	if ranged {
+		maxHops = 0
+
+		if high = strings.TrimSpace(high); high != "" {
+			parsed, maxErr := strconv.Atoi(high)
+
+			if maxErr != nil {
+				return 0, 0, hopCountHint
+			}
+
+			// An explicit maximum below 1 is an error, not the zero that
+			// means "no upper bound".
+			if parsed < 1 {
+				return 0, 0, "a hop count starts at 1"
+			}
+
+			maxHops = parsed
+		}
+	}
+
+	switch {
+	case minHops < 1:
+		return 0, 0, "a hop count starts at 1"
+	case minHops > MaxHopCount || maxHops > MaxHopCount:
+		return 0, 0, fmt.Sprintf("a hop count goes up to %d", MaxHopCount)
+	case maxHops != 0 && minHops > maxHops:
+		return 0, 0, fmt.Sprintf("hop count %s has its minimum above its maximum", strings.ReplaceAll(suffix, " ", ""))
+	}
+
+	return minHops, maxHops, ""
 }
 
 // peekEdgeTypeRefArity returns the number of leading tokens that compose

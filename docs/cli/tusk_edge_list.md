@@ -15,6 +15,11 @@ tab-aligned table of source, type, target, attributed source-path. Use
 --format compact|json (or --json) to opt into structured output; the
 default mirrors prior CLI behavior (tab-aligned table for TTY).
 
+--type also takes an edge type's inverse label: --type depended-on-by
+--from c lists the depends-on edges into c, under their own type. A
+--type tusk.toml doesn't declare is an error when nothing matches it;
+edges of a type you've since removed from tusk.toml still list.
+
 A link written in a paragraph is stored for the file and again for the
 paragraph and each section around it. The listing shows it once, from
 the file, with UNITS naming the paragraphs, list items or sections the
@@ -56,7 +61,7 @@ tusk edge list [flags]
       --json            emit structured JSON (sugar for --format json)
       --sub-units       list the stored rows: one per section or paragraph that holds a link, plus each file's contains edges
       --to string       filter to edges targeting this id
-      --type string     filter by edge type
+      --type string     filter by edge type, or its inverse label
 ```
 
 ### Options inherited from parent commands

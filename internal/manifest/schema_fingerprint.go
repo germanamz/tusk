@@ -48,8 +48,12 @@ func (loaded *Manifest) SchemaFingerprint() string {
 		tables.NodeTypes[name] = nodeType
 	}
 
+	// parent-is-source and max-depth only shape how queries walk a hierarchy,
+	// so they are left out like descriptions.
 	for name, edgeType := range loaded.EdgeTypes {
 		edgeType.Description = ""
+		edgeType.ParentIsSource = false
+		edgeType.MaxDepth = 0
 		tables.EdgeTypes[name] = edgeType
 	}
 

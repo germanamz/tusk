@@ -177,6 +177,33 @@ after a bare traversal, write `blocks-> AND NOT status=done`.
 Chain for multi-hop: `mentions-> tagged-> type=tag`. A chain can be at
 most 5 hops deep, counting hops nested inside groups.
 
+## Repeated hops
+
+```
+depends-on->+ id=payments        # depends on payments, directly or through others
+depends-on<-+ id=checkout        # everything checkout depends on, at any depth
+depends-on->{2} id=payments      # exactly 2 hops away
+depends-on->{1,3} id=payments    # 1 to 3 hops
+depends-on->{2,} id=payments     # 2 or more
+```
+
+`+` or a `{…}` count right after the arrow repeats the same edge type.
+The walk visits each node once, so a cycle ends it, and a node on a
+cycle can reach itself. Counts run from 1 to 50. A repeated arrow counts
+as one hop toward the 5-hop chain limit, and the term after it works as
+it does after a single arrow.
+
+## Inverse labels
+
+An edge type's `inverse` label walks that edge type the other way. With
+`inverse = "depended-on-by"` on `depends-on`:
+
+```
+depended-on-by-> id=checkout     # same as depends-on<- id=checkout
+depended-on-by<- id=payments     # same as depends-on-> id=payments
+depended-on-by->+ id=checkout    # same as depends-on<-+ id=checkout
+```
+
 ## Traversal shortcuts (hierarchy)
 
 For edge types declared with `hierarchy = "<alias>"`:
@@ -184,7 +211,7 @@ For edge types declared with `hierarchy = "<alias>"`:
 ```
 tree=<id>             # all descendants of <id> (transitive)
 parent=<id>           # immediate children of <id>
-root=<id>             # the root of <id>'s tree
+root=<id>             # every node in <id>'s tree, from its root down
 ```
 
 Qualified forms target a specific hierarchy:
@@ -193,6 +220,16 @@ Qualified forms target a specific hierarchy:
 Unqualified `tree=`/`parent=`/`root=` walks the edge declared with
 `hierarchy-default = true`, or the sole hierarchy edge if only one
 exists. Validation fails with the declared aliases listed otherwise.
+
+A hierarchy edge normally points from child to parent: the child's
+frontmatter names its parent (`parent: epics/auth`). When the parent
+names its children instead (`has-part: [a, b]`), set
+`parent-is-source = true` on the edge type and the shortcuts walk it
+the other way. `tree=` and `root=` follow the whole tree, however deep,
+and stop on cycles; `max-depth = N` on the edge type stops them N
+levels out. A node with two roots returns both trees. For a depth on
+one query, repeat the edge: `parent->{1,2} id=x` (or
+`has-part<-{1,2} id=x`).
 
 ## Recency
 

@@ -42,10 +42,18 @@ An `[edge-types.X]` declaration may opt into the `tree=` / `parent=` / `root=` t
 
 - `hierarchy = "<alias>"` — names this edge as a hierarchy. The alias is used in qualified shortcuts (`tree:<alias>=<id>`). Must be kebab-case; cannot equal the reserved keywords `tree`, `parent`, or `root`. Aliases are unique within a workspace.
 - `hierarchy-default = true` — marks this edge as the target of unqualified shortcuts (`tree=<id>`). At most one edge per workspace may set this.
+- `parent-is-source = true` — the edge runs from parent to child (the parent's frontmatter names its children, as `has-part` does). The shortcuts then find a node's parent at the edge's source, and a `[graph.cluster]` ancestor walk on the edge inherits it unless `[graph.cluster]` sets `parent-is-source` itself. Default `false`: the child names its parent.
+- `max-depth = N` — `tree=` and `root=` stop N levels out. Unset, they walk the whole tree. Requires `hierarchy`; must be at least 1.
+
+`parent-is-source` and `max-depth` only shape queries, so `SchemaFingerprint` leaves them out and changing them doesn't make reindex re-process every file.
 
 Multiple edges can each declare a distinct alias; this lets composed packs (e.g. kanban + superhuman-wbs) coexist without colliding on a single hierarchy edge.
 
 **Back-compat:** A workspace that declares `[edge-types.parent]` without setting `hierarchy` is automatically treated as if it had `hierarchy = "parent"`. If no other edge has claimed `hierarchy-default = true`, the bare `parent` edge is also marked as default. This preserves pre-v1.3 behavior for existing workspaces.
+
+### Inverse labels
+
+`inverse = "<label>"` on an edge type (or on a `ref` property, which carries it to the synthesized edge type) names that edge walked backwards. Filters take the label as an edge type, so `depended-on-by->` is `depends-on<-`, and `tusk edge list --type <label>` lists the edge type's edges with `--from` and `--to` swapped. `InverseOf(edgeTypes, label)` and `InverseLabels(edgeTypes)` look labels up. `Validate` rejects a label that is also a declared edge type (its own included) and one that two edge types share, since either would make the label mean two things. `ErrEdgeTypeNotDeclared` is the sentinel for an edge type tusk.toml doesn't declare; `node` and `query` return it, and the MCP tools add a reload hint to it.
 
 #### Polymorphic `ordered`
 
@@ -170,7 +178,7 @@ hull             = true
 | `property` | string | — | `by = "property"` | Frontmatter field whose value becomes the group key. Required when `by = "property"`. |
 | `edge` | string | — | `by = "ancestor"` | Hierarchy edge-type name to walk. Required when `by = "ancestor"`. |
 | `depth` | int | `0` | `by = "ancestor"` | Ancestor walk depth. `0` walks to the topmost ancestor (root). |
-| `parent-is-source` | bool | `false` | `by = "ancestor"` | Set to `true` for parent→child edges (e.g. `contains`); leave `false` for child→parent edges (e.g. `parent`). |
+| `parent-is-source` | bool | the edge type's `parent-is-source`, else `false` | `by = "ancestor"` | Set to `true` for parent→child edges (e.g. `contains`); leave `false` for child→parent edges (e.g. `parent`). |
 | `huddle` | bool | `false` | all | Engages a layout force that pulls same-group nodes toward a fixed per-group anchor on a Fibonacci sphere. |
 | `hull` | bool | `false` | all | Draws a translucent 3D convex-hull boundary around each group. Groups with fewer than 4 members are silently skipped. Orthogonal to `by`. |
 | `community-edges` | []string | (all edges) | `by = "community"` | Edge type or kind names the community detector clusters on. Empty means all kept file-level edges. |
