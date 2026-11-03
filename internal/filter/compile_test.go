@@ -305,13 +305,13 @@ func TestPipeline_TwoHierarchiesProduceDistinctSQL(test *testing.T) {
 		EdgeTypes: map[string]manifest.EdgeType{
 			"parent": {
 				Cardinality:      manifest.CardinalityManyToOne,
-				Acyclic:          true,
+				Acyclic:          manifest.AcyclicError,
 				Hierarchy:        "kanban",
 				HierarchyDefault: true,
 			},
 			"wbs-parent": {
 				Cardinality: manifest.CardinalityManyToOne,
-				Acyclic:     true,
+				Acyclic:     manifest.AcyclicError,
 				Hierarchy:   "wbs",
 			},
 		},
@@ -390,7 +390,7 @@ func TestCompile_TraversalSortsByOrderedByProperty(test *testing.T) {
 		EdgeTypes: map[string]manifest.EdgeType{
 			"wbs-parent": {
 				Cardinality: manifest.CardinalityManyToOne,
-				Acyclic:     true,
+				Acyclic:     manifest.AcyclicError,
 				Hierarchy:   "wbs",
 				Ordered:     true,
 				OrderedBy:   "order",
@@ -442,7 +442,7 @@ func TestCompile_TraversalDefaultSortLosesToExplicitSortKeys(test *testing.T) {
 		EdgeTypes: map[string]manifest.EdgeType{
 			"wbs-parent": {
 				Cardinality: manifest.CardinalityManyToOne,
-				Acyclic:     true,
+				Acyclic:     manifest.AcyclicError,
 				Hierarchy:   "wbs",
 				Ordered:     true,
 				OrderedBy:   "order",
@@ -484,7 +484,7 @@ func TestCompile_TraversalWithoutOrderedByHasNoDefaultSort(test *testing.T) {
 		EdgeTypes: map[string]manifest.EdgeType{
 			"wbs-parent": {
 				Cardinality: manifest.CardinalityManyToOne,
-				Acyclic:     true,
+				Acyclic:     manifest.AcyclicError,
 				Hierarchy:   "wbs",
 			},
 		},
@@ -527,14 +527,14 @@ func TestCompile_TraversalMultiShortcutLeftmostOrderedByWins(test *testing.T) {
 		EdgeTypes: map[string]manifest.EdgeType{
 			"wbs-parent": {
 				Cardinality: manifest.CardinalityManyToOne,
-				Acyclic:     true,
+				Acyclic:     manifest.AcyclicError,
 				Hierarchy:   "wbs",
 				Ordered:     true,
 				OrderedBy:   "wbs-order",
 			},
 			"kanban-parent": {
 				Cardinality: manifest.CardinalityManyToOne,
-				Acyclic:     true,
+				Acyclic:     manifest.AcyclicError,
 				Hierarchy:   "kanban",
 				Ordered:     true,
 				OrderedBy:   "kanban-order",

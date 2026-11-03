@@ -833,7 +833,7 @@ func suggestHierarchyCandidate(edges map[string]manifest.EdgeType) string {
 	candidates := make([]string, 0)
 
 	for name, edge := range edges {
-		if edge.Cardinality == manifest.CardinalityManyToOne && edge.Acyclic {
+		if edge.Cardinality == manifest.CardinalityManyToOne && edge.Acyclic != manifest.AcyclicNone {
 			candidates = append(candidates, name)
 		}
 	}

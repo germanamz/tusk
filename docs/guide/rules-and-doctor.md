@@ -20,6 +20,8 @@ Every doctor finding has a severity, and the report lists errors first. An `erro
 - a `[[note#^block-id]]` block reference names an id nothing in the note carries → a `missing-block` warning names it (the link still points at the note)
 - a manifest change just landed → an `index-schema-stale` warning means the index still follows the old node, edge or behavior declarations; `tusk reindex` re-processes every file once and re-validates them
 - a convention you declared as a `[rule.<name>]` is broken → each offending node is a `rule:<name>` issue
+- a hand-edited file closes a cycle on an edge type that sets `acyclic` → an `edge-cycle` finding shows the cycle (see [the workspace guide](workspace.md))
+- a key in `tusk.toml` seems to do nothing → a `manifest-unknown-key` warning names keys and tables tusk does not read, such as `acylic = true`
 
 ## Rules: conventions doctor checks
 
@@ -61,6 +63,41 @@ $ echo $?
 
 The filter is the same grammar `tusk query` takes, so you can try it there first. Two differences: a rule matches file nodes only (sub-units share their file's `path`) unless the filter selects a sub-unit type such as `type=section`, and a rule's filter must name declared types, properties and enum values, because a typo there would match nothing and pass forever. A rule that fails those checks doesn't stop anything from loading; `tusk reload` lists it under warnings and `tusk doctor` reports it as a `rule-invalid` error.
 
+### Exceptions to a rule
+
+Sometimes one node breaks a rule on purpose, like a service retired on purpose that no longer depends on anything. List the rule under `tusk-ignore` in that node's frontmatter, and doctor drops its violations of that rule:
+
+```yaml
+---
+type: service
+tusk-ignore: [isolated-service]   # or one name: tusk-ignore: isolated-service
+---
+```
+
+Every node type accepts `tusk-ignore` without declaring it, and no node type can declare a property with that name. A file's `tusk-ignore` covers its sections too, since a section has no frontmatter of its own. An exception that no longer exempts anything is a `rule-ignore-unused` warning: the entry names a rule `tusk.toml` doesn't declare, or the node no longer breaks the rule. So when a node gets fixed, doctor reminds you to remove the exception.
+
+## Project checks
+
+Some conventions don't fit a filter, like a schema export that must stay in sync or a lint script the project already has. Declare it as a `[check.<name>]` and doctor runs it with its own checks:
+
+```toml
+[check.lint]
+description     = "project lint"     # optional; names the check in a finding with no location
+command         = "python3 scripts/lint.py"
+severity        = "warning"          # error (the default) | warning | advice
+timeout-seconds = 120                # optional; default 60
+```
+
+Checks run only when you ask: `tusk doctor --checks`. Each command runs through the shell (`sh -c`, or `cmd /C` on Windows) from the workspace root, one at a time in name order. Exit 0 passes, whatever the command prints. When it fails, each output line shaped `path:line: message` (the format most linters and compilers print; `path:line:col:` works too, and the path can't contain spaces) becomes a `check:<name>` finding at the check's severity. A failing command that prints no such line is one finding that quotes the end of its output, and a command still running at its timeout is stopped and reported.
+
+```console
+$ tusk doctor --checks
+doctor: 0 errors, 1 warning, 0 advice
+  warning  [check:lint] docs/services/billing.md:3: owner missing
+```
+
+The command comes from `tusk.toml`, so `--checks` runs whatever the manifest says. Pass it on workspaces you trust, as you would `make`. Without the flag, doctor runs nothing and prints `project checks: N not run (pass --checks to run them)`. MCP `tusk_doctor` and doctor aliases never run checks, so an agent can't run a shell command by writing one into `tusk.toml`. A check with no command, a bad severity, a negative timeout or a misspelled key is a `check-invalid` error, and `tusk reload` lists it under warnings.
+
 ## Running doctor in CI
 
 `.tusk/` is gitignored, so a CI runner starts without an index, and doctor checks the index, not the files. `tusk doctor --reindex` builds the index from the checkout and then checks it. That pass skips embedding, so the runner doesn't need Ollama. On GitHub Actions:
@@ -73,6 +110,8 @@ The filter is the same grammar `tusk query` takes, so you can try it there first
 - name: Check the vault
   run: tusk doctor --reindex
 ```
+
+Add `--checks` to run the project checks in the same step: `tusk doctor --reindex --checks`.
 
 Without `--reindex`, doctor on a fresh checkout reports an `index-not-built` warning rather than a clean vault. A warning exits 0, so add `--fail-on=warning` if you want a forgotten flag, or any other warning, to fail the job.
 

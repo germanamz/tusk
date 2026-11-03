@@ -439,7 +439,17 @@ Edges are typed, declared in the manifest, and can be created two ways:
 - **Frontmatter** — the natural place. `parent: tickets/auth-epic` declares a `parent` edge.
 - **CLI / MCP** — `tusk edge add --type blocks --source tickets/a --target tickets/b`.
 
-Edge declarations enforce legality (`from`/`to` types), cardinality, ordering, and optional `acyclic = true` (cycles are rejected at write time). A hand-edited file that breaks `from`/`to` or cardinality is still indexed, and `tusk doctor` reports the edge as an error.
+Edge declarations enforce legality (`from`/`to` types), cardinality, ordering, and optional `acyclic`. A hand-edited file that breaks `from`/`to` or cardinality is still indexed, and `tusk doctor` reports the edge as an error.
+
+`acyclic` sets how strictly an edge type, or a ref property, keeps cycles out:
+
+| Value | `tusk edge add` and node writes | `tusk doctor` |
+| --- | --- | --- |
+| `true` or `"error"` | refuse a write that would close a cycle | reports a cycle as an `edge-cycle` error |
+| `"warning"` or `"advice"` | allow it | reports it at that level |
+| `false`, `"none"` or unset | allow it | doesn't look |
+
+A hand-edited file can still write a cycle at any level, so doctor checks what is indexed. It reports one `edge-cycle` finding per group of nodes that reach each other, with the shortest cycle through the group in the message (`edge "depends-on" is acyclic, but these nodes form a cycle: a → b → a`) and any other members of the group as locations.
 
 ### Listing edges
 
@@ -850,6 +860,8 @@ Every doctor finding has a severity, and the report lists errors first. An `erro
 - a `[[note#^block-id]]` block reference names an id nothing in the note carries → a `missing-block` warning names it (the link still points at the note)
 - a manifest change just landed → an `index-schema-stale` warning means the index still follows the old node, edge or behavior declarations; `tusk reindex` re-processes every file once and re-validates them
 - a convention you declared as a `[rule.<name>]` is broken → each offending node is a `rule:<name>` issue
+- a hand-edited file closes a cycle on an edge type that sets `acyclic` → an `edge-cycle` finding shows the cycle (see [the workspace guide](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/workspace.md))
+- a key in `tusk.toml` seems to do nothing → a `manifest-unknown-key` warning names keys and tables tusk does not read, such as `acylic = true`
 
 ## Rules: conventions doctor checks
 
@@ -891,6 +903,41 @@ $ echo $?
 
 The filter is the same grammar `tusk query` takes, so you can try it there first. Two differences: a rule matches file nodes only (sub-units share their file's `path`) unless the filter selects a sub-unit type such as `type=section`, and a rule's filter must name declared types, properties and enum values, because a typo there would match nothing and pass forever. A rule that fails those checks doesn't stop anything from loading; `tusk reload` lists it under warnings and `tusk doctor` reports it as a `rule-invalid` error.
 
+### Exceptions to a rule
+
+Sometimes one node breaks a rule on purpose, like a service retired on purpose that no longer depends on anything. List the rule under `tusk-ignore` in that node's frontmatter, and doctor drops its violations of that rule:
+
+```yaml
+---
+type: service
+tusk-ignore: [isolated-service]   # or one name: tusk-ignore: isolated-service
+---
+```
+
+Every node type accepts `tusk-ignore` without declaring it, and no node type can declare a property with that name. A file's `tusk-ignore` covers its sections too, since a section has no frontmatter of its own. An exception that no longer exempts anything is a `rule-ignore-unused` warning: the entry names a rule `tusk.toml` doesn't declare, or the node no longer breaks the rule. So when a node gets fixed, doctor reminds you to remove the exception.
+
+## Project checks
+
+Some conventions don't fit a filter, like a schema export that must stay in sync or a lint script the project already has. Declare it as a `[check.<name>]` and doctor runs it with its own checks:
+
+```toml
+[check.lint]
+description     = "project lint"     # optional; names the check in a finding with no location
+command         = "python3 scripts/lint.py"
+severity        = "warning"          # error (the default) | warning | advice
+timeout-seconds = 120                # optional; default 60
+```
+
+Checks run only when you ask: `tusk doctor --checks`. Each command runs through the shell (`sh -c`, or `cmd /C` on Windows) from the workspace root, one at a time in name order. Exit 0 passes, whatever the command prints. When it fails, each output line shaped `path:line: message` (the format most linters and compilers print; `path:line:col:` works too, and the path can't contain spaces) becomes a `check:<name>` finding at the check's severity. A failing command that prints no such line is one finding that quotes the end of its output, and a command still running at its timeout is stopped and reported.
+
+```console
+$ tusk doctor --checks
+doctor: 0 errors, 1 warning, 0 advice
+  warning  [check:lint] docs/services/billing.md:3: owner missing
+```
+
+The command comes from `tusk.toml`, so `--checks` runs whatever the manifest says. Pass it on workspaces you trust, as you would `make`. Without the flag, doctor runs nothing and prints `project checks: N not run (pass --checks to run them)`. MCP `tusk_doctor` and doctor aliases never run checks, so an agent can't run a shell command by writing one into `tusk.toml`. A check with no command, a bad severity, a negative timeout or a misspelled key is a `check-invalid` error, and `tusk reload` lists it under warnings.
+
 ## Running doctor in CI
 
 `.tusk/` is gitignored, so a CI runner starts without an index, and doctor checks the index, not the files. `tusk doctor --reindex` builds the index from the checkout and then checks it. That pass skips embedding, so the runner doesn't need Ollama. On GitHub Actions:
@@ -903,6 +950,8 @@ The filter is the same grammar `tusk query` takes, so you can try it there first
 - name: Check the vault
   run: tusk doctor --reindex
 ```
+
+Add `--checks` to run the project checks in the same step: `tusk doctor --reindex --checks`.
 
 Without `--reindex`, doctor on a fresh checkout reports an `index-not-built` warning rather than a clean vault. A warning exits 0, so add `--fail-on=warning` if you want a forgotten flag, or any other warning, to fail the job.
 
@@ -1569,6 +1618,10 @@ CONFIGURATION
                              indexing
     [behaviors.<kind>]       manifest-declared behaviors
     [alias.<name>]           saved queries runnable via "tusk run <name>"
+    [rule.<name>]            description, filter, severity — a convention
+                             "tusk doctor" checks
+    [check.<name>]           command, description, severity, timeout-seconds
+                             — a project command "tusk doctor --checks" runs
 
   Environment overrides (read once at startup, highest precedence):
     TUSK_WORKSPACE           the vault to run in when --workspace is absent,
@@ -2031,6 +2084,10 @@ to date with disk first: the same pass as "tusk reindex", minus embedding, so
 it needs no Ollama. A CI runner starts without an index (.tusk/ is
 gitignored), so "tusk doctor --reindex" is the whole CI check.
 
+Pass --checks to also run the [check.<name>] project commands in tusk.toml
+(see "Project checks" below). Without it doctor runs nothing from the
+manifest and only says how many checks it skipped.
+
 Doctor reports:
   * Index not built: no reindex pass has ever written this index, so files on
     disk may be unchecked. A warning; --reindex builds the index.
@@ -2050,13 +2107,26 @@ Doctor reports:
     type's from/to, or more than one target on a one-to-one or many-to-one
     type. "tusk edge add" refuses these, but reindex indexes a hand-edited
     file as written, so the edge stays queryable until it is fixed.
+  * Cycles on an edge type (or ref property) that sets acyclic: one
+    edge-cycle finding per group of nodes that reach each other, showing
+    the shortest cycle. acyclic = true or "error" reports it as an error
+    and makes "tusk edge add" and node writes refuse one; "warning" or
+    "advice" lets writes through and reports at that level; false or
+    "none" allows cycles.
   * Invalid [alias] and [context] declarations, and [context.pinned] ids
     that no longer resolve.
+  * Keys and tables in tusk.toml that tusk does not read: a typo such as
+    acylic = true, or a table a newer tusk added. A manifest-unknown-key
+    warning; the manifest still loads.
   * Rules: every node a [rule.<name>] filter matches, reported as
     rule:<name> at the rule's severity (error unless it sets one). A rule
     matches file nodes only unless its filter selects a sub-unit type. A rule
     that does not parse, or names a type, property or enum value tusk.toml
     does not declare, is a rule-invalid error.
+    A node that is an accepted exception lists the rule in its frontmatter,
+    tusk-ignore: [<rule>], and its violations are dropped; an entry that
+    exempts nothing (no such rule, or the node no longer breaks it) is a
+    rule-ignore-unused warning.
   * Embedding queue depth, embed-retry rows (an embed that failed and is
     being retried) and embed-failed rows (one that failed 3 times and stopped
     retrying until the node changes, reindex --force, or an [embeddings]
@@ -2067,6 +2137,16 @@ Doctor reports:
     invalid edge types (malformed refs that break every --semantic query),
     and no-op warnings when the feature is enabled with weight=0 or an
     empty edge-types list.
+
+Project checks: a [check.<name>] block names a shell command (command,
+plus optional description, severity and timeout-seconds, default 60). Under
+--checks doctor runs each one through the shell from the workspace root, in
+name order. Exit 0 passes. A failing command's "path:line: message" output
+lines become one check:<name> finding each, at the check's severity (error
+unless set); a failing command that prints none is one finding quoting the
+end of its output. The commands come from tusk.toml, so --checks runs
+whatever the manifest says: only pass it on a workspace you trust. MCP
+tusk_doctor and aliases never run checks.
 
 Doctor also auto-migrates any legacy "__cli__" / "__mcp__" edge rows in the
 index back into the source node's markdown frontmatter — pass --no-migrate
@@ -2096,6 +2176,9 @@ tusk doctor [flags]
   # CI check on a fresh checkout: build the index, then check it
   tusk doctor --reindex
 
+  # CI check that also runs the project's [check.<name>] commands
+  tusk doctor --reindex --checks
+
   # Strict check: fail on warnings too
   tusk doctor --reindex --fail-on=warning
 
@@ -2109,6 +2192,7 @@ tusk doctor [flags]
 ### Options
 
 ```
+      --checks           run the [check.<name>] project commands in tusk.toml and report their findings
       --fail-on string   exit 1 when an issue at this severity or worse is present: error, warning, or never (default "error")
   -h, --help             help for doctor
       --no-migrate       skip auto-migration of legacy __cli__/__mcp__ edge rows (diagnostic-only run)

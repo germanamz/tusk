@@ -1359,7 +1359,7 @@ func registerNodeDeleteTool(srv *Server) {
 
 func registerEdgeAddTool(srv *Server) {
 	tool := mcpgo.NewTool("tusk_edge_add",
-		mcpgo.WithDescription("Add a typed edge from source_id to target_id — the MCP equivalent of `tusk edge add` (no shell needed). The edge type must be declared in tusk.toml under [edge-types.<name>]; the source and target node types must satisfy its from/to lists; acyclic edge types reject cycles at write time; re-adding the same edge is a no-op. The edge is written to the source node's frontmatter (the file stays the source of truth) and the index is brought into line. See tusk_help(topic: \"edge-types\")."),
+		mcpgo.WithDescription("Add a typed edge from source_id to target_id — the MCP equivalent of `tusk edge add` (no shell needed). The edge type must be declared in tusk.toml under [edge-types.<name>]; the source and target node types must satisfy its from/to lists; an edge type with acyclic = true rejects a cycle at write time; re-adding the same edge is a no-op. The edge is written to the source node's frontmatter (the file stays the source of truth) and the index is brought into line. See tusk_help(topic: \"edge-types\")."),
 		mcpgo.WithString("type", mcpgo.Required(), mcpgo.Description("Edge type — must be declared in tusk.toml under [edge-types.<name>].")),
 		mcpgo.WithString("source_id", mcpgo.Required(), mcpgo.Description("Source node id: a workspace-relative path without extension (e.g. tickets/T-001).")),
 		mcpgo.WithString("target_id", mcpgo.Required(), mcpgo.Description("Target node id: a workspace-relative path without extension (e.g. tickets/auth-epic).")),
@@ -2019,11 +2019,7 @@ func reloadToolHandler(ctx context.Context, request mcpgo.CallToolRequest, srv *
 		warnings = append(warnings, fmt.Sprintf("invalid context entry: %s", contextErr.Message))
 	}
 
-	_, ruleErrs := doctor.CompileRules(fresh.Manifest)
-
-	for _, ruleErr := range ruleErrs {
-		warnings = append(warnings, ruleErr.Error())
-	}
+	warnings = append(warnings, doctor.ManifestWarnings(fresh.Manifest)...)
 
 	// Swap under the write-lock.
 	srv.mu.Lock()

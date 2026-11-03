@@ -31,7 +31,7 @@ func TestServiceModify_PreservesFrontmatterEdges(test *testing.T) {
 	}
 	edgeTypes := manifest.EdgeTypes{
 		"parent": {From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityManyToOne},
-		"blocks": {From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityManyToMany, Acyclic: true},
+		"blocks": {From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityManyToMany, Acyclic: manifest.AcyclicError},
 	}
 
 	service := node.NewServiceWithBehaviors(

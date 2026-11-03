@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/germanamz/tusk/internal/doctor"
+	"github.com/germanamz/tusk/internal/index"
 )
 
 // --fail-on values: the lowest severity that makes `tusk doctor` exit 1.
@@ -70,7 +71,7 @@ func describeDoctorIssue(issue doctor.Issue) string {
 	labels := make([]string, 0, len(shown))
 
 	for _, location := range shown {
-		if issue.NodeID != "" {
+		if issue.NodeID != "" && strings.HasPrefix(location, issue.NodeID+index.SubUnitIDSeparator) {
 			location = strings.TrimPrefix(location, issue.NodeID)
 		}
 

@@ -187,7 +187,9 @@ func kindKeys(kinds []ruleKind) []string {
 
 // checkRules reports a rule-invalid issue per problem CompileRules finds and
 // one rule:<name> issue per node breaking a valid rule, carrying the rule's own
-// severity. No-op without a manifest; valid rules only run with a database.
+// severity. A node whose tusk-ignore lists the rule is exempt, and an entry
+// that exempts nothing is a rule-ignore-unused issue. No-op without a
+// manifest; valid rules and exemptions only run with a database.
 func checkRules(config Config) ([]Issue, error) {
 	if config.Manifest == nil {
 		return nil, nil
@@ -205,6 +207,12 @@ func checkRules(config Config) ([]Issue, error) {
 		return issues, nil
 	}
 
+	ignores, ignoresErr := loadRuleIgnores(config.Nodes)
+
+	if ignoresErr != nil {
+		return nil, ignoresErr
+	}
+
 	for _, rule := range compiled {
 		violations, violationsErr := rule.matcher.violations(config)
 
@@ -219,6 +227,10 @@ func checkRules(config Config) ([]Issue, error) {
 		}
 
 		for _, violation := range violations {
+			if ignores.exempts(violation.NodeID, rule.Name) {
+				continue
+			}
+
 			issues = append(issues, Issue{
 				Kind:     RuleKindPrefix + rule.Name,
 				Severity: rule.Severity,
@@ -228,7 +240,7 @@ func checkRules(config Config) ([]Issue, error) {
 		}
 	}
 
-	return issues, nil
+	return append(issues, ignores.unusedIssues(config.Manifest, compiled)...), nil
 }
 
 // filterMatcher is the filter kind: every node the filter matches breaks the

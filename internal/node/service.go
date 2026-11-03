@@ -1256,8 +1256,9 @@ func appendUnique(slice []string, value string) []string {
 	return append(slice, value)
 }
 
-// detectCyclesForAcyclicEdges runs DetectCycle for every edge of an Acyclic
-// type, using the index as the existing-graph oracle.
+// detectCyclesForAcyclicEdges runs DetectCycle for every edge of a type whose
+// acyclic level refuses cycles, using the index as the existing-graph oracle.
+// A lower level leaves a cycle for doctor to report.
 func (service *Service) detectCyclesForAcyclicEdges(parsedNode *Node) error {
 	if service.edges == nil {
 		return nil
@@ -1266,7 +1267,7 @@ func (service *Service) detectCyclesForAcyclicEdges(parsedNode *Node) error {
 	for edgeType, targets := range parsedNode.Edges {
 		definition, declared := service.edgeTypes[edgeType]
 
-		if !declared || !definition.Acyclic {
+		if !declared || !definition.Acyclic.RefusesCycles() {
 			continue
 		}
 

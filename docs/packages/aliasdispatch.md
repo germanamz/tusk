@@ -19,7 +19,7 @@ Dispatches manifest-declared aliases (`[alias.<name>]` blocks in `tusk.toml`) ag
 
 ## Notes
 
-A doctor alias returns the same issue shape and `error_count` / `warning_count` / `advice_count` as `tusk_doctor` (`DoctorIssuesPayload` builds both), and `tusk run <doctor-alias>` exits 1 when an error is present, like `tusk doctor`.
+A doctor alias returns the same issue shape and `error_count` / `warning_count` / `advice_count` as `tusk_doctor` (`DoctorIssuesPayload` builds both), and `tusk run <doctor-alias>` exits 1 when an error is present, like `tusk doctor`. Neither runs `[check.<name>]` project checks; the payload carries `checks_skipped` when the manifest declares some. `checks` is not an alias arg, since the CLI marks `--checks` CLI-only.
 
 Per-verb adapters are hand-written (no reflection). Each adapter has a `Build` closure that turns the alias's `Args map[string]any` into the typed `<Verb>Request`, and a `Run` closure that invokes the matching service entry point (`query.ListRun`, `query.Run`, `node.GetRun`, `query.EdgeListRun`, `doctor.RunWithMigration`, `status.Run`). The `edge list` adapter reads `sub-units` and passes the manifest's edge types, so `type` takes an inverse label as the CLI flag does (#850), and the `node get` adapter reads `edge-type`, `direction` and `sub-units`, like the CLI flags of the same names (#848). The `query` adapter reads `count` and `group-by` (#851): `ResultPayload` then returns the `query.CountResult` itself, `{"count": N}` plus any groups. Every node-row payload goes through the request's `fields` projection (`query.ProjectRows`/`ProjectRow`); the `node get` adapter parses the fields with `query.ParseFields` and keeps them on `NodeGetResult.Fields`, since `node.GetRun` has no package to parse them with.
 

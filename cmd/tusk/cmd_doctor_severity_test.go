@@ -170,6 +170,12 @@ func TestDescribeDoctorIssue(test *testing.T) {
 			issue: doctor.Issue{NodeID: "docs/a", Message: "bad", Locations: []string{"docs/a#S1", "docs/a#S1P1"}},
 			want:  "docs/a: bad; also in #S1, #S1P1",
 		},
+		// Only a sub-unit address shortens: another node whose id starts
+		// with this one's stays whole (an edge-cycle lists its group).
+		"other node locations stay whole": {
+			issue: doctor.Issue{NodeID: "a", Message: "cycle", Locations: []string{"a-service", "b"}},
+			want:  "a: cycle; also in a-service, b",
+		},
 		"locations without a node id": {
 			issue: doctor.Issue{Message: "type \"x\" undeclared", Locations: []string{"a", "b"}},
 			want:  "type \"x\" undeclared; in a, b",

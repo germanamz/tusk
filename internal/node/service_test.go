@@ -269,7 +269,7 @@ func plan2EdgeRegistry() manifest.EdgeTypes {
 		"blocks": manifest.EdgeType{
 			From: []string{"ticket"}, To: []string{"ticket"},
 			Cardinality: manifest.CardinalityManyToMany,
-			Acyclic:     true,
+			Acyclic:     manifest.AcyclicError,
 		},
 		"references": manifest.EdgeType{
 			From: []string{"*"}, To: []string{"*"},
@@ -1468,7 +1468,7 @@ func TestServiceCreate_RefAcyclicCycleRejected(test *testing.T) {
 	// ticket.parent: ref to ticket, acyclic = true.
 	nodeTypes := map[string]manifest.NodeType{
 		"ticket": {Properties: []manifest.PropertyDecl{
-			{Name: "parent", Type: "ref", To: "ticket", Acyclic: true},
+			{Name: "parent", Type: "ref", To: "ticket", Acyclic: manifest.AcyclicError},
 		}},
 	}
 	edgeTypes := manifest.EdgeTypes{
@@ -1476,7 +1476,7 @@ func TestServiceCreate_RefAcyclicCycleRejected(test *testing.T) {
 			From:        []string{"ticket"},
 			To:          []string{"ticket"},
 			Cardinality: manifest.CardinalityManyToOne,
-			Acyclic:     true,
+			Acyclic:     manifest.AcyclicError,
 		},
 	}
 
@@ -1524,5 +1524,77 @@ func TestServiceCreate_RefAcyclicCycleRejected(test *testing.T) {
 
 	if cycleErr == nil {
 		test.Error("expected cycle rejection, got nil")
+	}
+}
+
+// acyclic = "warning" (#852) leaves the cycle to doctor: node writes accept
+// it, where the default error level refuses it.
+func TestServiceModify_WarningLevelAcyclicAllowsACycle(test *testing.T) {
+	dir := test.TempDir()
+	idx, _ := index.Open(filepath.Join(dir, "idx.db"))
+	defer idx.Close()
+
+	repo := index.NewNodeRepo(idx)
+	edgeRepo := index.NewEdgeRepo(idx)
+
+	// ticket.parent: ref to ticket, acyclic = "warning".
+	nodeTypes := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{
+			{Name: "parent", Type: "ref", To: "ticket", Acyclic: manifest.AcyclicWarning},
+		}},
+	}
+	edgeTypes := manifest.EdgeTypes{
+		"parent": {
+			From:        []string{"ticket"},
+			To:          []string{"ticket"},
+			Cardinality: manifest.CardinalityManyToOne,
+			Acyclic:     manifest.AcyclicWarning,
+		},
+	}
+
+	service := node.NewServiceWithBehaviors(
+		dir, repo, edgeRepo, edgeTypes, nil,
+		nodeTypes, nil, nil, nil, nil,
+		node.NewIndexRefLookup(repo, wikilink.DefaultCase),
+		index.NewFileStateRepo(idx), "test-worker", time.Minute,
+	)
+
+	// Create ticket-a.
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath: "tickets/a.md",
+		Type:    "ticket",
+		Title:   "A",
+	}); createErr != nil {
+		test.Fatalf("create a: %v", createErr)
+	}
+
+	// Create ticket-b with parent=a.
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/b.md",
+		Type:       "ticket",
+		Title:      "B",
+		Properties: map[string]any{"parent": "[[tickets/a]]"},
+	}); createErr != nil {
+		test.Fatalf("create b: %v", createErr)
+	}
+
+	// Create ticket-c with parent=b.
+	if _, createErr := service.Create(node.CreateInput{
+		RelPath:    "tickets/c.md",
+		Type:       "ticket",
+		Title:      "C",
+		Properties: map[string]any{"parent": "[[tickets/b]]"},
+	}); createErr != nil {
+		test.Fatalf("create c: %v", createErr)
+	}
+
+	// ticket-a with parent=c closes the cycle a→b→c→a, which this level allows.
+	_, cycleErr := service.Modify(node.ModifyInput{
+		ID:       "tickets/a",
+		SetProps: map[string]any{"parent": "[[tickets/c]]"},
+	})
+
+	if cycleErr != nil {
+		test.Fatalf("modify closing a warning-level cycle: %v", cycleErr)
 	}
 }

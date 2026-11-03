@@ -59,7 +59,7 @@ func (service *Service) AddEdge(edgeType, sourceID, targetID string) error {
 		}
 	}
 
-	if edgeDef.Acyclic && !edgeDef.PathsOnly() {
+	if edgeDef.Acyclic.RefusesCycles() && !edgeDef.PathsOnly() {
 		existing, listErr := service.edges.ListByType(edgeType)
 
 		if listErr != nil {

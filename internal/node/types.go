@@ -120,8 +120,9 @@ func ValidateProperties(parsed *Node, decls map[string]manifest.NodeType) Proper
 
 	// Step 3: per-property loop.
 	// Skip reserved top-level keys — they are never declared in [node-types].
+	// tusk-ignore belongs to doctor's rules, which check its value.
 	for name, value := range parsed.Properties {
-		if name == "type" || name == "title" {
+		if name == "type" || name == "title" || name == manifest.RuleIgnoreKey {
 			continue
 		}
 

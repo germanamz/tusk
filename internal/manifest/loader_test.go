@@ -135,7 +135,7 @@ cardinality = "many-to-many"
 
 	blocksType := loaded.EdgeTypes["blocks"]
 
-	if !blocksType.Acyclic {
+	if blocksType.Acyclic != manifest.AcyclicError {
 		test.Errorf("blocks should be acyclic")
 	}
 
@@ -804,7 +804,7 @@ func TestValidate_RejectsPropertyWithEmptyName(test *testing.T) {
 }
 
 func TestValidate_RejectsReservedPropertyName(test *testing.T) {
-	cases := []string{"type", "title"}
+	cases := []string{"type", "title", manifest.RuleIgnoreKey}
 
 	for _, reserved := range cases {
 		loaded := &manifest.Manifest{
@@ -1031,7 +1031,7 @@ properties = [
 
 	parent := ticket.Properties[2]
 
-	if parent.Type != "ref" || parent.To != "ticket" || !parent.Acyclic {
+	if parent.Type != "ref" || parent.To != "ticket" || parent.Acyclic != manifest.AcyclicError {
 		test.Errorf("parent = %+v", parent)
 	}
 }
@@ -1205,7 +1205,7 @@ func TestSynthesize_RefWithInverseAndAcyclic(test *testing.T) {
 		EdgeTypes: manifest.EdgeTypes{},
 		NodeTypes: map[string]manifest.NodeType{
 			"ticket": {Properties: []manifest.PropertyDecl{
-				{Name: "parent", Type: "ref", To: "ticket", Acyclic: true, Inverse: "children"},
+				{Name: "parent", Type: "ref", To: "ticket", Acyclic: manifest.AcyclicError, Inverse: "children"},
 			}},
 		},
 	}
@@ -1220,7 +1220,7 @@ func TestSynthesize_RefWithInverseAndAcyclic(test *testing.T) {
 		test.Errorf("Inverse = %q, want children", edge.Inverse)
 	}
 
-	if !edge.Acyclic {
+	if edge.Acyclic != manifest.AcyclicError {
 		test.Errorf("Acyclic = false, want true")
 	}
 }

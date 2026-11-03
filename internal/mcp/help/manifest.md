@@ -27,6 +27,7 @@ to          = ["ticket"]
 cardinality = "many-to-many" # one-to-one | one-to-many | many-to-one | many-to-many
 ordered     = "order"        # optional; sort siblings by this property
 inverse     = "blocked-by"   # optional; filters walk the edge backwards by this name
+acyclic     = true           # optional; or "warning" | "advice" | "none"; see tusk_help(topic: "edge-types")
 hierarchy   = "wbs"          # optional; enables tree=/parent=/root= shortcuts
 parent-is-source = true      # optional; the parent names its children (default: child names parent)
 max-depth   = 10             # optional; tree=/root= stop this many levels out (default: whole tree)
@@ -75,6 +76,9 @@ take   = 20
 description = "a product note lives under docs/product/"
 filter      = "type=note AND domain=product AND NOT path=docs/product/**"
 severity    = "error"         # error (default) | warning | advice
+
+[check.<name>]                # a project command; only `tusk doctor --checks` runs it
+command  = "python3 lint.py"  # `path:line: message` output lines become findings
 ```
 
 ## Rules
@@ -103,6 +107,12 @@ Two things differ:
   declared on a type in its `type=` scope, and an `=` / `!=` value of an
   enum must be one of its values. A typo would otherwise match nothing,
   and the rule would pass forever.
+
+A node that breaks a rule on purpose lists it in its frontmatter,
+`tusk-ignore: [<rule>]`, and its violations are dropped. Every node type
+accepts the key without declaring it. An entry that exempts nothing (no
+such rule, or the node no longer breaks it) is a `rule-ignore-unused`
+warning.
 
 A broken rule never stops the workspace from loading. `tusk_reload` lists
 it under `warnings`, and `tusk_doctor` reports it as a `rule-invalid`
@@ -192,6 +202,12 @@ CLI: `tusk pack add kanban`. See `tusk_help(topic: "packs")`.
 1. Save `tusk.toml`.
 2. `tusk_reindex` — re-parses files against the new schema.
 3. `tusk_doctor` — surfaces newly-detected drift (or confirms clean).
+
+A key or table tusk does not read (a typo such as `acylic`, or a table a
+newer tusk added) loads without error; `tusk_reload` lists it under
+`warnings` and `tusk_doctor` reports a `manifest-unknown-key` warning.
+`tusk_doctor` never runs `[check.<name>]` commands; it reports them as
+`checks_skipped`.
 
 If `tusk_doctor` reports off-schema nodes after an edit, either change
 the offending node's frontmatter or extend the manifest further.

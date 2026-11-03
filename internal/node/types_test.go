@@ -58,6 +58,22 @@ func TestValidateProperties_UntypedNodePassThrough(test *testing.T) {
 	}
 }
 
+// tusk-ignore is tool-owned: every node type accepts it without a
+// declaration, so exempting a node from a rule never raises undeclared-property.
+func TestValidateProperties_RuleIgnoreKeyIsNeverDrift(test *testing.T) {
+	parsed := &node.Node{Type: "ticket", Properties: map[string]any{manifest.RuleIgnoreKey: []any{"isolated-service"}}}
+
+	decls := map[string]manifest.NodeType{
+		"ticket": {Properties: []manifest.PropertyDecl{{Name: "summary", Type: "string"}}},
+	}
+
+	result := node.ValidateProperties(parsed, decls)
+
+	if len(result.HardErrors) != 0 || len(result.Drift) != 0 {
+		test.Errorf("tusk-ignore should pass on any type, got %+v", result)
+	}
+}
+
 func TestValidateProperties_RequiredPresent(test *testing.T) {
 	parsed := &node.Node{Type: "ticket", Properties: map[string]any{"summary": "ok"}}
 

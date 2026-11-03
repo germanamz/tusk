@@ -77,6 +77,8 @@ func decodeContext(body string, loaded *Manifest) error {
 		return decodeErr
 	}
 
+	loaded.decodeMetas = append(loaded.decodeMetas, &meta)
+
 	// Detect whether [context] was declared at all. IsDefined checks the
 	// MetaData we just produced; a missing table means Context stays nil.
 	if !meta.IsDefined("context") {
@@ -92,6 +94,16 @@ func decodeContext(body string, loaded *Manifest) error {
 	loaded.contextRecentPrimitive = wrapper.Context.Recent
 	loaded.contextRecentDefined = meta.IsDefined("context", "recent")
 	loaded.contextRecentMeta = &meta
+
+	// ValidateContext decodes an inline [context.recent] block once the verbs
+	// are known. Decode it here into the alias shape too, so its keys count
+	// as read when Load records the unknown ones; ValidateContext reports a
+	// block that doesn't fit.
+	if meta.Type("context", "recent") == "Hash" {
+		var shape aliasTOML
+
+		_ = meta.PrimitiveDecode(wrapper.Context.Recent, &shape)
+	}
 
 	return nil
 }
