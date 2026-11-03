@@ -5,6 +5,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/germanamz/tusk/internal/checkexec"
 	"github.com/germanamz/tusk/internal/doctor"
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -122,6 +123,7 @@ func newDoctorCmd() *cobra.Command {
 	var (
 		noMigrate    bool
 		reindexFirst bool
+		runChecks    bool
 		failOn       string
 	)
 
@@ -146,6 +148,10 @@ to date with disk first: the same pass as "tusk reindex", minus embedding, so
 it needs no Ollama. A CI runner starts without an index (.tusk/ is
 gitignored), so "tusk doctor --reindex" is the whole CI check.
 
+Pass --checks to also run the [check.<name>] project commands in tusk.toml
+(see "Project checks" below). Without it doctor runs nothing from the
+manifest and only says how many checks it skipped.
+
 Doctor reports:
   * Index not built: no reindex pass has ever written this index, so files on
     disk may be unchecked. A warning; --reindex builds the index.
@@ -165,13 +171,26 @@ Doctor reports:
     type's from/to, or more than one target on a one-to-one or many-to-one
     type. "tusk edge add" refuses these, but reindex indexes a hand-edited
     file as written, so the edge stays queryable until it is fixed.
+  * Cycles on an edge type (or ref property) that sets acyclic: one
+    edge-cycle finding per group of nodes that reach each other, showing
+    the shortest cycle. acyclic = true or "error" reports it as an error
+    and makes "tusk edge add" and node writes refuse one; "warning" or
+    "advice" lets writes through and reports at that level; false or
+    "none" allows cycles.
   * Invalid [alias] and [context] declarations, and [context.pinned] ids
     that no longer resolve.
+  * Keys and tables in tusk.toml that tusk does not read: a typo such as
+    acylic = true, or a table a newer tusk added. A manifest-unknown-key
+    warning; the manifest still loads.
   * Rules: every node a [rule.<name>] filter matches, reported as
     rule:<name> at the rule's severity (error unless it sets one). A rule
     matches file nodes only unless its filter selects a sub-unit type. A rule
     that does not parse, or names a type, property or enum value tusk.toml
     does not declare, is a rule-invalid error.
+    A node that is an accepted exception lists the rule in its frontmatter,
+    tusk-ignore: [<rule>], and its violations are dropped; an entry that
+    exempts nothing (no such rule, or the node no longer breaks it) is a
+    rule-ignore-unused warning.
   * Embedding queue depth, embed-retry rows (an embed that failed and is
     being retried) and embed-failed rows (one that failed 3 times and stopped
     retrying until the node changes, reindex --force, or an [embeddings]
@@ -182,6 +201,16 @@ Doctor reports:
     invalid edge types (malformed refs that break every --semantic query),
     and no-op warnings when the feature is enabled with weight=0 or an
     empty edge-types list.
+
+Project checks: a [check.<name>] block names a shell command (command,
+plus optional description, severity and timeout-seconds, default 60). Under
+--checks doctor runs each one through the shell from the workspace root, in
+name order. Exit 0 passes. A failing command's "path:line: message" output
+lines become one check:<name> finding each, at the check's severity (error
+unless set); a failing command that prints none is one finding quoting the
+end of its output. The commands come from tusk.toml, so --checks runs
+whatever the manifest says: only pass it on a workspace you trust. MCP
+tusk_doctor and aliases never run checks.
 
 Doctor also auto-migrates any legacy "__cli__" / "__mcp__" edge rows in the
 index back into the source node's markdown frontmatter — pass --no-migrate
@@ -202,6 +231,9 @@ they are not flagged as missing embeddings.`,
 
   # CI check on a fresh checkout: build the index, then check it
   tusk doctor --reindex
+
+  # CI check that also runs the project's [check.<name>] commands
+  tusk doctor --reindex --checks
 
   # Strict check: fail on warnings too
   tusk doctor --reindex --fail-on=warning
@@ -261,6 +293,10 @@ they are not flagged as missing embeddings.`,
 					Now:           time.Now(),
 				}
 
+				if runChecks {
+					cfg.Checks = checkexec.Shell{}
+				}
+
 				result, runErr := doctor.RunWithMigration(doctor.Request{Cfg: cfg, NoMigrate: noMigrate})
 
 				if runErr != nil {
@@ -299,6 +335,10 @@ they are not flagged as missing embeddings.`,
 					}
 				}
 
+				if report.ChecksSkipped > 0 {
+					_, _ = fmt.Fprintf(out, "project checks: %d not run (pass --checks to run them)\n", report.ChecksSkipped)
+				}
+
 				renderSubUnitPane(out, report.SubUnitPane)
 				renderGraphExpansionPane(out, report.GraphExpansion)
 
@@ -312,6 +352,8 @@ they are not flagged as missing embeddings.`,
 	doctorCmd.Flags().BoolVar(&noMigrate, "no-migrate", false, "skip auto-migration of legacy __cli__/__mcp__ edge rows (diagnostic-only run)")
 	doctorCmd.Flags().BoolVar(&reindexFirst, "reindex", false, "bring the index up to date with disk before checking (structural pass, no embedding)")
 	doctorCmd.Flags().StringVar(&failOn, "fail-on", doctorFailOnError, "exit 1 when an issue at this severity or worse is present: error, warning, or never")
+	doctorCmd.Flags().BoolVar(&runChecks, "checks", false, "run the [check.<name>] project commands in tusk.toml and report their findings")
+	markCLIOnly(doctorCmd.Flags().Lookup("checks"))
 
 	return doctorCmd
 }

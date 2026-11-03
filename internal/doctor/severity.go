@@ -25,6 +25,7 @@ var severityByKind = map[string]string{
 	IssueAmbiguousWikilink:         SeverityError,
 	IssueEdgeTypeViolation:         SeverityError,
 	IssueEdgeCardinalityViolation:  SeverityError,
+	IssueEdgeCycle:                 SeverityError, // preset from the edge type's acyclic level
 	IssueRefDangling:               SeverityError,
 	IssueRefAmbiguous:              SeverityError,
 	IssueRefTypeMismatch:           SeverityError,
@@ -39,6 +40,7 @@ var severityByKind = map[string]string{
 	IssueContextInvalid:            SeverityError,
 	IssueContextPinnedMissing:      SeverityError,
 	IssueRuleInvalid:               SeverityError,
+	IssueCheckInvalid:              SeverityError,
 
 	IssueUndeclaredProperty:        SeverityWarning,
 	IssueUndeclaredType:            SeverityWarning,
@@ -57,6 +59,8 @@ var severityByKind = map[string]string{
 	IssueMissingBlock:              SeverityWarning, // the edge still lands on the note
 	IssueIndexNotBuilt:             SeverityWarning, // a fresh checkout is not a broken vault
 	IssueIndexSchemaStale:          SeverityWarning, // the next reindex clears it
+	IssueManifestUnknownKey:        SeverityWarning, // the key does nothing; a newer tusk may read it
+	IssueRuleIgnoreUnused:          SeverityWarning, // the exemption is dead weight, like an unused lint directive
 
 	IssueEmbedLargeChunk:     SeverityAdvice,
 	IssueEmbeddingPrefixHint: SeverityAdvice,

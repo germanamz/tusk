@@ -27,6 +27,7 @@ role driven   internal/lock
 role driven   internal/selfupdate
 role driven   internal/claudeplugin
 role driven   internal/workspace
+role driven   internal/checkexec
 
 # Frozen debt, 2026-10-19. Core packages that already reach SQLite, HTTP, the
 # file system, the clock or the environment directly.

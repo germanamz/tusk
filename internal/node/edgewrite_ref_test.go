@@ -31,7 +31,7 @@ func TestAddEdge_PreservesResolvedRefEdgeAndNodeRow(test *testing.T) {
 	}
 	edgeTypes := manifest.EdgeTypes{
 		"assignee": {From: []string{"ticket"}, To: []string{"person"}, Cardinality: manifest.CardinalityManyToOne},
-		"blocks":   {From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityManyToMany, Acyclic: true},
+		"blocks":   {From: []string{"ticket"}, To: []string{"ticket"}, Cardinality: manifest.CardinalityManyToMany, Acyclic: manifest.AcyclicError},
 	}
 
 	service := node.NewServiceWithBehaviors(

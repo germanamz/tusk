@@ -42,6 +42,20 @@ type Manifest struct {
 	// doctor.CompileRules validates them.
 	Rules map[string]Rule `toml:"-"`
 
+	// Checks holds the [check.<name>] project checks, decoded but not
+	// validated: doctor validates them and runs them only under --checks.
+	Checks map[string]Check `toml:"-"`
+
+	// UnknownKeys lists the keys in tusk.toml that no part of tusk reads,
+	// sorted: a typo inside a known table, or a table a newer tusk added
+	// (#852). Load records them instead of failing, so an older binary still
+	// reads a newer manifest; doctor and reload report them as warnings.
+	UnknownKeys []UnknownKey `toml:"-"`
+
+	// decodeMetas holds the metadata of every decode pass, which
+	// recordUnknownKeys intersects once they have all run.
+	decodeMetas []*toml.MetaData `toml:"-"`
+
 	// rawAliases holds the on-disk [alias.<name>] blocks captured during
 	// Load so ValidateAliases can introspect them. Internal to the
 	// manifest package; consumers read through Aliases instead.
@@ -167,9 +181,9 @@ type PropertyDecl struct {
 
 	// ref-only fields: meaningful only when Type == "ref" or
 	// (Type == "list-of" && ItemType == "ref").
-	To      string `toml:"to"`
-	Inverse string `toml:"inverse"`
-	Acyclic bool   `toml:"acyclic"`
+	To      string     `toml:"to"`
+	Inverse string     `toml:"inverse"`
+	Acyclic Acyclicity `toml:"acyclic"`
 }
 
 // WorkspaceSection holds top-level workspace configuration.
@@ -316,7 +330,7 @@ type EdgeType struct {
 	Cardinality Cardinality    `toml:"cardinality"`
 	OrderedRaw  toml.Primitive `toml:"ordered"` // decoded by Validate into Ordered + OrderedBy
 	Inverse     string         `toml:"inverse"` // optional; name of the derived inverse edge
-	Acyclic     bool           `toml:"acyclic"`
+	Acyclic     Acyclicity     `toml:"acyclic"` // see Acyclicity
 
 	// Hierarchy, when non-empty, opts this edge into the traversal-shortcut
 	// family (tree= / parent= / root=) under the given alias. Multiple edge

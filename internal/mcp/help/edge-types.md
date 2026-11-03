@@ -50,6 +50,13 @@ blocks:
   children (`has-part: [a, b]`). **`max-depth = N`** stops `tree=` and
   `root=` N levels out; unset, they walk the whole tree.
 
+- **`acyclic = true`** — keeps cycles out of this edge type. `true`
+  (or `"error"`) makes `tusk_edge_add` and node writes refuse an edge
+  that would close a cycle, and `tusk_doctor` reports one a hand-edited
+  file wrote as an `edge-cycle` error. `"warning"` or `"advice"` lets
+  writes through and only sets doctor's level; `false` or `"none"`
+  allows cycles. A ref property takes the same key.
+
 - **`inverse = "<label>"`** — names this edge walked backwards. Filters
   take the label as an edge type (`blocked-by->` is `blocks<-`), and
   `tusk_edge_list` takes it as `type`, swapping `from` and `to`. The

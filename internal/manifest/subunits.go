@@ -84,7 +84,7 @@ func subdocumentEdgeTypes() EdgeTypes {
 			},
 			Cardinality: CardinalityOneToMany,
 			Inverse:     "contained-by",
-			Acyclic:     true,
+			Acyclic:     AcyclicError,
 		},
 	}
 }

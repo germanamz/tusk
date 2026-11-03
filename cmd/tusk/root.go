@@ -69,6 +69,10 @@ CONFIGURATION
                              indexing
     [behaviors.<kind>]       manifest-declared behaviors
     [alias.<name>]           saved queries runnable via "tusk run <name>"
+    [rule.<name>]            description, filter, severity — a convention
+                             "tusk doctor" checks
+    [check.<name>]           command, description, severity, timeout-seconds
+                             — a project command "tusk doctor --checks" runs
 
   Environment overrides (read once at startup, highest precedence):
     TUSK_WORKSPACE           the vault to run in when --workspace is absent,

@@ -285,6 +285,13 @@ func (repo *NodeRepo) ListFileNodes() ([]NodeRow, error) {
 	return repo.queryNodes(nodeSelectColumns + ` FROM nodes WHERE parent_id IS NULL ORDER BY id ASC`)
 }
 
+// ListFileNodesWithProperty returns every file-level node whose frontmatter
+// sets the named top-level property, null included, ordered by id ASC.
+func (repo *NodeRepo) ListFileNodesWithProperty(name string) ([]NodeRow, error) {
+	// The quoted label keeps a name with a dash or a dot one key.
+	return repo.queryNodes(nodeSelectColumns+` FROM nodes WHERE parent_id IS NULL AND json_type(properties_json, ?) IS NOT NULL ORDER BY id ASC`, `$."`+name+`"`)
+}
+
 // CountFileNodes returns the number of file-level nodes (parent_id IS NULL).
 // Used by the graph snapshot to report total size and drive the scale
 // guardrail. The edge-count counterpart is EdgeRepo.Count.

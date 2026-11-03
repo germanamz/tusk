@@ -37,8 +37,9 @@ var supportedPropertyTypes = map[string]struct{}{
 
 // reservedPropertyNames are the names that cannot appear in any property declaration.
 var reservedPropertyNames = map[string]struct{}{
-	"type":  {},
-	"title": {},
+	"type":        {},
+	"title":       {},
+	RuleIgnoreKey: {},
 }
 
 // Load reads and decodes a tusk.toml at manifestPath, validating its shape.
@@ -77,6 +78,7 @@ func Load(manifestPath string) (*Manifest, error) {
 	}
 
 	loaded.Meta = &meta
+	loaded.decodeMetas = append(loaded.decodeMetas, &meta)
 
 	if aliasErr := decodeAliases(body, loaded); aliasErr != nil {
 		return nil, fmt.Errorf("manifest: decode aliases in %s: %w", manifestPath, aliasErr)
@@ -88,6 +90,10 @@ func Load(manifestPath string) (*Manifest, error) {
 
 	if ruleErr := decodeRules(body, loaded); ruleErr != nil {
 		return nil, fmt.Errorf("manifest: decode rules in %s: %w", manifestPath, ruleErr)
+	}
+
+	if checkErr := decodeChecks(body, loaded); checkErr != nil {
+		return nil, fmt.Errorf("manifest: decode checks in %s: %w", manifestPath, checkErr)
 	}
 
 	if bothContextRecentForms {
@@ -117,6 +123,8 @@ func Load(manifestPath string) (*Manifest, error) {
 		return nil, validateErr
 	}
 
+	recordUnknownKeys(loaded)
+
 	return loaded, nil
 }
 
@@ -134,6 +142,8 @@ func decodeQuerySection(body string, loaded *Manifest) error {
 	if queryDecodeErr != nil {
 		return queryDecodeErr
 	}
+
+	loaded.decodeMetas = append(loaded.decodeMetas, &queryMeta)
 
 	loaded.LexicalWeight = wrapper.Query.LexicalWeight
 	loaded.TitleWeight = DefaultTitleWeight
@@ -171,6 +181,8 @@ func decodeGraphSection(body string, loaded *Manifest) error {
 	if graphDecodeErr != nil {
 		return graphDecodeErr
 	}
+
+	loaded.decodeMetas = append(loaded.decodeMetas, &graphMeta)
 
 	loaded.graphCluster = wrapper.Graph.Cluster
 	// Stash the local meta because toml.Primitive values can only be
@@ -214,6 +226,8 @@ func decodeAliases(body string, loaded *Manifest) error {
 	if aliasDecodeErr != nil {
 		return aliasDecodeErr
 	}
+
+	loaded.decodeMetas = append(loaded.decodeMetas, &meta)
 
 	if len(wrapper.Alias) == 0 {
 		return nil

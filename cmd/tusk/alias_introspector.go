@@ -54,9 +54,24 @@ func walkLeaves(node *cobra.Command, parents []string, out map[string][]manifest
 	}
 }
 
+// cliOnlyAnnotation marks a flag an alias may not set: `tusk run` and MCP
+// `tusk_run` dispatch aliases, and the flag does something only a person at
+// the CLI should choose, such as running shell commands from tusk.toml.
+const cliOnlyAnnotation = "tusk-cli-only"
+
+// markCLIOnly keeps flag out of the alias arg set, so an alias that sets it
+// is rejected as an unknown arg instead of silently ignored.
+func markCLIOnly(flag *pflag.Flag) {
+	if flag.Annotations == nil {
+		flag.Annotations = map[string][]string{}
+	}
+
+	flag.Annotations[cliOnlyAnnotation] = []string{"true"}
+}
+
 // collectFlags merges local and inherited flag sets into a FlagSpec slice.
 // Persistent root flags (e.g. --verbose) are included so an alias can set
-// them.
+// them; a flag marked CLI-only is left out.
 func collectFlags(cmd *cobra.Command) []manifest.FlagSpec {
 	seen := map[string]struct{}{}
 
@@ -64,6 +79,10 @@ func collectFlags(cmd *cobra.Command) []manifest.FlagSpec {
 
 	visit := func(flag *pflag.Flag) {
 		if _, dup := seen[flag.Name]; dup {
+			return
+		}
+
+		if _, cliOnly := flag.Annotations[cliOnlyAnnotation]; cliOnly {
 			return
 		}
 

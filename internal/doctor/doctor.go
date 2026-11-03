@@ -65,6 +65,15 @@ const (
 	IssueEdgeTypeViolation        = "edge-type-violation"
 	IssueEdgeCardinalityViolation = "edge-cardinality-violation"
 
+	// IssueEdgeCycle surfaces nodes that reach each other along an edge type
+	// declared acyclic, ref properties included. `tusk edge add` and node
+	// writes refuse such a cycle at the error level, but a hand-edited file
+	// can still write one (#852). One issue per group of nodes that reach each
+	// other: NodeID is the group's first id, the message shows the shortest
+	// cycle through it, and Locations lists the group's other members. The
+	// severity is the edge type's acyclic level.
+	IssueEdgeCycle = "edge-cycle"
+
 	IssueRefDangling     = "ref_dangling"
 	IssueRefAmbiguous    = "ref_ambiguous"
 	IssueRefTypeMismatch = "ref_type_mismatch"
@@ -158,6 +167,23 @@ const (
 	// violations are reported under their own kind (see RuleKindPrefix).
 	IssueRuleInvalid = "rule-invalid"
 
+	// IssueManifestUnknownKey surfaces a key or table in tusk.toml that no
+	// part of tusk reads: a typo, or a table a newer tusk added. Load records
+	// it instead of failing, so an older binary still reads a newer manifest.
+	// NodeID is the dotted key (#852).
+	IssueManifestUnknownKey = "manifest-unknown-key"
+
+	// IssueCheckInvalid surfaces a [check.<name>] declaration CompileChecks
+	// rejected. NodeID is the check name. A check's findings are reported
+	// under their own kind (see CheckKindPrefix).
+	IssueCheckInvalid = "check-invalid"
+
+	// IssueRuleIgnoreUnused surfaces a tusk-ignore entry that exempts its node
+	// from nothing: it names no declared rule, the node no longer breaks the
+	// rule, or the value is not a rule name or a list of them. NodeID is the
+	// node carrying the key (#852).
+	IssueRuleIgnoreUnused = "rule-ignore-unused"
+
 	// IssueIndexNotBuilt surfaces an index no reindex pass has ever written
 	// (no LastReindexAtKey in meta): a fresh checkout, or a vault built only
 	// through node writes. Every other check reads the index, so files on disk
@@ -210,6 +236,10 @@ type Report struct {
 	// renderer can surface the active values regardless of the enabled
 	// flag. nil when no manifest was supplied to Run.
 	GraphExpansion *GraphExpansionPane
+
+	// ChecksSkipped counts the valid [check.<name>] declarations Run did not
+	// run because Config.Checks is nil.
+	ChecksSkipped int
 }
 
 // SubUnitPane summarizes the sub-unit pipeline's health for tusk doctor
@@ -273,6 +303,10 @@ type Config struct {
 	// and modified-since durations resolve against. Required when one holds
 	// either; the rule fails to run otherwise.
 	Now time.Time
+
+	// Checks runs [check.<name>] commands. Optional; nil = checks are
+	// validated but not run, and Report.ChecksSkipped counts them.
+	Checks CheckRunner
 }
 
 // MigrationReport summarizes a Migrate call.
@@ -315,6 +349,7 @@ func Run(config Config) (*Report, error) {
 		checkPathRefs,
 		checkDerivedEdgeTypes,
 		checkEdgeConstraints,
+		checkEdgeCycles,
 		checkWorkflowDrift,
 		checkPropertyDrift,
 		checkUndeclaredTypes,
@@ -332,6 +367,13 @@ func Run(config Config) (*Report, error) {
 
 		report.Issues = append(report.Issues, issues...)
 	}
+
+	// Project checks: run last, so a slow one doesn't hold up the index
+	// checks, and only with a runner (`tusk doctor --checks`).
+	checkIssues, checksSkipped := runChecks(config)
+
+	report.Issues = append(report.Issues, checkIssues...)
+	report.ChecksSkipped = checksSkipped
 
 	if queueErr := populateQueueDepths(config, report); queueErr != nil {
 		return nil, queueErr
@@ -354,7 +396,8 @@ func Run(config Config) (*Report, error) {
 }
 
 // manifestIssues turns the manifest loader's alias and [context] rejections,
-// and every [context.pinned] id that no longer resolves, into Issues. No-op
+// the keys it found no reader for, and every [context.pinned] id that no
+// longer resolves, into Issues. No-op
 // without a manifest; the pinned check also needs the node repo.
 func manifestIssues(config Config) []Issue {
 	if config.Manifest == nil {
@@ -377,6 +420,8 @@ func manifestIssues(config Config) []Issue {
 			Message: contextErr.Message,
 		})
 	}
+
+	issues = append(issues, unknownKeyIssues(config.Manifest)...)
 
 	for _, missingID := range CheckPinnedNodes(config.Manifest, config.Nodes) {
 		issues = append(issues, Issue{

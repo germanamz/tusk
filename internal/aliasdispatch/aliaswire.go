@@ -128,10 +128,17 @@ func DoctorIssuesPayload(report *doctor.Report) map[string]any {
 
 	counts := report.Counts()
 
-	return map[string]any{
+	payload := map[string]any{
 		"issues":        issues,
 		"error_count":   counts.Errors,
 		"warning_count": counts.Warnings,
 		"advice_count":  counts.Advice,
 	}
+
+	// Neither surface runs project checks; say so only when some exist.
+	if report.ChecksSkipped > 0 {
+		payload["checks_skipped"] = report.ChecksSkipped
+	}
+
+	return payload
 }

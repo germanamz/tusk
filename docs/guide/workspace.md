@@ -98,7 +98,17 @@ Edges are typed, declared in the manifest, and can be created two ways:
 - **Frontmatter** — the natural place. `parent: tickets/auth-epic` declares a `parent` edge.
 - **CLI / MCP** — `tusk edge add --type blocks --source tickets/a --target tickets/b`.
 
-Edge declarations enforce legality (`from`/`to` types), cardinality, ordering, and optional `acyclic = true` (cycles are rejected at write time). A hand-edited file that breaks `from`/`to` or cardinality is still indexed, and `tusk doctor` reports the edge as an error.
+Edge declarations enforce legality (`from`/`to` types), cardinality, ordering, and optional `acyclic`. A hand-edited file that breaks `from`/`to` or cardinality is still indexed, and `tusk doctor` reports the edge as an error.
+
+`acyclic` sets how strictly an edge type, or a ref property, keeps cycles out:
+
+| Value | `tusk edge add` and node writes | `tusk doctor` |
+| --- | --- | --- |
+| `true` or `"error"` | refuse a write that would close a cycle | reports a cycle as an `edge-cycle` error |
+| `"warning"` or `"advice"` | allow it | reports it at that level |
+| `false`, `"none"` or unset | allow it | doesn't look |
+
+A hand-edited file can still write a cycle at any level, so doctor checks what is indexed. It reports one `edge-cycle` finding per group of nodes that reach each other, with the shortest cycle through the group in the message (`edge "depends-on" is acyclic, but these nodes form a cycle: a → b → a`) and any other members of the group as locations.
 
 ### Listing edges
 

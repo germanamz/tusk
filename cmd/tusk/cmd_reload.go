@@ -155,11 +155,7 @@ proceeds.`,
 				warnings = append(warnings, fmt.Sprintf("context: %s", contextErr.Message))
 			}
 
-			_, ruleErrs := doctor.CompileRules(loaded)
-
-			for _, ruleErr := range ruleErrs {
-				warnings = append(warnings, ruleErr.Error())
-			}
+			warnings = append(warnings, doctor.ManifestWarnings(loaded)...)
 
 			// Record changed [embeddings] settings and queue the re-embed here,
 			// even without --reindex: a converging daemon swaps in the new

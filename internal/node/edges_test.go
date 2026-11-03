@@ -17,7 +17,7 @@ func testEdgeRegistry() manifest.EdgeTypes {
 		"blocks": manifest.EdgeType{
 			From: []string{"ticket"}, To: []string{"ticket"},
 			Cardinality: manifest.CardinalityManyToMany,
-			Acyclic:     true,
+			Acyclic:     manifest.AcyclicError,
 		},
 		"references": manifest.EdgeType{
 			From: []string{"*"}, To: []string{"*"},
