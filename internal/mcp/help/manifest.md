@@ -9,7 +9,7 @@ no MCP tool to edit it — open the file directly, then call
 ```toml
 [workspace]
 name      = "my-brain"
-sub-units = true             # parse markdown headings into sub-unit nodes
+sub-units = true             # index every sub-unit kind; false = none; or a list: ["section","paragraph","list-item","code-block","blockquote","table-cell"]
 line-numbering = "lf"        # what ends a line in matched-unit `lines`
 default-type = "note"        # optional; index markdown with no `type:` as this type
 link-case = "insensitive"    # [[name]] wikilinks match file names in any case; "sensitive" for exact

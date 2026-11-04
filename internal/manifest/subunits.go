@@ -1,6 +1,90 @@
 package manifest
 
-import "maps"
+import (
+	"fmt"
+	"maps"
+	"slices"
+	"strconv"
+	"strings"
+)
+
+// subUnitKindNames lists the kinds `[workspace] sub-units` can name, in the
+// order SubUnitKinds, the docs and the load errors give them. They are the
+// sub-document pack's node types and the subunit.Kind values.
+var subUnitKindNames = []string{"section", "paragraph", "list-item", "code-block", "blockquote", "table-cell"}
+
+// SubUnitKindNames returns every kind `[workspace] sub-units` can list, in
+// canonical order.
+func SubUnitKindNames() []string {
+	return slices.Clone(subUnitKindNames)
+}
+
+// resolveSubUnits reads `[workspace] sub-units` into subUnitsExcluded: true
+// or no key leaves out nothing, false or [] leaves out every kind, and a list
+// keeps the kinds it names, in any order, duplicates allowed. Any other value,
+// or a list item that names no kind, is an error. Before #853 the key was
+// decoded as a bool on read and anything else fell back to on, so a list or a
+// string loaded without a word and changed nothing.
+func resolveSubUnits(loaded *Manifest) error {
+	loaded.subUnitsExcluded = nil
+
+	if loaded.Meta == nil || !loaded.Meta.IsDefined("workspace", "sub-units") {
+		return nil
+	}
+
+	var value any
+
+	if decodeErr := loaded.Meta.PrimitiveDecode(loaded.Workspace.SubUnitsRaw, &value); decodeErr != nil {
+		return fmt.Errorf("manifest: workspace.sub-units: %w", decodeErr)
+	}
+
+	wantKinds := strings.Join(subUnitKindNames, " | ")
+	var kept []string
+
+	switch typed := value.(type) {
+	case bool:
+		if typed {
+			return nil
+		}
+	case []any:
+		for _, item := range typed {
+			kind, isString := item.(string)
+
+			if !isString || !slices.Contains(subUnitKindNames, kind) {
+				return fmt.Errorf("manifest: workspace.sub-units: %s is not a sub-unit kind (want %s)", tomlValueText(item), wantKinds)
+			}
+
+			kept = append(kept, kind)
+		}
+	default:
+		return fmt.Errorf("manifest: workspace.sub-units = %s is not supported (want true, false or a list of kinds: %s)", tomlValueText(value), wantKinds)
+	}
+
+	excluded := make(map[string]struct{}, len(subUnitKindNames))
+
+	for _, kind := range subUnitKindNames {
+		if !slices.Contains(kept, kind) {
+			excluded[kind] = struct{}{}
+		}
+	}
+
+	loaded.subUnitsExcluded = excluded
+
+	return nil
+}
+
+// tomlValueText renders a decoded TOML value for an error message: a string
+// quoted, a table as {...}, anything else as Go prints it.
+func tomlValueText(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strconv.Quote(typed)
+	case map[string]any:
+		return "{...}"
+	default:
+		return fmt.Sprint(typed)
+	}
+}
 
 // The canonical public list of reserved names lives at
 // internal/typepacks/subdocument.{ReservedNodeTypes,ReservedEdgeTypes,
@@ -79,9 +163,7 @@ func subdocumentEdgeTypes() EdgeTypes {
 		"contains": {
 			Description: "A file contains a sub-unit (heading, paragraph, list-item, code-block, blockquote, or table-cell).",
 			From:        []string{"*"},
-			To: []string{
-				"section", "paragraph", "list-item", "code-block", "blockquote", "table-cell",
-			},
+			To:          SubUnitKindNames(),
 			Cardinality: CardinalityOneToMany,
 			Inverse:     "contained-by",
 			Acyclic:     AcyclicError,
@@ -90,9 +172,11 @@ func subdocumentEdgeTypes() EdgeTypes {
 }
 
 // mergeSubdocumentPack merges the built-in sub-document pack into
-// loaded when the manifest opts into sub-units (default true). The
-// merge installs the pack's node and edge types into the manifest's
-// effective NodeTypes/EdgeTypes maps.
+// loaded when the manifest indexes any sub-unit kind (default every
+// kind). The merge installs the pack's node and edge types into the
+// manifest's effective NodeTypes/EdgeTypes maps: all of them, even when
+// `sub-units` lists only some kinds, so a filter or rule that names an
+// unindexed kind still validates and matches nothing.
 //
 // Reservation scope: the pack reserves its names within
 // source = subdocument.Source() (i.e., source = "markdown"). User

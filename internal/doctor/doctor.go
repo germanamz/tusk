@@ -102,10 +102,10 @@ const (
 
 	// IssueSubUnitsDisabledDirty surfaces the back-compat hazard where
 	// the manifest opts out of sub-units (`[workspace] sub-units =
-	// false`) but the index still contains sub-unit rows from a previous
-	// run with sub-units enabled. Doctor does NOT auto-clean; the next
-	// `tusk reindex` drops the stale rows, since a changed setting forces
-	// a full pass (#827).
+	// false`), or out of some kinds with a list, but the index still
+	// contains rows of those kinds from a previous run that indexed them.
+	// Doctor does NOT auto-clean; the next `tusk reindex` drops the stale
+	// rows, since a changed setting forces a full pass (#827, #853).
 	IssueSubUnitsDisabledDirty = "sub-units-disabled-dirty"
 
 	// IssueGraphExpansionUnknownEdge surfaces an entry in
@@ -620,7 +620,41 @@ func checkDanglingEdges(config Config) ([]Issue, error) {
 		return nil, nil
 	}
 
-	return findDanglingEdges(config.Nodes, config.Edges, config.Manifest.LinkCase(), config.Manifest.SubUnitsEnabled())
+	return findDanglingEdges(config.Nodes, config.Edges, config.Manifest.LinkCase(), fragmentTargetsOf(config.Manifest))
+}
+
+// fragmentTargets says which link fragments a note's indexed sub-units can
+// answer, so a link whose fragment missed is a miss doctor reports only when
+// the unit it names would be indexed (#853).
+type fragmentTargets struct {
+	// headings: sections are indexed, so a heading link has rows to match.
+	headings bool
+	// blocks: every leaf kind is indexed. A ^block-id can name a unit of any
+	// of them, so with one left out a block reference that missed may name a
+	// unit that just isn't indexed.
+	blocks bool
+}
+
+func fragmentTargetsOf(loaded *manifest.Manifest) fragmentTargets {
+	targets := fragmentTargets{headings: loaded.IndexesSubUnitKind("section"), blocks: true}
+
+	for _, kind := range manifest.SubUnitKindNames() {
+		if kind != "section" && !loaded.IndexesSubUnitKind(kind) {
+			targets.blocks = false
+		}
+	}
+
+	return targets
+}
+
+// answers reports whether the indexed sub-units could answer link's fragment:
+// a block reference needs the blocks, any other fragment the headings.
+func (fragments fragmentTargets) answers(link string) bool {
+	if _, fragment := wikilink.SplitFragment(link); wikilink.IsBlockRef(fragment) {
+		return fragments.blocks
+	}
+
+	return fragments.headings
 }
 
 // checkDerivedEdgeTypes flags a derived edge whose target node exists but whose
@@ -1220,9 +1254,39 @@ func populateSubUnitPane(config Config, report *Report) error {
 			Kind:    IssueSubUnitsDisabledDirty,
 			Message: fmt.Sprintf("sub-units disabled but index contains %d sub-unit rows; run `tusk reindex` to drop them.", pane.Total),
 		})
+
+		return nil
+	}
+
+	// A list that leaves some kinds out + stale rows of those kinds (#853).
+	if excluded := excludedKindCounts(config.Manifest, pane.CountByKind); excluded != "" {
+		report.Issues = append(report.Issues, Issue{
+			Kind:    IssueSubUnitsDisabledDirty,
+			Message: fmt.Sprintf("[workspace] sub-units leaves out kinds the index still holds rows of (%s); run `tusk reindex` to drop them.", excluded),
+		})
 	}
 
 	return nil
+}
+
+// excludedKindCounts renders the stored rows of the sub-unit kinds loaded
+// leaves out, as "kind count" pairs in canonical kind order ("list-item 1,
+// table-cell 2"), or "" when there are none. A stored type that is no
+// sub-unit kind is no concern of the setting and is skipped.
+func excludedKindCounts(loaded *manifest.Manifest, byKind map[string]int) string {
+	if loaded == nil {
+		return ""
+	}
+
+	var parts []string
+
+	for _, kind := range manifest.SubUnitKindNames() {
+		if count := byKind[kind]; count > 0 && !loaded.IndexesSubUnitKind(kind) {
+			parts = append(parts, fmt.Sprintf("%s %d", kind, count))
+		}
+	}
+
+	return strings.Join(parts, ", ")
 }
 
 // computeSubUnitPane reads the index for sub-unit health metrics. Returns
@@ -1803,10 +1867,10 @@ type danglingKey struct {
 // matched under linkCase; one that names no file is a dangling edge. A link
 // whose #fragment named nothing in its note resolved to the note itself, so
 // its target exists, and is reported as missing-heading, or missing-block for
-// a block reference. With subUnits off no note has sections or blocks for a
-// fragment to name, so such a link resting on its note is no miss and is not
-// reported.
-func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wikilink.Case, subUnits bool) ([]Issue, error) {
+// a block reference. Without the sub-units a fragment names (sections for a
+// heading, every leaf kind for a block; see fragmentTargets) such a link
+// resting on its note is no miss and is not reported.
+func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wikilink.Case, fragments fragmentTargets) ([]Issue, error) {
 	allEdges, listErr := edges.ListAll()
 
 	if listErr != nil {
@@ -1861,7 +1925,7 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 		_, targetExists := exists[edge.TargetID]
 		missedFragment := fragmentMissed(edge, exists)
 
-		if (missedFragment && !subUnits) || (targetExists && !missedFragment) {
+		if (missedFragment && !fragments.answers(edge.Link)) || (targetExists && !missedFragment) {
 			continue
 		}
 

@@ -194,7 +194,7 @@ func decodeGraphSection(body string, loaded *Manifest) error {
 }
 
 // MergeBuiltinPacks applies built-in type packs (currently just the
-// sub-document pack when [workspace] sub-units = true) onto the loaded
+// sub-document pack when [workspace] sub-units indexes any kind) onto the loaded
 // manifest. Callers must invoke this explicitly after Load — Load itself
 // returns the manifest unmodified so manifest tests can assert on the
 // raw on-disk shape without pack contamination.
@@ -893,6 +893,10 @@ func validate(loaded *Manifest) error {
 
 	if _, caseErr := wikilink.ParseCase(loaded.Workspace.LinkCase); caseErr != nil {
 		return fmt.Errorf("manifest: workspace.%w", caseErr)
+	}
+
+	if subUnitsErr := resolveSubUnits(loaded); subUnitsErr != nil {
+		return subUnitsErr
 	}
 
 	if loaded.Embeddings.Provider != "" {
