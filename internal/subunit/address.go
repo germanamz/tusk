@@ -153,20 +153,22 @@ func DisambiguateFallbackIDs(units []Unit) []Unit {
 	return units
 }
 
-// ContentHashFor returns the fingerprint stored on nodes.content_hash. For leaf
-// kinds it is sha256(EmbedPayload) — exactly the bytes the embedder sends — so a
-// leaf that merely shifts position keeps its hash and reuses its vector. For
-// sections it is sha256("section\x00<level>\x00<unit.Text>"): the section's
-// outbound wikilink edges are derived from that same Text, so hash and edge
-// set stay in lockstep — whatever changes the derivable edges changes the
+// ContentHashFor returns a unit's content fingerprint as parsed. For leaf kinds
+// it is sha256(EmbedPayload), the passage the embedder sends, so a leaf that
+// merely shifts position keeps its hash and reuses its vector; Sync.ApplyFile
+// folds the leaf's embed context into it before storing it on
+// nodes.content_hash (withLeafContexts). For sections it is
+// sha256("section\x00<level>\x00<unit.Text>"): the section's outbound
+// wikilink edges are derived from that same Text, so hash and edge set stay
+// in lockstep — whatever changes the derivable edges changes the
 // hash, which is what lets the sync diff refresh section edges (sections are
 // never embedded, so this costs no vectors). The markdown walker supplies the
 // heading plus the whole descendant body as section Text; the HTML walker
 // supplies the heading only. Lowercase hex.
 //
 // Shared by the markdown and HTML walkers so the two formats produce
-// byte-identical content hashes for equivalent LEAF units — the key the
-// vector store dedupes on. Section hashes carry no cross-format contract.
+// byte-identical content hashes for equivalent LEAF units. Section hashes
+// carry no cross-format contract.
 func ContentHashFor(unit Unit) string {
 	if unit.Kind == KindSection {
 		sum := sha256.Sum256(fmt.Appendf(nil, "section\x00%d\x00%s", intProperty(unit, "heading-level"), unit.Text))

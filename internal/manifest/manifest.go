@@ -243,22 +243,52 @@ type WorkspaceSection struct {
 // may contain {title}). DocumentHeader picks the block prepended to each file
 // chunk (DocumentHeaderFull/Title/None). The Chunk* sizes configure
 // file-level chunking (zero = default; see ChunkSizes). NumCtx is sent to
-// Ollama as options.num_ctx when > 0.
+// Ollama as options.num_ctx when > 0. SubUnitContext and SubUnitProperties
+// pick what a sub-unit leaf embeds in front of its passage (#862): its file's
+// title, the title and heading path, or nothing, plus the named file
+// properties.
 type EmbeddingsSection struct {
-	Provider          string `toml:"provider"`
-	Model             string `toml:"model"`
-	Endpoint          string `toml:"endpoint"`
-	Dim               int    `toml:"dim"`
-	APIKey            string `toml:"api-key"`
-	Workers           *int   `toml:"workers"`
-	TimeoutSeconds    int    `toml:"timeout-seconds"`
-	QueryPrefix       string `toml:"query-prefix"`
-	DocumentPrefix    string `toml:"document-prefix"`
-	DocumentHeader    string `toml:"document-header"`
-	ChunkTargetBytes  int    `toml:"chunk-target-bytes"`
-	ChunkMaxBytes     int    `toml:"chunk-max-bytes"`
-	ChunkOverlapBytes int    `toml:"chunk-overlap-bytes"`
-	NumCtx            int    `toml:"num-ctx"`
+	Provider          string   `toml:"provider"`
+	Model             string   `toml:"model"`
+	Endpoint          string   `toml:"endpoint"`
+	Dim               int      `toml:"dim"`
+	APIKey            string   `toml:"api-key"`
+	Workers           *int     `toml:"workers"`
+	TimeoutSeconds    int      `toml:"timeout-seconds"`
+	QueryPrefix       string   `toml:"query-prefix"`
+	DocumentPrefix    string   `toml:"document-prefix"`
+	DocumentHeader    string   `toml:"document-header"`
+	ChunkTargetBytes  int      `toml:"chunk-target-bytes"`
+	ChunkMaxBytes     int      `toml:"chunk-max-bytes"`
+	ChunkOverlapBytes int      `toml:"chunk-overlap-bytes"`
+	NumCtx            int      `toml:"num-ctx"`
+	SubUnitContext    string   `toml:"sub-unit-context"`
+	SubUnitProperties []string `toml:"sub-unit-properties"`
+}
+
+// Sub-unit context modes for EmbeddingsSection.SubUnitContext. An empty value
+// resolves to DefaultSubUnitContext.
+const (
+	SubUnitContextTitle = "title"
+	SubUnitContextPath  = "path"
+	SubUnitContextNone  = "none"
+)
+
+// DefaultSubUnitContext is what a leaf embeds in front of its passage when
+// sub-unit-context is unset: its file's title and enclosing headings. On
+// tusk's package docs it ranked the answering passage higher than "title"
+// with the word match off, where "title" ranked it lower than bare leaves
+// once title-weight lifted the same files again (#862).
+const DefaultSubUnitContext = SubUnitContextPath
+
+// ResolvedSubUnitContext returns SubUnitContext, or DefaultSubUnitContext when
+// unset.
+func (section EmbeddingsSection) ResolvedSubUnitContext() string {
+	if section.SubUnitContext == "" {
+		return DefaultSubUnitContext
+	}
+
+	return section.SubUnitContext
 }
 
 // Document header modes for EmbeddingsSection.DocumentHeader. An empty value

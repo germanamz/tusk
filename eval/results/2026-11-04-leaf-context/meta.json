@@ -1,0 +1,20 @@
+{
+  "label": "#862 leaf context",
+  "tasks_sha256": "3896fdf384b17d6f066bdd22198b0a55f2cf4c4965450afe37f9259e454fb3fb",
+  "questions": 40,
+  "paths": [
+    "docs/packages"
+  ],
+  "corpus_files": 36,
+  "corpus_sections": 164,
+  "arms": [
+    "tusk"
+  ],
+  "reps": 3,
+  "model": "sonnet",
+  "judge_model": "haiku",
+  "concurrency": 4,
+  "tusk_version": "v1.0.0-dev (a6793f1, modified)",
+  "claude_version": "2.1.318",
+  "started_at": "2026-11-04T18:27:35.71882Z"
+}

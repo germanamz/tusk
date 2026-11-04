@@ -2,6 +2,10 @@ package embed_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/embed"
@@ -119,6 +123,7 @@ func TestDocumentFingerprint(test *testing.T) {
 			section.ChunkTargetBytes = 1600
 			section.ChunkMaxBytes = 4000
 			section.ChunkOverlapBytes = 200
+			section.SubUnitContext = "path"
 		}),
 		"query-prefix":    withSection(base, func(section *manifest.EmbeddingsSection) { section.QueryPrefix = "search_query: " }),
 		"endpoint":        withSection(base, func(section *manifest.EmbeddingsSection) { section.Endpoint = "http://gpu-box:11434" }),
@@ -132,13 +137,20 @@ func TestDocumentFingerprint(test *testing.T) {
 	}
 
 	different := map[string]manifest.EmbeddingsSection{
-		"model":           withSection(base, func(section *manifest.EmbeddingsSection) { section.Model = "mxbai-embed-large" }),
-		"num-ctx":         withSection(base, func(section *manifest.EmbeddingsSection) { section.NumCtx = 2048 }),
-		"document-prefix": withSection(base, func(section *manifest.EmbeddingsSection) { section.DocumentPrefix = "search_document: " }),
-		"document-header": withSection(base, func(section *manifest.EmbeddingsSection) { section.DocumentHeader = "none" }),
-		"chunk target":    withSection(base, func(section *manifest.EmbeddingsSection) { section.ChunkTargetBytes = 1200 }),
-		"chunk max":       withSection(base, func(section *manifest.EmbeddingsSection) { section.ChunkMaxBytes = 3000 }),
-		"chunk overlap":   withSection(base, func(section *manifest.EmbeddingsSection) { section.ChunkOverlapBytes = 100 }),
+		"model":            withSection(base, func(section *manifest.EmbeddingsSection) { section.Model = "mxbai-embed-large" }),
+		"num-ctx":          withSection(base, func(section *manifest.EmbeddingsSection) { section.NumCtx = 2048 }),
+		"document-prefix":  withSection(base, func(section *manifest.EmbeddingsSection) { section.DocumentPrefix = "search_document: " }),
+		"document-header":  withSection(base, func(section *manifest.EmbeddingsSection) { section.DocumentHeader = "none" }),
+		"chunk target":     withSection(base, func(section *manifest.EmbeddingsSection) { section.ChunkTargetBytes = 1200 }),
+		"chunk max":        withSection(base, func(section *manifest.EmbeddingsSection) { section.ChunkMaxBytes = 3000 }),
+		"chunk overlap":    withSection(base, func(section *manifest.EmbeddingsSection) { section.ChunkOverlapBytes = 100 }),
+		"sub-unit-context": withSection(base, func(section *manifest.EmbeddingsSection) { section.SubUnitContext = "title" }),
+		"sub-unit-properties": withSection(base, func(section *manifest.EmbeddingsSection) {
+			section.SubUnitProperties = []string{"aliases"}
+		}),
+		"sub-unit-properties order": withSection(base, func(section *manifest.EmbeddingsSection) {
+			section.SubUnitProperties = []string{"aliases", "tags"}
+		}),
 	}
 
 	for name, section := range different {
@@ -161,11 +173,19 @@ func TestNewFromManifest_AppliesModelSettings(test *testing.T) {
 		ChunkMaxBytes:     100,
 		ChunkOverlapBytes: 10,
 		NumCtx:            512,
+		SubUnitContext:    "path",
+		SubUnitProperties: []string{"aliases"},
 	}, nil)
 
-	want := embed.Format{QueryPrefix: "q: ", DocumentPrefix: "d: ", HeaderMode: embed.HeaderNone}
+	want := embed.Format{
+		QueryPrefix:       "q: ",
+		DocumentPrefix:    "d: ",
+		HeaderMode:        embed.HeaderNone,
+		SubUnitContext:    "path",
+		SubUnitProperties: []string{"aliases"},
+	}
 
-	if embedder.Format() != want {
+	if !reflect.DeepEqual(embedder.Format(), want) {
 		test.Errorf("Format = %+v, want %+v", embedder.Format(), want)
 	}
 
@@ -214,4 +234,30 @@ func withSection(base manifest.EmbeddingsSection, mutate func(*manifest.Embeddin
 	mutate(&base)
 
 	return base
+}
+
+// TestDocumentFingerprint_BareLeavesMatchTheOldFingerprint: settings that
+// embed leaves bare fingerprint without the sub-unit keys, as they did before
+// those keys existed, so an index embedded that way isn't re-embedded on
+// upgrade.
+func TestDocumentFingerprint_BareLeavesMatchTheOldFingerprint(test *testing.T) {
+	bare := manifest.EmbeddingsSection{Model: "nomic-embed-text", SubUnitContext: "none"}
+
+	// The v1 encoding: version, vector key, document-prefix, resolved header,
+	// then the three chunk sizes, joined by NUL.
+	sum := sha256.Sum256([]byte(strings.Join([]string{"v1", "nomic-embed-text", "", "full", "1600", "4000", "200"}, "\x00")))
+
+	if got := embed.DocumentFingerprint(bare); got != hex.EncodeToString(sum[:]) {
+		test.Errorf("bare-leaf fingerprint = %s, want the pre-#862 value %s", got, hex.EncodeToString(sum[:]))
+	}
+
+	if embed.DocumentFingerprint(manifest.EmbeddingsSection{Model: "nomic-embed-text"}) == embed.DocumentFingerprint(bare) {
+		test.Error("the default sub-unit-context (path) must fingerprint differently from bare leaves")
+	}
+
+	properties := withSection(bare, func(section *manifest.EmbeddingsSection) { section.SubUnitProperties = []string{"aliases"} })
+
+	if embed.DocumentFingerprint(properties) == embed.DocumentFingerprint(bare) {
+		test.Error("sub-unit-properties under none must change the fingerprint")
+	}
 }

@@ -50,11 +50,7 @@ func NewFromManifest(cfg manifest.EmbeddingsSection, logger *slog.Logger) (Embed
 		Logger:   logger,
 		Timeout:  timeout,
 		NumCtx:   cfg.NumCtx,
-		Format: Format{
-			QueryPrefix:    cfg.QueryPrefix,
-			DocumentPrefix: cfg.DocumentPrefix,
-			HeaderMode:     HeaderMode(cfg.ResolvedDocumentHeader()),
-		},
+		Format:   FormatFor(cfg),
 	})
 
 	target, maxBytes, overlap := cfg.ChunkSizes()

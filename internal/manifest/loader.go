@@ -1017,6 +1017,36 @@ func validateEmbeddingsModelSettings(section EmbeddingsSection) error {
 		return fmt.Errorf("manifest: embeddings.query-prefix must not contain %s (only document-prefix expands it; a query has no title)", TitlePlaceholder)
 	}
 
+	return validateSubUnitContext(section)
+}
+
+// validateSubUnitContext checks sub-unit-context and sub-unit-properties. A
+// property is named once, and never as "title": sub-unit-context already puts
+// the title in front.
+func validateSubUnitContext(section EmbeddingsSection) error {
+	switch section.SubUnitContext {
+	case "", SubUnitContextTitle, SubUnitContextPath, SubUnitContextNone:
+	default:
+		return fmt.Errorf("manifest: embeddings.sub-unit-context = %q is not supported (want %s | %s | %s)",
+			section.SubUnitContext, SubUnitContextTitle, SubUnitContextPath, SubUnitContextNone)
+	}
+
+	seen := make(map[string]bool, len(section.SubUnitProperties))
+
+	for _, name := range section.SubUnitProperties {
+		switch {
+		case strings.TrimSpace(name) == "":
+			return fmt.Errorf("manifest: embeddings.sub-unit-properties has an empty property name")
+		case name == "title":
+			return fmt.Errorf("manifest: embeddings.sub-unit-properties must not name \"title\" (sub-unit-context = %q or %q already puts it in front)",
+				SubUnitContextTitle, SubUnitContextPath)
+		case seen[name]:
+			return fmt.Errorf("manifest: embeddings.sub-unit-properties names %q twice", name)
+		}
+
+		seen[name] = true
+	}
+
 	return nil
 }
 

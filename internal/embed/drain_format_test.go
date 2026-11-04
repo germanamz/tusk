@@ -136,9 +136,10 @@ func TestDrainQueue_DefaultFormatKeepsStoredHashes(test *testing.T) {
 }
 
 // TestDrainQueue_DefaultFormatSubUnitHashMatchesNodeHash pins the upgrade
-// guarantee for sub-units, which hold most stored vectors: with default
-// settings a leaf's vector hash is sha256 of its payload, the same value as
-// its nodes.content_hash and as the hash stored before these settings existed.
+// guarantee for sub-units, which hold most stored vectors: with the zero
+// Format (leaves bare, as under sub-unit-context = "none") a leaf's vector
+// hash is sha256 of its payload, the same value as its nodes.content_hash and
+// as the hash stored before these settings existed.
 func TestDrainQueue_DefaultFormatSubUnitHashMatchesNodeHash(test *testing.T) {
 	fixture := newFormatFixture(test)
 

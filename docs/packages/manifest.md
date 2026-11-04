@@ -135,7 +135,7 @@ The pool size is resolved once at process start; changes require a restart.
 
 ### Embedding model settings — `[embeddings]`
 
-Every embedding model is trained differently, so the keys that shape what the model sees are configurable. All are optional, and with all of them absent tusk sends exactly what it always has.
+Every embedding model is trained differently, so the keys that shape what the model sees are configurable. All are optional. With all of them absent, tusk sends what it always has for file chunks, and each sub-unit leaf carries its file's title and enclosing headings in front of its passage.
 
 ```toml
 [embeddings]
@@ -146,21 +146,25 @@ chunk-target-bytes  = 1600
 chunk-max-bytes     = 4000
 chunk-overlap-bytes = 200
 num-ctx             = 2048
+sub-unit-context    = "path"
+sub-unit-properties = ["aliases"]
 ```
 
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `query-prefix` | string | `""` | Prepended to the semantic query string. Must not contain `{title}`. An explicit `""` behaves like absent but tells doctor's prefix hint you opted out. |
-| `document-prefix` | string | `""` | Prepended to every document text (file chunks and sub-unit leaves). `{title}` becomes the node's title, or `none` for an untitled file and for every sub-unit. |
+| `document-prefix` | string | `""` | Prepended to every document text (file chunks and sub-unit leaves). `{title}` becomes the node's title, or `none` for an untitled file. For a leaf it becomes the leaf's label from `sub-unit-context`, or `none` under `"none"`. |
 | `document-header` | string | `"full"` | Block at the start of each file chunk: `full` (type, title, properties), `title` (title line only), or `none`. |
 | `chunk-target-bytes` | int | `1600` | File-level chunk packing goal. |
 | `chunk-max-bytes` | int | `4000` | Hard cap per file-level chunk. A sub-unit longer than this is split like a file. Also the threshold doctor's oversize checks use. |
 | `chunk-overlap-bytes` | int | `200` | Tail of each chunk carried into the next. |
 | `num-ctx` | int | `0` | Sent to Ollama as `options.num_ctx` when > 0; unset keeps the model's default window. It can't exceed the context the model was trained on (`nomic-embed-text`: 2048 tokens). |
+| `sub-unit-context` | string | `"path"` | What a sub-unit leaf embeds in front of its passage: `path` (its file's title, or file name when untitled, and the enclosing headings: `ledger-sync > Async`), `title` (the title alone), or `none`. With `{title}` in `document-prefix` the label fills it instead of taking a line. `path` reads headings from section rows, so with `section` left out of `[workspace] sub-units` it is the same as `title`. |
+| `sub-unit-properties` | list of strings | `[]` | File properties a leaf also embeds, one `name: value` line each after the label, in this order. `type` is the node type. Lists render as `a, b`; objects and empty values are left out. |
 
-Zero or absent sizes mean the default. `Load` rejects negative sizes or `num-ctx`, an unknown `document-header`, `{title}` in `query-prefix`, a `#` in `model` (it separates the model from its options in stored vector keys), and resolved sizes that break `overlap < target <= max` (the error names any default it filled in, so lowering only `chunk-max-bytes` below the default target says so). Prefix and header bytes don't count toward the chunk budget.
+Zero or absent sizes mean the default. `Load` rejects negative sizes or `num-ctx`, an unknown `document-header` or `sub-unit-context`, a `sub-unit-properties` entry that is empty, repeated or `title`, `{title}` in `query-prefix`, a `#` in `model` (it separates the model from its options in stored vector keys), and resolved sizes that break `overlap < target <= max` (the error names any default it filled in, so lowering only `chunk-max-bytes` below the default target says so). Prefix and header bytes don't count toward the chunk budget.
 
-`EmbeddingsSection.ChunkSizes()` and `ResolvedDocumentHeader()` return the values with defaults filled in. `Manifest.EmbeddingsKeyDefined(key)` reports whether a key is written in `tusk.toml` at all, so an explicit empty prefix (an opt-out) can be told apart from an absent one. Changing any key except `query-prefix` re-embeds every node on the next reindex; see `docs/packages/embed.md` and `docs/packages/reindex.md`.
+`EmbeddingsSection.ChunkSizes()`, `ResolvedDocumentHeader()` and `ResolvedSubUnitContext()` return the values with defaults filled in. `Manifest.EmbeddingsKeyDefined(key)` reports whether a key is written in `tusk.toml` at all, so an explicit empty prefix (an opt-out) can be told apart from an absent one. Changing any key except `query-prefix` re-embeds every node on the next reindex; see `docs/packages/embed.md` and `docs/packages/reindex.md`.
 
 ### Graph cluster lens — `[graph.cluster]`
 

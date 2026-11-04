@@ -3,9 +3,11 @@ package reindex_test
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -38,11 +40,7 @@ func (stub *settingsEmbedder) VectorKey() string { return embed.VectorKeyFor(stu
 func (stub *settingsEmbedder) Dim() int          { return 3 }
 
 func (stub *settingsEmbedder) Format() embed.Format {
-	return embed.Format{
-		QueryPrefix:    stub.section.QueryPrefix,
-		DocumentPrefix: stub.section.DocumentPrefix,
-		HeaderMode:     embed.HeaderMode(stub.section.ResolvedDocumentHeader()),
-	}
+	return embed.FormatFor(stub.section)
 }
 
 // settingsVault is a one-file vault (a section heading and one paragraph, so
@@ -213,21 +211,93 @@ func TestRun_QueryPrefixChangeReembedsNothing(test *testing.T) {
 	}
 }
 
+// bareLeaves is nomic() with leaves embedded bare: the text a binary from
+// before the fingerprint embedded under every default.
+func bareLeaves() manifest.EmbeddingsSection {
+	section := nomic()
+	section.SubUnitContext = manifest.SubUnitContextNone
+
+	return section
+}
+
 // TestRun_UpgradeWithDefaultsReembedsNothing: a vault indexed before the
-// fingerprint existed, upgraded with every new key at its default, records
-// the fingerprint without re-embedding.
+// fingerprint existed, upgraded with settings that embed the same text it
+// embedded (every document key at its default, leaves bare), records the
+// fingerprint without re-embedding.
 func TestRun_UpgradeWithDefaultsReembedsNothing(test *testing.T) {
 	vault := newSettingsVault(test)
 
-	vault.run(test, nomic(), false)
+	vault.run(test, bareLeaves(), false)
 	vault.forgetFingerprint(test)
 
-	if depth := enqueueAfterWalk(test, vault, nomic()); depth != 0 {
+	if depth := enqueueAfterWalk(test, vault, bareLeaves()); depth != 0 {
 		test.Errorf("upgrade with default settings enqueued %d embed jobs, want 0", depth)
+	}
+
+	if stored, _ := vault.meta.Get(embedFingerprintKey); stored != embed.DocumentFingerprint(bareLeaves()) {
+		test.Errorf("upgrade pass did not record the fingerprint (got %q)", stored)
+	}
+}
+
+// TestRun_UpgradeToLeafContextReembedsLeaves: a vault indexed before the
+// fingerprint existed holds bare leaf vectors. The default sub-unit-context
+// puts the file title and headings in front of every leaf (#862), so the
+// upgrade re-embeds the leaf. The file row's text is unchanged, so it
+// skip-acks.
+func TestRun_UpgradeToLeafContextReembedsLeaves(test *testing.T) {
+	vault := newSettingsVault(test)
+
+	vault.run(test, bareLeaves(), false)
+	vault.forgetFingerprint(test)
+
+	if calls := vault.run(test, nomic(), false); calls != 1 {
+		test.Errorf("upgrade to leaf context embedded %d texts, want 1 (the leaf)", calls)
 	}
 
 	if stored, _ := vault.meta.Get(embedFingerprintKey); stored != embed.DocumentFingerprint(nomic()) {
 		test.Errorf("upgrade pass did not record the fingerprint (got %q)", stored)
+	}
+}
+
+// TestRun_FreshIndexRecordsFingerprintQuietly: on an index with nothing
+// embedded yet, the settings check records the fingerprint without treating
+// the settings as changed, whatever they are: the drain embeds under them
+// anyway. Leaves carry a context by default (#862), so without this every
+// fresh index would log a settings change.
+func TestRun_FreshIndexRecordsFingerprintQuietly(test *testing.T) {
+	vault := newSettingsVault(test)
+	vault.writeManifest(test, nomic())
+
+	var logs bytes.Buffer
+
+	section := nomic()
+	target, maxBytes, overlap := section.ChunkSizes()
+
+	_, runErr := reindex.Run(withGen(vault.store, reindex.Config{
+		Root:          vault.root,
+		Repo:          index.NewNodeRepo(vault.store),
+		Edges:         index.NewEdgeRepo(vault.store),
+		Manifest:      &manifest.Manifest{Embeddings: section},
+		EmbedQueue:    vault.queue,
+		EmbeddingRepo: vault.embeddings,
+		Embedder:      &settingsEmbedder{section: section},
+		Chunker:       embed.MarkdownRecursive{TargetBytes: target, MaxBytes: maxBytes, OverlapBytes: overlap},
+		Meta:          vault.meta,
+		Workers:       -1,
+		Async:         true,
+		Logger:        slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo})),
+	}))
+
+	if runErr != nil {
+		test.Fatalf("Run: %v", runErr)
+	}
+
+	if strings.Contains(logs.String(), "embeddings settings changed") {
+		test.Errorf("fresh index logged a settings change:\n%s", logs.String())
+	}
+
+	if stored, _ := vault.meta.Get(embedFingerprintKey); stored != embed.DocumentFingerprint(nomic()) {
+		test.Errorf("fresh pass did not record the fingerprint (got %q)", stored)
 	}
 }
 

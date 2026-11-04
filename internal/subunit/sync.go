@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/manifest"
@@ -118,7 +119,7 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 	}
 
 	result := &SyncResult{}
-	units = indexedUnits(units, sync.Manifest)
+	units = withLeafContexts(indexedUnits(units, sync.Manifest), fileRow, sync.Manifest.Embeddings)
 
 	// ListSubUnitsForFile returns every sub-unit row for the file,
 	// not just the immediate children of fileRow.ID. Sub-units nested
@@ -428,6 +429,82 @@ func indexedUnits(units []Unit, loaded *manifest.Manifest) []Unit {
 	}
 
 	return kept
+}
+
+// withLeafContexts folds what each leaf embeds in front of its passage into
+// its content hash (#862). A title, heading or property change that alters a
+// leaf's embedded text then turns the row over and re-enqueues it, like an
+// edit to the passage itself. Without an embedding provider nothing is
+// embedded, so the hashes stay sha256(payload). units is the slice
+// indexedUnits built and is updated in place.
+func withLeafContexts(units []Unit, fileRow index.NodeRow, section manifest.EmbeddingsSection) []Unit {
+	if section.Provider == "" {
+		return units
+	}
+
+	mode := section.ResolvedSubUnitContext()
+	file := ContextFile{Title: fileRow.Title, Path: fileRow.Path, Type: fileRow.Type, PropertiesJSON: fileRow.PropertiesJSON}
+
+	var sections map[string]Unit
+
+	if mode == manifest.SubUnitContextPath {
+		sections = make(map[string]Unit)
+
+		for _, unit := range units {
+			if unit.Kind == KindSection {
+				sections[unit.Address] = unit
+			}
+		}
+	}
+
+	for position := range units {
+		unit := &units[position]
+
+		if unit.Kind == KindSection {
+			continue
+		}
+
+		leaf := NewLeafContext(mode, section.SubUnitProperties, file, enclosingHeadings(*unit, sections))
+
+		if leaf.Empty() {
+			continue
+		}
+
+		payload := unit.EmbedPayload
+
+		if payload == "" {
+			payload = unit.Text
+		}
+
+		unit.ContentHash = leaf.ContentHash(payload)
+	}
+
+	return units
+}
+
+// enclosingHeadings returns the titles of the sections enclosing unit,
+// outermost first, the same values the drain reads from the section rows.
+// Nil when sections is nil (a mode that doesn't show headings) or the unit
+// hangs off the file.
+func enclosingHeadings(unit Unit, sections map[string]Unit) []string {
+	var headings []string
+
+	// The depth bound only guards against a malformed parent chain; addresses
+	// nest, so a real chain ends well within it.
+	for address := unit.ParentAddress; address != "" && len(headings) <= len(sections); {
+		section, found := sections[address]
+
+		if !found {
+			break
+		}
+
+		headings = append(headings, section.Title)
+		address = section.ParentAddress
+	}
+
+	slices.Reverse(headings)
+
+	return headings
 }
 
 // unitAddress returns the address suffix for a unit's row id: the structural

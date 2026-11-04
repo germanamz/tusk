@@ -4,7 +4,7 @@ Does an agent spend less to answer a question with `tusk_query` than with grep a
 
 With tusk, the agent cited the right section on every run (91% with grep) and made one tool call fewer per question (2 against 3). It also read 11% more input tokens per question and cost 37% more, and took the same time. On this corpus tusk buys accuracy, not tokens. A query result runs about 8 KB, where a grep result runs under 1 KB, so tusk comes out ahead only on questions where grep has to dig.
 
-Four later changes shifted this. [Lexical fusion](#lexical-fusion) ranks the answer higher, [Smaller results](#smaller-results) halved the size of a query result, [Passage text](#passage-text) puts the matched section's text in the result, so the agent can often skip the Read, and [Per-turn overhead](#per-turn-overhead) trimmed what the tusk MCP server adds to every turn. A fifth, [Title match](#title-match), ranks a page higher when the query names it, and left what an agent spent here unchanged. On the latest full run, on 10-16, tusk read 30% fewer input tokens than grep per question (0.70×, with an interval from 0.58 to 0.83), cost 9% more, within the noise, made one tool call fewer and cited the right section on every run (97% with grep).
+Four later changes shifted this. [Lexical fusion](#lexical-fusion) ranks the answer higher, [Smaller results](#smaller-results) halved the size of a query result, [Passage text](#passage-text) puts the matched section's text in the result, so the agent can often skip the Read, and [Per-turn overhead](#per-turn-overhead) trimmed what the tusk MCP server adds to every turn. A fifth, [Title match](#title-match), ranks a page higher when the query names it, and a sixth, [Passage context](#passage-context), embeds each passage with its file's title and headings so the answering one ranks first inside its file. Neither changed what an agent spent here. On the latest full run, on 10-16, tusk read 30% fewer input tokens than grep per question (0.70×, with an interval from 0.58 to 0.83), cost 9% more, within the noise, made one tool call fewer and cited the right section on every run (97% with grep).
 
 A second, larger corpus came out the other way on tokens. On a private vault of 79 files, tusk read 17% fewer input tokens, made two tool calls fewer and finished 28% faster, and accuracy was about the same. See [A second corpus](#a-second-corpus).
 
@@ -264,6 +264,52 @@ The word match changed in the same release: a final "e" is now dropped after the
 | Judged correct | 95% | 93% | |
 
 An agent barely noticed. 28 of the 40 questions stayed within 5% of the control, Reads went from 34 to 31 over the 120 runs, and total input tokens fell 0.8% and cost 4.5%. Two more answers were judged wrong, one run each on two questions, within the noise [Lexical fusion](#lexical-fusion) measured between identical runs. On this corpus the agent's first query already finds the right file most of the time, so a better rank rarely saves it a step. The title match is for vaults where notes about a subject outnumber the page on it. The runs are in [`eval/results/2026-10-28-title-match/`](../../eval/results/2026-10-28-title-match/) and [`eval/results/2026-10-28-title-match-main/`](../../eval/results/2026-10-28-title-match-main/) (the control).
+
+## Passage context
+
+Passages used to be embedded alone ([#862](https://github.com/germanamz/tusk/issues/862)). The title match lifts every passage of a file the query names by the same amount, so the order inside the file stayed the bare-passage order, and the passage an agent got as `text` could be the wrong one. In the `ledger-sync` workspace above, the service ranked first with the title match on, but its top passage was `Datastores` (cosine 0.598), and `Async`, which answers the question, scored 0.494.
+
+`[embeddings] sub-unit-context` now puts a line in front of each passage when it's embedded: by default its file's title and the headings above it (`ledger-sync > Async`). Embedded that way, `Async` scores 0.77 against the query and is the service's top passage in every combination of word-match and title weight tried, from 0 to 0.7. The service ranks first with the title weight at 0.3 whether the word match is off or at 0.5; without passage context, the word match at 0.5 kept it ninth until the title weight reached 0.7.
+
+On tusk's package docs, replaying the same 359 first queries as [Title match](#title-match), section MRR@10 for each context (file MRR@10 in brackets):
+
+| Word match, title weight | None (bare, as `main`) | `title` | `path` |
+| --- | --- | --- | --- |
+| On (0.5), 0 | 0.745 (0.873) | 0.782 (0.889) | 0.781 (0.890) |
+| On, 0.3 | 0.754 (0.878) | 0.791 (0.897) | **0.798 (0.899)** |
+| On, 0.5 | 0.766 (0.901) | 0.794 (0.898) | 0.797 (0.895) |
+| Off, 0 | 0.636 (0.761) | 0.675 (0.793) | 0.714 (0.804) |
+| Off, 0.3 | 0.653 (0.797) | 0.660 (0.786) | **0.715 (0.825)** |
+| Off, 0.5 | 0.669 (0.828) | 0.646 (0.790) | 0.689 (0.803) |
+
+`title` helps with the word match on and hurts with it off once the title weight reaches 0.5: the vectors already favor files whose title the query names, and the title weight lifts those files again, above the file that answers (file MRR@10 fell from 0.828 to 0.790). The headings in `path` tell the passages of one file apart, and `path` ranks the section above bare passages in every row. Its best title weight is 0.3 with the word match on or off, so the defaults became `sub-unit-context = "path"` and `title-weight = 0.3`. Against the earlier defaults (bare passages, title weight 0.5), per question with 95% intervals:
+
+| Replayed first queries | Word match on | Word match off |
+| --- | --- | --- |
+| Section MRR@10 | 0.766 → 0.798 (+0.003 to +0.064) | 0.669 → 0.715 (−0.014 to +0.113) |
+| Section ranked first | 68% → 72% | 55% → 62% |
+| Section in the agent's result | 93% → 95% | 88% → 92% |
+| File MRR@10 | 0.901 → 0.899 (−0.016 to +0.014) | 0.828 → 0.825 (−0.030 to +0.024) |
+
+Replaying each question's full text instead, section MRR@10 rose from 0.623 to 0.661 with the word match on (−0.016 to +0.099) and from 0.586 to 0.600 with it off. With the word match off, of the questions whose section MRR@10 moved by 0.1 or more, 11 rose and 5 fell; `identifier-not-path` went from 0.08 to 0.89 and `schema-migrate-in-place` from 0.93 to 0.46. The same binary run twice gave identical figures, so none of these differences is run-to-run noise in the embeddings.
+
+Putting frontmatter fields in front as well (`sub-unit-properties`) needs care. On the `ledger-sync` example, embedding each section behind its type, title and four fields made the service's sections look alike to the model: the mean similarity between them went from 0.57 bare to 0.76 with the title and 0.91 with the fields, and `Async` led the next section by 0.006 instead of 0.115. It's off by default.
+
+The cost is one re-embed of every passage when the setting changes: 8.5 seconds for the 737 passages of `docs/packages` (a cold index takes 13.6 seconds against 13.4 bare). Identical passages in different files get a vector each once their context differs, which came to 7 more vectors there, 886 in all.
+
+**What it did for an agent.** The tusk arm ran twice on one day with one copy of the docs and this repo's `tusk.toml`, once with the binary from `main` and once with the new defaults.
+
+| `tusk_query` and read | `main` | Passage context | Passage context against `main`, per question |
+| --- | --- | --- | --- |
+| Input tokens | 10,852 | 11,198 | 1.00× (0.99–1.02) |
+| Tool calls | 1 | 1 | 0 (0 to 0) |
+| Tool output | 10.4 KB | 10.5 KB | 1.00× (0.99–1.03) |
+| Time | 5.6 s | 5.6 s | 1.02× (0.93–1.07) |
+| Cost | $0.027 | $0.026 | 0.97× (0.94–1.00) |
+| Cited the right section | 98% | 96% | |
+| Judged correct | 94% | 94% | |
+
+An agent didn't notice this either. Over the 120 runs total input tokens fell 6% and cost 8%, and Reads went from 32 to 27, but the savings didn't fall where the probe ranked the answer higher: the 10 questions it ranked higher read 2% fewer tokens, the 5 it ranked lower 17% fewer. Two more citations missed, both on `sibling-notices-rebuild`, which missed in the [Title match](#title-match) runs as well. As there, the agent's first query usually finds the right file on this corpus, and a better passage inside it rarely saves a step. The runs are in [`eval/results/2026-11-04-leaf-context/`](../../eval/results/2026-11-04-leaf-context/) and [`eval/results/2026-11-04-leaf-context-main/`](../../eval/results/2026-11-04-leaf-context-main/) (the control).
 
 ## How it was measured
 
