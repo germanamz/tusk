@@ -23,7 +23,7 @@ func ApplyEmbeddingSettings(config Config) (int, error) {
 
 // reembedOnSettingsChange re-embeds the whole index when the [embeddings]
 // document settings (model, num-ctx, document-prefix, document-header, chunk
-// sizes) differ from the ones recorded under embed.DocumentFingerprintKey.
+// sizes, sub-unit-context, sub-unit-properties) differ from the ones recorded under embed.DocumentFingerprintKey.
 // The incremental walk skips unchanged files and sub-unit sync re-enqueues
 // only changed leaves, so without this a settings change would re-embed
 // nothing. Returns how many nodes it re-queued.
@@ -46,11 +46,14 @@ func ApplyEmbeddingSettings(config Config) (int, error) {
 // warn: acting on its stale settings would re-embed the vault back to them
 // and overwrite the fingerprint another process recorded from the file.
 //
-// When no fingerprint is recorded yet (an index written before it existed),
-// the pass records it without re-embedding if every document setting is at
-// its default and every stored vector already uses the current vector key;
-// otherwise it re-embeds, which covers a user who upgrades and sets a prefix
-// in the same edit, and a model change that was never converged.
+// When no fingerprint is recorded yet, the pass records it without
+// re-embedding if nothing is embedded yet (a fresh index: the drain embeds
+// under the current settings anyway), or if the settings produce the text a
+// binary from before the fingerprint embedded (every document setting at its
+// default, leaves bare) and every stored vector already uses the current
+// vector key. Otherwise it re-embeds, which covers a user who upgrades and
+// sets a prefix in the same edit, an upgrade to leaves that carry their file's
+// title (#862), and a model change that was never converged.
 //
 // No-op when no embedder is configured.
 func reembedOnSettingsChange(config Config) (int, error) {
@@ -83,13 +86,13 @@ func reembedOnSettingsChange(config Config) (int, error) {
 	}
 
 	if stored == "" {
-		converged, convergedErr := storedVectorsUseKey(config, embed.VectorKeyFor(section))
+		empty, converged, convergedErr := storedVectorsUseKey(config, embed.VectorKeyFor(section))
 
 		if convergedErr != nil {
 			return 0, convergedErr
 		}
 
-		if converged && current == embed.DocumentFingerprint(manifest.EmbeddingsSection{Model: section.Model}) {
+		if empty || (converged && current == embed.DocumentFingerprint(legacyDocumentSettings(section.Model))) {
 			return 0, recordFingerprint(config, current)
 		}
 	}
@@ -140,22 +143,30 @@ func diskDocumentFingerprint(root string) (string, error) {
 	return embed.DocumentFingerprint(loaded.Embeddings), nil
 }
 
-// storedVectorsUseKey reports whether every stored vector is keyed under
-// vectorKey (vacuously true for an index with no vectors).
-func storedVectorsUseKey(config Config, vectorKey string) (bool, error) {
+// legacyDocumentSettings is the [embeddings] section whose document text is
+// what a binary from before the fingerprint embedded: every document setting
+// at its default, and leaves embedded bare.
+func legacyDocumentSettings(model string) manifest.EmbeddingsSection {
+	return manifest.EmbeddingsSection{Model: model, SubUnitContext: manifest.SubUnitContextNone}
+}
+
+// storedVectorsUseKey reports whether the index holds no vectors at all, and
+// whether every stored vector is keyed under vectorKey (vacuously true when
+// it holds none).
+func storedVectorsUseKey(config Config, vectorKey string) (empty, converged bool, err error) {
 	pairs, distinctErr := config.EmbeddingRepo.DistinctModelDims()
 
 	if distinctErr != nil {
-		return false, fmt.Errorf("reindex: distinct embedding models: %w", distinctErr)
+		return false, false, fmt.Errorf("reindex: distinct embedding models: %w", distinctErr)
 	}
 
 	for _, pair := range pairs {
 		if pair.Model != vectorKey {
-			return false, nil
+			return false, false, nil
 		}
 	}
 
-	return true, nil
+	return len(pairs) == 0, true, nil
 }
 
 // drainFingerprint is the DocumentFingerprint this process's embed drain runs

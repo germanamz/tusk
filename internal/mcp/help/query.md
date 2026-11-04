@@ -126,7 +126,7 @@ after benefit most. `explain=true` adds `lexical_score` (0 to 1) next to
 A query naming a file's title (or its file name when untitled) lifts
 every passage of that file, so `which topic does ledger-sync consume`
 finds `ledger-sync` over notes that only mention it. `[query]
-title-weight` sets how much (default 0.5, 0 = off); `explain=true` adds
+title-weight` sets how much (default 0.3, 0 = off); `explain=true` adds
 `title_score` (share of the title's words the query names, 0 to 1).
 
 ## Demoting results

@@ -8,8 +8,11 @@ import (
 	"github.com/germanamz/tusk/internal/pathglob"
 )
 
-// DefaultTitleWeight is [query] title-weight when the key is absent.
-const DefaultTitleWeight = 0.5
+// DefaultTitleWeight is [query] title-weight when the key is absent. It was
+// 0.5 until passages embedded their file's title and headings (#862); with
+// that context in the vectors, 0.3 ranks better with the word match on and
+// off.
+const DefaultTitleWeight = 0.3
 
 // ScoreWeights demotes semantic results: [query.type-weights] maps a node type,
 // and [query.path-weights] a path glob, to a multiplier in (0, 1] on the final

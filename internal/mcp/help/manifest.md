@@ -45,7 +45,7 @@ document-prefix = "search_document: "  # optional; may contain {title}
 
 [query]
 lexical-weight = 0.5          # optional, [0, 1]; blend word matches into semantic scores
-title-weight   = 0.5          # optional, [0, 1], default 0.5; lift files whose title the query names
+title-weight   = 0.3          # optional, [0, 1], default 0.3; lift files whose title the query names
 
 [query.type-weights]          # optional, (0, 1]; demote results by node type
 note = 0.8
@@ -156,17 +156,20 @@ already holds untyped markdown.
 
 ## Embedding model settings
 
-Optional `[embeddings]` keys that match tusk to the embedding model. All
-default to tusk's original behavior.
+Optional `[embeddings]` keys that match tusk to the embedding model.
 
 - `query-prefix` / `document-prefix`: instruction prefixes the model
   was trained with. `{title}` in `document-prefix` becomes the node's
-  title (`none` for sub-units).
+  title (a sub-unit's: its `sub-unit-context` label, else `none`).
 - `document-header`: `full` (default), `title`, or `none`; how much
   frontmatter leads each file chunk.
 - `chunk-target-bytes` / `chunk-max-bytes` / `chunk-overlap-bytes`:
   file chunking, default 1600 / 4000 / 200 (sized for a 2K window).
 - `num-ctx`: Ollama context window (`num_ctx`).
+- `sub-unit-context`: what each passage embeds in front of its text:
+  `path` (default; file title > headings), `title`, `none`.
+- `sub-unit-properties`: file properties passages also embed, as
+  `name: value` lines (e.g. `["aliases"]`).
 
 Known prefixes (each ends with a space) and context windows:
 

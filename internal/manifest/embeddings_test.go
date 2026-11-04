@@ -107,6 +107,10 @@ func TestLoad_RejectsInvalidEmbeddingsModelSettings(test *testing.T) {
 		{name: "max below default target", extra: "chunk-max-bytes = 1000\n", wantInErr: "1600"},
 		{name: "target above max", extra: "chunk-target-bytes = 900\nchunk-max-bytes = 800\n", wantInErr: "chunk-target-bytes"},
 		{name: "overlap equal to target", extra: "chunk-target-bytes = 300\nchunk-overlap-bytes = 300\n", wantInErr: "chunk-overlap-bytes"},
+		{name: "unknown sub-unit context", extra: "sub-unit-context = \"headings\"\n", wantInErr: "sub-unit-context"},
+		{name: "empty sub-unit property", extra: "sub-unit-properties = [\"aliases\", \" \"]\n", wantInErr: "empty property name"},
+		{name: "title as a sub-unit property", extra: "sub-unit-properties = [\"title\"]\n", wantInErr: "sub-unit-context"},
+		{name: "duplicate sub-unit property", extra: "sub-unit-properties = [\"tags\", \"tags\"]\n", wantInErr: "\"tags\" twice"},
 	}
 
 	for _, testCase := range cases {
@@ -171,5 +175,33 @@ func TestManifest_EmbeddingsKeyDefined(test *testing.T) {
 
 	if (&manifest.Manifest{}).EmbeddingsKeyDefined("query-prefix") {
 		test.Errorf("a hand-built manifest has no decode metadata, so nothing is defined")
+	}
+}
+
+func TestLoad_ParsesSubUnitContextSettings(test *testing.T) {
+	loaded := loadTOMLFromString(test, embeddingsBase+`sub-unit-context    = "path"
+sub-unit-properties = ["aliases", "type"]
+`)
+
+	if got := loaded.Embeddings.ResolvedSubUnitContext(); got != manifest.SubUnitContextPath {
+		test.Errorf("ResolvedSubUnitContext = %q, want path", got)
+	}
+
+	if got := loaded.Embeddings.SubUnitProperties; len(got) != 2 || got[0] != "aliases" || got[1] != "type" {
+		test.Errorf("SubUnitProperties = %q, want [aliases type]", got)
+	}
+
+	if len(loaded.UnknownKeys) != 0 {
+		test.Errorf("UnknownKeys = %+v, want none", loaded.UnknownKeys)
+	}
+}
+
+func TestEmbeddingsSection_ResolvedSubUnitContextDefaultsToPath(test *testing.T) {
+	if got := (manifest.EmbeddingsSection{}).ResolvedSubUnitContext(); got != manifest.SubUnitContextPath {
+		test.Errorf("ResolvedSubUnitContext of an unset key = %q, want path", got)
+	}
+
+	if got := (manifest.EmbeddingsSection{SubUnitContext: "none"}).ResolvedSubUnitContext(); got != "none" {
+		test.Errorf("ResolvedSubUnitContext = %q, want the explicit none", got)
 	}
 }

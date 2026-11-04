@@ -61,9 +61,10 @@ type Unit struct {
 	// Assigned by Parse.
 	Address string
 	// ContentHash is the current content fingerprint stored on the row's
-	// nodes.content_hash column. For leaf kinds it is sha256(EmbedPayload)
-	// — exactly what the embedder sends — so a leaf that merely shifts
-	// position keeps its hash and reuses its vector. For sections it is
+	// nodes.content_hash column. For leaf kinds Parse sets it to
+	// sha256(EmbedPayload), and Sync.ApplyFile folds in the leaf's embed
+	// context when there is one (LeafContext.ContentHash), so a leaf that
+	// merely shifts position keeps its hash and reuses its vector. For sections it is
 	// sha256("section\x00<level>\x00<heading-text>") so heading edits are
 	// detected (sections are never embedded). Lowercase hex.
 	ContentHash string

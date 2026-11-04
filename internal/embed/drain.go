@@ -9,12 +9,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/germanamz/tusk/internal/index"
 	"github.com/germanamz/tusk/internal/node"
+	"github.com/germanamz/tusk/internal/subunit"
 )
 
 // MaxEmbedAttempts caps how many times DrainQueue tries a node that keeps
@@ -569,8 +571,10 @@ func pruneStaleTail(config DrainConfig, workerID string, queued index.QueueRow, 
 }
 
 // chunkSource is what a queued row embeds: the header prepended to every chunk,
-// the title {title} renders as, and the body chunks. Sub-units have no header
-// and an empty title (so {title} renders as "none").
+// the title {title} renders as, and the body chunks. A sub-unit's header is its
+// leaf context (subunit.LeafContext), and its title is the context's label
+// when document-prefix carries {title}, else empty (so {title} renders as
+// "none").
 type chunkSource struct {
 	header []byte
 	title  string
@@ -586,9 +590,10 @@ type chunkSource struct {
 func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueRow, row *index.NodeRow) (chunkSource, nodeOutcome) {
 	// Sub-unit rows carry their own pre-synthesized embed payload (set by the
 	// sub-unit sync in Task 3) — including the `<column-header>: <cell-text>`
-	// synthesis for table cells per spec §5.6. They are embedded with no file
-	// header context, as a single vector unless the payload is too long for one
-	// (see chunkSubUnit).
+	// synthesis for table cells per spec §5.6. They are embedded behind their
+	// leaf context (the file's title, heading path or properties, per
+	// sub-unit-context and sub-unit-properties; #862), as a single vector
+	// unless the payload is too long for one (see chunkSubUnit).
 	//
 	// File-level rows fall through to the legacy read+parse+chunk path. That
 	// path is now the back-compat default for workspaces that disable sub-unit
@@ -611,7 +616,25 @@ func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueR
 			return chunkSource{}, outcomeSkipped
 		}
 
-		return chunkSource{bodies: chunkSubUnit(config.Chunker, []byte(payload))}, outcomeSucceeded
+		format := config.Embedder.Format()
+		leaf, contextErr := readLeafContext(config.Nodes, format, row)
+
+		if contextErr != nil {
+			retryOrPark(config.Queue, config.Logger, queued.NodeID, workerID, queued.Attempts, contextErr)
+
+			return chunkSource{}, outcomeFailed
+		}
+
+		source := chunkSource{
+			header: leaf.Header(format.labelInPrefix()),
+			bodies: chunkSubUnit(config.Chunker, []byte(payload)),
+		}
+
+		if format.labelInPrefix() {
+			source.title = leaf.Label
+		}
+
+		return source, outcomeSucceeded
 	}
 
 	content, readErr := os.ReadFile(filepath.Join(config.Root, row.Path))
@@ -638,6 +661,48 @@ func buildChunkPayloads(config DrainConfig, workerID string, queued index.QueueR
 		title:  parsed.Title,
 		bodies: config.Chunker.Chunk(BuildBody(parsed)),
 	}, outcomeSucceeded
+}
+
+// maxLeafDepth bounds the parent walk in readLeafContext. Markdown nests six
+// heading levels, so a real chain is far shorter; the bound only stops a
+// malformed parent_id loop.
+const maxLeafDepth = 64
+
+// readLeafContext builds what a sub-unit leaf embeds in front of its passage
+// (#862). It walks the leaf's parent_id chain up to the file row, collecting
+// the enclosing section titles on the way. It reads nothing when the format
+// puts nothing in front. A parent that can't be read (a race with the file's
+// removal) is an error the caller retries; the sync deletes a gone file's
+// leaves, which ends the retries.
+func readLeafContext(nodes *index.NodeRepo, format Format, row *index.NodeRow) (subunit.LeafContext, error) {
+	if !format.hasLeafContext() {
+		return subunit.LeafContext{}, nil
+	}
+
+	var headings []string
+
+	parentID := row.ParentID
+
+	for depth := 0; parentID.Valid && depth < maxLeafDepth; depth++ {
+		parent, getErr := nodes.Get(parentID.String)
+
+		if getErr != nil {
+			return subunit.LeafContext{}, fmt.Errorf("embed: read context of %s: %w", row.ID, getErr)
+		}
+
+		if !parent.ParentID.Valid {
+			slices.Reverse(headings)
+
+			file := subunit.ContextFile{Title: parent.Title, Path: parent.Path, Type: parent.Type, PropertiesJSON: parent.PropertiesJSON}
+
+			return subunit.NewLeafContext(format.SubUnitContext, format.SubUnitProperties, file, headings), nil
+		}
+
+		headings = append(headings, parent.Title)
+		parentID = parent.ParentID
+	}
+
+	return subunit.LeafContext{}, fmt.Errorf("embed: read context of %s: no file row within %d parents", row.ID, maxLeafDepth)
 }
 
 // chunkSubUnit returns the chunks a sub-unit's payload embeds as. The AST

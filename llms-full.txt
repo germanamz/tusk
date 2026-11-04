@@ -732,7 +732,7 @@ document-prefix = "search_document: "
 | `snowflake-arctic-embed` (v1) | `Represent this sentence for searching relevant passages: ` | none | 512 |
 | `snowflake-arctic-embed2` | `query: ` | none | 8K |
 
-Each prefix ends with a space. `{title}` in `document-prefix` becomes the note's title (`none` for sub-units). The other keys are `document-header` (`full`, `title`, or `none`: how much frontmatter leads each file chunk), `chunk-target-bytes` / `chunk-max-bytes` / `chunk-overlap-bytes` (defaults 1600 / 4000 / 200, sized for a 2K window; for a 512-token model set `chunk-max-bytes = 1000` and a smaller target such as `chunk-target-bytes = 800`, and consider `document-header = "title"` since the header doesn't count toward the cap), and `num-ctx` (passed to Ollama as `num_ctx`). `num-ctx` can't take a model past the context it was trained on: `nomic-embed-text` stops at 2048 tokens whatever you set.
+Each prefix ends with a space. `{title}` in `document-prefix` becomes the note's title, and for a passage the title and headings it carries (see [Passage context](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/querying.md#passage-context)). The other keys are `document-header` (`full`, `title`, or `none`: how much frontmatter leads each file chunk), `chunk-target-bytes` / `chunk-max-bytes` / `chunk-overlap-bytes` (defaults 1600 / 4000 / 200, sized for a 2K window; for a 512-token model set `chunk-max-bytes = 1000` and a smaller target such as `chunk-target-bytes = 800`, and consider `document-header = "title"` since the header doesn't count toward the cap), and `num-ctx` (passed to Ollama as `num_ctx`). `num-ctx` can't take a model past the context it was trained on: `nomic-embed-text` stops at 2048 tokens whatever you set.
 
 The default cap assumes about 2 bytes per token, which holds for prose and most code. Dense text runs denser (JSON at about 1.8 bytes per token, hex at 1.5, base64 at 1.4), so a chunk of it near the cap can still be too long for the model. When that happens tusk embeds the part that fits and logs a warning. A sub-unit longer than `chunk-max-bytes`, such as a big code block or table, is split the way a file is, and its best chunk ranks it. An input the model refuses for some other reason is retried twice and then set aside: `tusk doctor` lists it as `embed-failed` with the error, and it is tried again when the note changes, on `tusk reindex --force`, or after an `[embeddings]` change.
 
@@ -751,6 +751,24 @@ A second measurement on tusk's own package docs ([#811](https://github.com/germa
 
 Which settings work best depends on the model and on your notes, so try a few semantic queries before and after a change. Changing `query-prefix` takes effect on the next query. Changing any other key re-embeds every note. Apply the change with `tusk reload` (or `tusk_reload` from an agent) so a running MCP server picks up the new settings too; `tusk reindex` also applies it, but a server that hasn't reloaded stops embedding until it does, rather than embed with the old settings. `tusk doctor` suggests the prefixes when it recognizes one of the models above with them unset, and names the missing one when only one of a two-sided pair is set. If you've tried a prefix and decided against it, set it explicitly to `""` (for example `document-prefix = ""`) and doctor stops suggesting it.
 
+### Passage context
+
+A passage carries a line saying where it sits: its file's title and the headings above it. A section of `ledger-sync.md` that says "Consumes the payments-settled Kafka topic." never names the service, so on its own its vector misses `which topic does ledger-sync consume`. Embedded as `ledger-sync > Async` followed by the passage, it matches. `[embeddings] sub-unit-context` picks what goes on that line:
+
+```toml
+[embeddings]
+sub-unit-context    = "path"       # the default
+sub-unit-properties = ["aliases"]  # optional
+```
+
+`path` puts the title and the enclosing headings in front of each passage, `title` the title alone, and `none` nothing. A file without a title goes by its file name, and a top heading that repeats the title is left out. `path` reads the headings from section rows, so with `section` left out of `[workspace] sub-units` it works like `title`. With `{title}` in `document-prefix`, as EmbeddingGemma's prefix has, the title and headings fill the placeholder and no line is added.
+
+`sub-unit-properties` adds a `name: value` line for each frontmatter field it names, in that order; `type` is the note's type, and a list comes out as `a, b`. Keep it to a field or two. A passage is a sentence or a few, and a block of fields in front of it makes every passage in the file look alike: on the `ledger-sync` example, putting the type, title and four fields in front of each section left the answering one 0.006 ahead of the next instead of 0.115.
+
+Only the embedded text changes. Snippets, a passage's `text` and the word match see the passage alone. Renaming a title re-embeds the file's passages, and so does editing a named field, or renaming a heading under `path`. Changing either key re-embeds every passage once; on tusk's package docs (36 files, 737 passages) that took 8.5 seconds. Identical passages in different files get a vector each, since their context differs; on those docs that comes to 7 more vectors, 886 in all.
+
+On those docs, replaying the first query agents sent for 40 questions, `path` ranked the answering section higher than bare passages whether the word match was on or off. `title` alone did about as well with the word match on. With it off, `title` gained little at a title weight of 0.3 and lost ground at 0.5 (MRR@10 0.646 against 0.669 for bare passages), because the weight lifts the same files the vectors already favor. [Benchmarks](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#passage-context) has the numbers.
+
 ### Matching the query's words
 
 Embeddings match meaning and blur exact wording. A clause buried in a long passage barely moves that passage's vector, and passages dense with identifiers score moderately against almost any query, so the passage that uses your exact words can rank below ones that only sound related. `[query] lexical-weight` blends a word-match score into the ranking:
@@ -766,16 +784,16 @@ It's off by default. On tusk's own package docs, replaying the first query an ag
 
 ### Matching the title
 
-Passages are embedded without their file's title. A section of `ledger-sync.md` that says "Consumes the payments-settled Kafka topic." never mentions ledger-sync, while an incident write-up that names the service in every paragraph does, so `which topic does ledger-sync consume` can rank eight incident notes above the service that answers it. `[query] title-weight` lifts every passage of a file by how much of the file's title the query names:
+A passage carries its file's title, but notes that name a subject in every paragraph can still outrank the subject's own page. In the `ledger-sync` example with `lexical-weight = 0.5`, eight incident notes that use every word of the query rank above the page that answers it until the title match lifts the page. `[query] title-weight` lifts every passage of a file by how much of the file's title the query names:
 
 ```toml
 [query]
-title-weight = 0.5
+title-weight = 0.3
 ```
 
 The title match is the share of the title's words that the query also uses, compared the way the word match compares them, so `ledger-sync`, `Ledger Sync` and `ledger_sync` all meet, and a query naming two of the five words in `internal/lexical — word-match scores` matches it 0.4. A file without a title is matched by its file name. Like the word match, the title match closes its share of the gap to 1, and the two combine: `1 − score = (1 − cosine) × (1 − lexical-weight × lexical) × (1 − title-weight × title)`. A score never drops, so it never costs a result its place above `min_score`. Every passage of the file gets the same lift, so their order inside the file still comes from the passages themselves.
 
-It's on by default at 0.5; set it to 0 to turn it off. On the same 40 questions a weight of 0.5 raised the answering section's MRR@10 from 0.733 to 0.759 with `lexical-weight = 0.5`, and the file's from 0.866 to 0.895. With the word match on as well, notes that repeat the query's words can still outrank the file the query names; a weight around 0.7 holds it above them. [Benchmarks](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#title-match) has the numbers.
+It's on by default at 0.3; set it to 0 to turn it off. On the same 40 questions with `lexical-weight = 0.5` and bare passages, a weight of 0.5 raised the answering section's MRR@10 from 0.733 to 0.759 and the file's from 0.866 to 0.895. With passages carrying their title and headings, 0.3 ranks the section as high as 0.5 with the word match on and higher with it off (0.715 against 0.689), and the file higher in both, which is why it's the default. Under `sub-unit-context = "none"`, 0.5 does better. [Benchmarks](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#title-match) has the numbers for the title match and [Passage context](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#passage-context) for the change.
 
 ### Demoting results
 
@@ -1049,7 +1067,7 @@ Does an agent spend less to answer a question with `tusk_query` than with grep a
 
 With tusk, the agent cited the right section on every run (91% with grep) and made one tool call fewer per question (2 against 3). It also read 11% more input tokens per question and cost 37% more, and took the same time. On this corpus tusk buys accuracy, not tokens. A query result runs about 8 KB, where a grep result runs under 1 KB, so tusk comes out ahead only on questions where grep has to dig.
 
-Four later changes shifted this. [Lexical fusion](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#lexical-fusion) ranks the answer higher, [Smaller results](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#smaller-results) halved the size of a query result, [Passage text](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#passage-text) puts the matched section's text in the result, so the agent can often skip the Read, and [Per-turn overhead](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#per-turn-overhead) trimmed what the tusk MCP server adds to every turn. A fifth, [Title match](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#title-match), ranks a page higher when the query names it, and left what an agent spent here unchanged. On the latest full run, on 10-16, tusk read 30% fewer input tokens than grep per question (0.70×, with an interval from 0.58 to 0.83), cost 9% more, within the noise, made one tool call fewer and cited the right section on every run (97% with grep).
+Four later changes shifted this. [Lexical fusion](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#lexical-fusion) ranks the answer higher, [Smaller results](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#smaller-results) halved the size of a query result, [Passage text](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#passage-text) puts the matched section's text in the result, so the agent can often skip the Read, and [Per-turn overhead](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#per-turn-overhead) trimmed what the tusk MCP server adds to every turn. A fifth, [Title match](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#title-match), ranks a page higher when the query names it, and a sixth, [Passage context](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#passage-context), embeds each passage with its file's title and headings so the answering one ranks first inside its file. Neither changed what an agent spent here. On the latest full run, on 10-16, tusk read 30% fewer input tokens than grep per question (0.70×, with an interval from 0.58 to 0.83), cost 9% more, within the noise, made one tool call fewer and cited the right section on every run (97% with grep).
 
 A second, larger corpus came out the other way on tokens. On a private vault of 79 files, tusk read 17% fewer input tokens, made two tool calls fewer and finished 28% faster, and accuracy was about the same. See [A second corpus](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#a-second-corpus).
 
@@ -1309,6 +1327,52 @@ The word match changed in the same release: a final "e" is now dropped after the
 | Judged correct | 95% | 93% | |
 
 An agent barely noticed. 28 of the 40 questions stayed within 5% of the control, Reads went from 34 to 31 over the 120 runs, and total input tokens fell 0.8% and cost 4.5%. Two more answers were judged wrong, one run each on two questions, within the noise [Lexical fusion](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#lexical-fusion) measured between identical runs. On this corpus the agent's first query already finds the right file most of the time, so a better rank rarely saves it a step. The title match is for vaults where notes about a subject outnumber the page on it. The runs are in [`eval/results/2026-10-28-title-match/`](https://github.com/germanamz/tusk/tree/main/eval/results/2026-10-28-title-match) and [`eval/results/2026-10-28-title-match-main/`](https://github.com/germanamz/tusk/tree/main/eval/results/2026-10-28-title-match-main) (the control).
+
+## Passage context
+
+Passages used to be embedded alone ([#862](https://github.com/germanamz/tusk/issues/862)). The title match lifts every passage of a file the query names by the same amount, so the order inside the file stayed the bare-passage order, and the passage an agent got as `text` could be the wrong one. In the `ledger-sync` workspace above, the service ranked first with the title match on, but its top passage was `Datastores` (cosine 0.598), and `Async`, which answers the question, scored 0.494.
+
+`[embeddings] sub-unit-context` now puts a line in front of each passage when it's embedded: by default its file's title and the headings above it (`ledger-sync > Async`). Embedded that way, `Async` scores 0.77 against the query and is the service's top passage in every combination of word-match and title weight tried, from 0 to 0.7. The service ranks first with the title weight at 0.3 whether the word match is off or at 0.5; without passage context, the word match at 0.5 kept it ninth until the title weight reached 0.7.
+
+On tusk's package docs, replaying the same 359 first queries as [Title match](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#title-match), section MRR@10 for each context (file MRR@10 in brackets):
+
+| Word match, title weight | None (bare, as `main`) | `title` | `path` |
+| --- | --- | --- | --- |
+| On (0.5), 0 | 0.745 (0.873) | 0.782 (0.889) | 0.781 (0.890) |
+| On, 0.3 | 0.754 (0.878) | 0.791 (0.897) | **0.798 (0.899)** |
+| On, 0.5 | 0.766 (0.901) | 0.794 (0.898) | 0.797 (0.895) |
+| Off, 0 | 0.636 (0.761) | 0.675 (0.793) | 0.714 (0.804) |
+| Off, 0.3 | 0.653 (0.797) | 0.660 (0.786) | **0.715 (0.825)** |
+| Off, 0.5 | 0.669 (0.828) | 0.646 (0.790) | 0.689 (0.803) |
+
+`title` helps with the word match on and hurts with it off once the title weight reaches 0.5: the vectors already favor files whose title the query names, and the title weight lifts those files again, above the file that answers (file MRR@10 fell from 0.828 to 0.790). The headings in `path` tell the passages of one file apart, and `path` ranks the section above bare passages in every row. Its best title weight is 0.3 with the word match on or off, so the defaults became `sub-unit-context = "path"` and `title-weight = 0.3`. Against the earlier defaults (bare passages, title weight 0.5), per question with 95% intervals:
+
+| Replayed first queries | Word match on | Word match off |
+| --- | --- | --- |
+| Section MRR@10 | 0.766 → 0.798 (+0.003 to +0.064) | 0.669 → 0.715 (−0.014 to +0.113) |
+| Section ranked first | 68% → 72% | 55% → 62% |
+| Section in the agent's result | 93% → 95% | 88% → 92% |
+| File MRR@10 | 0.901 → 0.899 (−0.016 to +0.014) | 0.828 → 0.825 (−0.030 to +0.024) |
+
+Replaying each question's full text instead, section MRR@10 rose from 0.623 to 0.661 with the word match on (−0.016 to +0.099) and from 0.586 to 0.600 with it off. With the word match off, of the questions whose section MRR@10 moved by 0.1 or more, 11 rose and 5 fell; `identifier-not-path` went from 0.08 to 0.89 and `schema-migrate-in-place` from 0.93 to 0.46. The same binary run twice gave identical figures, so none of these differences is run-to-run noise in the embeddings.
+
+Putting frontmatter fields in front as well (`sub-unit-properties`) needs care. On the `ledger-sync` example, embedding each section behind its type, title and four fields made the service's sections look alike to the model: the mean similarity between them went from 0.57 bare to 0.76 with the title and 0.91 with the fields, and `Async` led the next section by 0.006 instead of 0.115. It's off by default.
+
+The cost is one re-embed of every passage when the setting changes: 8.5 seconds for the 737 passages of `docs/packages` (a cold index takes 13.6 seconds against 13.4 bare). Identical passages in different files get a vector each once their context differs, which came to 7 more vectors there, 886 in all.
+
+**What it did for an agent.** The tusk arm ran twice on one day with one copy of the docs and this repo's `tusk.toml`, once with the binary from `main` and once with the new defaults.
+
+| `tusk_query` and read | `main` | Passage context | Passage context against `main`, per question |
+| --- | --- | --- | --- |
+| Input tokens | 10,852 | 11,198 | 1.00× (0.99–1.02) |
+| Tool calls | 1 | 1 | 0 (0 to 0) |
+| Tool output | 10.4 KB | 10.5 KB | 1.00× (0.99–1.03) |
+| Time | 5.6 s | 5.6 s | 1.02× (0.93–1.07) |
+| Cost | $0.027 | $0.026 | 0.97× (0.94–1.00) |
+| Cited the right section | 98% | 96% | |
+| Judged correct | 94% | 94% | |
+
+An agent didn't notice this either. Over the 120 runs total input tokens fell 6% and cost 8%, and Reads went from 32 to 27, but the savings didn't fall where the probe ranked the answer higher: the 10 questions it ranked higher read 2% fewer tokens, the 5 it ranked lower 17% fewer. Two more citations missed, both on `sibling-notices-rebuild`, which missed in the [Title match](https://raw.githubusercontent.com/germanamz/tusk/main/docs/guide/benchmarks.md#title-match) runs as well. As there, the agent's first query usually finds the right file on this corpus, and a better passage inside it rarely saves a step. The runs are in [`eval/results/2026-11-04-leaf-context/`](https://github.com/germanamz/tusk/tree/main/eval/results/2026-11-04-leaf-context) and [`eval/results/2026-11-04-leaf-context-main/`](https://github.com/germanamz/tusk/tree/main/eval/results/2026-11-04-leaf-context-main) (the control).
 
 ## How it was measured
 
@@ -1617,7 +1681,8 @@ CONFIGURATION
                              api-key, workers, timeout-seconds — enables
                              semantic search; query-prefix, document-prefix,
                              document-header, chunk-target-bytes,
-                             chunk-max-bytes, chunk-overlap-bytes, num-ctx
+                             chunk-max-bytes, chunk-overlap-bytes, num-ctx,
+                             sub-unit-context, sub-unit-properties
                              match tusk to the embedding model (e.g.
                              nomic-embed-text: query-prefix "search_query: ",
                              document-prefix "search_document: ")
@@ -3584,7 +3649,8 @@ manifest-epoch sentinel and owns the reindex. Pass --reindex to run a
 synchronous reindex pass in this process (for the no-daemon scenario).
 
 Changed [embeddings] document settings (model, num-ctx, document-prefix,
-document-header, chunk sizes) are applied either way: reload records them
+document-header, chunk sizes, sub-unit-context, sub-unit-properties) are
+applied either way: reload records them
 and queues every note for re-embedding, which a running daemon's drainer
 then does under the new settings ("embed_settings_requeued" in the output).
 

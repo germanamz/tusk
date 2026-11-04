@@ -23,14 +23,16 @@ const (
 )
 
 // untitled is what {title} renders as when there is no title: a file without
-// one, and every sub-unit. EmbeddingGemma's documented document template
+// one, and a sub-unit whose context carries no label (sub-unit-context =
+// "none"). EmbeddingGemma's documented document template
 // (`title: {title | "none"} | text: `) uses the same fallback.
 const untitled = "none"
 
 // Format shapes the text an Embedder is handed: the instruction prefixes
-// asymmetric models are trained with, and the header prepended to file
-// chunks. Its zero value is no prefixes and the full header, the shape tusk
-// sent before these settings existed.
+// asymmetric models are trained with, the header prepended to file chunks,
+// and what a sub-unit leaf carries in front of its passage. Its zero value is
+// no prefixes, the full header and bare leaves, the shape tusk sent before
+// these settings existed. FormatFor builds it from a workspace's settings.
 //
 // The drain builds the full document text with Format and hashes exactly
 // those bytes, so every setting that changes the text also changes the
@@ -39,6 +41,39 @@ type Format struct {
 	QueryPrefix    string
 	DocumentPrefix string
 	HeaderMode     HeaderMode
+	// SubUnitContext and SubUnitProperties pick what a leaf embeds in front
+	// of its passage (subunit.NewLeafContext). "" behaves as "none".
+	SubUnitContext    string
+	SubUnitProperties []string
+}
+
+// FormatFor returns the Format a workspace's [embeddings] section produces,
+// with its defaults filled in.
+func FormatFor(section manifest.EmbeddingsSection) Format {
+	return Format{
+		QueryPrefix:       section.QueryPrefix,
+		DocumentPrefix:    section.DocumentPrefix,
+		HeaderMode:        HeaderMode(section.ResolvedDocumentHeader()),
+		SubUnitContext:    section.ResolvedSubUnitContext(),
+		SubUnitProperties: section.SubUnitProperties,
+	}
+}
+
+// labelInPrefix reports whether document-prefix carries {title}, which then
+// takes a leaf's label in place of a line of its own.
+func (format Format) labelInPrefix() bool {
+	return strings.Contains(format.DocumentPrefix, manifest.TitlePlaceholder)
+}
+
+// hasLeafContext reports whether a leaf embeds anything in front of its
+// passage, so the drain must read its file and sections.
+func (format Format) hasLeafContext() bool {
+	switch format.SubUnitContext {
+	case manifest.SubUnitContextTitle, manifest.SubUnitContextPath:
+		return true
+	default:
+		return len(format.SubUnitProperties) > 0
+	}
 }
 
 // Query returns the semantic query text: QueryPrefix followed by query.
@@ -136,11 +171,15 @@ const documentFingerprintVersion = "v1"
 
 // DocumentFingerprint identifies every [embeddings] setting a stored document
 // vector depends on: the vector key (model and num-ctx), document-prefix,
-// document-header, and the file chunk sizes, with defaults filled in so an
-// explicit default and an absent key fingerprint the same. query-prefix is
-// excluded because no stored vector depends on it. reindex compares this
-// against the value recorded under DocumentFingerprintKey and re-embeds every
-// node when they differ.
+// document-header, the file chunk sizes, sub-unit-context and
+// sub-unit-properties, with defaults filled in so an explicit default and an
+// absent key fingerprint the same. query-prefix is excluded because no stored
+// vector depends on it. reindex compares this against the value recorded
+// under DocumentFingerprintKey and re-embeds every node when they differ.
+//
+// Leaves that embed bare (sub-unit-context = "none", no properties) add
+// nothing, so those settings fingerprint as they did before the two keys
+// existed.
 func DocumentFingerprint(section manifest.EmbeddingsSection) string {
 	target, maxBytes, overlap := section.ChunkSizes()
 
@@ -152,6 +191,13 @@ func DocumentFingerprint(section manifest.EmbeddingsSection) string {
 		strconv.Itoa(target),
 		strconv.Itoa(maxBytes),
 		strconv.Itoa(overlap),
+	}
+
+	if FormatFor(section).hasLeafContext() {
+		fields = append(fields,
+			"sub-unit-context="+section.ResolvedSubUnitContext(),
+			"sub-unit-properties="+strings.Join(section.SubUnitProperties, "\x01"),
+		)
 	}
 
 	sum := sha256.Sum256([]byte(strings.Join(fields, "\x00")))

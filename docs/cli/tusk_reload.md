@@ -23,7 +23,8 @@ manifest-epoch sentinel and owns the reindex. Pass --reindex to run a
 synchronous reindex pass in this process (for the no-daemon scenario).
 
 Changed [embeddings] document settings (model, num-ctx, document-prefix,
-document-header, chunk sizes) are applied either way: reload records them
+document-header, chunk sizes, sub-unit-context, sub-unit-properties) are
+applied either way: reload records them
 and queues every note for re-embedding, which a running daemon's drainer
 then does under the new settings ("embed_settings_requeued" in the output).
 

@@ -96,7 +96,7 @@ document-prefix = "search_document: "
 | `snowflake-arctic-embed` (v1) | `Represent this sentence for searching relevant passages: ` | none | 512 |
 | `snowflake-arctic-embed2` | `query: ` | none | 8K |
 
-Each prefix ends with a space. `{title}` in `document-prefix` becomes the note's title (`none` for sub-units). The other keys are `document-header` (`full`, `title`, or `none`: how much frontmatter leads each file chunk), `chunk-target-bytes` / `chunk-max-bytes` / `chunk-overlap-bytes` (defaults 1600 / 4000 / 200, sized for a 2K window; for a 512-token model set `chunk-max-bytes = 1000` and a smaller target such as `chunk-target-bytes = 800`, and consider `document-header = "title"` since the header doesn't count toward the cap), and `num-ctx` (passed to Ollama as `num_ctx`). `num-ctx` can't take a model past the context it was trained on: `nomic-embed-text` stops at 2048 tokens whatever you set.
+Each prefix ends with a space. `{title}` in `document-prefix` becomes the note's title, and for a passage the title and headings it carries (see [Passage context](#passage-context)). The other keys are `document-header` (`full`, `title`, or `none`: how much frontmatter leads each file chunk), `chunk-target-bytes` / `chunk-max-bytes` / `chunk-overlap-bytes` (defaults 1600 / 4000 / 200, sized for a 2K window; for a 512-token model set `chunk-max-bytes = 1000` and a smaller target such as `chunk-target-bytes = 800`, and consider `document-header = "title"` since the header doesn't count toward the cap), and `num-ctx` (passed to Ollama as `num_ctx`). `num-ctx` can't take a model past the context it was trained on: `nomic-embed-text` stops at 2048 tokens whatever you set.
 
 The default cap assumes about 2 bytes per token, which holds for prose and most code. Dense text runs denser (JSON at about 1.8 bytes per token, hex at 1.5, base64 at 1.4), so a chunk of it near the cap can still be too long for the model. When that happens tusk embeds the part that fits and logs a warning. A sub-unit longer than `chunk-max-bytes`, such as a big code block or table, is split the way a file is, and its best chunk ranks it. An input the model refuses for some other reason is retried twice and then set aside: `tusk doctor` lists it as `embed-failed` with the error, and it is tried again when the note changes, on `tusk reindex --force`, or after an `[embeddings]` change.
 
@@ -115,6 +115,24 @@ A second measurement on tusk's own package docs ([#811](https://github.com/germa
 
 Which settings work best depends on the model and on your notes, so try a few semantic queries before and after a change. Changing `query-prefix` takes effect on the next query. Changing any other key re-embeds every note. Apply the change with `tusk reload` (or `tusk_reload` from an agent) so a running MCP server picks up the new settings too; `tusk reindex` also applies it, but a server that hasn't reloaded stops embedding until it does, rather than embed with the old settings. `tusk doctor` suggests the prefixes when it recognizes one of the models above with them unset, and names the missing one when only one of a two-sided pair is set. If you've tried a prefix and decided against it, set it explicitly to `""` (for example `document-prefix = ""`) and doctor stops suggesting it.
 
+### Passage context
+
+A passage carries a line saying where it sits: its file's title and the headings above it. A section of `ledger-sync.md` that says "Consumes the payments-settled Kafka topic." never names the service, so on its own its vector misses `which topic does ledger-sync consume`. Embedded as `ledger-sync > Async` followed by the passage, it matches. `[embeddings] sub-unit-context` picks what goes on that line:
+
+```toml
+[embeddings]
+sub-unit-context    = "path"       # the default
+sub-unit-properties = ["aliases"]  # optional
+```
+
+`path` puts the title and the enclosing headings in front of each passage, `title` the title alone, and `none` nothing. A file without a title goes by its file name, and a top heading that repeats the title is left out. `path` reads the headings from section rows, so with `section` left out of `[workspace] sub-units` it works like `title`. With `{title}` in `document-prefix`, as EmbeddingGemma's prefix has, the title and headings fill the placeholder and no line is added.
+
+`sub-unit-properties` adds a `name: value` line for each frontmatter field it names, in that order; `type` is the note's type, and a list comes out as `a, b`. Keep it to a field or two. A passage is a sentence or a few, and a block of fields in front of it makes every passage in the file look alike: on the `ledger-sync` example, putting the type, title and four fields in front of each section left the answering one 0.006 ahead of the next instead of 0.115.
+
+Only the embedded text changes. Snippets, a passage's `text` and the word match see the passage alone. Renaming a title re-embeds the file's passages, and so does editing a named field, or renaming a heading under `path`. Changing either key re-embeds every passage once; on tusk's package docs (36 files, 737 passages) that took 8.5 seconds. Identical passages in different files get a vector each, since their context differs; on those docs that comes to 7 more vectors, 886 in all.
+
+On those docs, replaying the first query agents sent for 40 questions, `path` ranked the answering section higher than bare passages whether the word match was on or off. `title` alone did about as well with the word match on. With it off, `title` gained little at a title weight of 0.3 and lost ground at 0.5 (MRR@10 0.646 against 0.669 for bare passages), because the weight lifts the same files the vectors already favor. [Benchmarks](benchmarks.md#passage-context) has the numbers.
+
 ### Matching the query's words
 
 Embeddings match meaning and blur exact wording. A clause buried in a long passage barely moves that passage's vector, and passages dense with identifiers score moderately against almost any query, so the passage that uses your exact words can rank below ones that only sound related. `[query] lexical-weight` blends a word-match score into the ranking:
@@ -130,16 +148,16 @@ It's off by default. On tusk's own package docs, replaying the first query an ag
 
 ### Matching the title
 
-Passages are embedded without their file's title. A section of `ledger-sync.md` that says "Consumes the payments-settled Kafka topic." never mentions ledger-sync, while an incident write-up that names the service in every paragraph does, so `which topic does ledger-sync consume` can rank eight incident notes above the service that answers it. `[query] title-weight` lifts every passage of a file by how much of the file's title the query names:
+A passage carries its file's title, but notes that name a subject in every paragraph can still outrank the subject's own page. In the `ledger-sync` example with `lexical-weight = 0.5`, eight incident notes that use every word of the query rank above the page that answers it until the title match lifts the page. `[query] title-weight` lifts every passage of a file by how much of the file's title the query names:
 
 ```toml
 [query]
-title-weight = 0.5
+title-weight = 0.3
 ```
 
 The title match is the share of the title's words that the query also uses, compared the way the word match compares them, so `ledger-sync`, `Ledger Sync` and `ledger_sync` all meet, and a query naming two of the five words in `internal/lexical — word-match scores` matches it 0.4. A file without a title is matched by its file name. Like the word match, the title match closes its share of the gap to 1, and the two combine: `1 − score = (1 − cosine) × (1 − lexical-weight × lexical) × (1 − title-weight × title)`. A score never drops, so it never costs a result its place above `min_score`. Every passage of the file gets the same lift, so their order inside the file still comes from the passages themselves.
 
-It's on by default at 0.5; set it to 0 to turn it off. On the same 40 questions a weight of 0.5 raised the answering section's MRR@10 from 0.733 to 0.759 with `lexical-weight = 0.5`, and the file's from 0.866 to 0.895. With the word match on as well, notes that repeat the query's words can still outrank the file the query names; a weight around 0.7 holds it above them. [Benchmarks](benchmarks.md#title-match) has the numbers.
+It's on by default at 0.3; set it to 0 to turn it off. On the same 40 questions with `lexical-weight = 0.5` and bare passages, a weight of 0.5 raised the answering section's MRR@10 from 0.733 to 0.759 and the file's from 0.866 to 0.895. With passages carrying their title and headings, 0.3 ranks the section as high as 0.5 with the word match on and higher with it off (0.715 against 0.689), and the file higher in both, which is why it's the default. Under `sub-unit-context = "none"`, 0.5 does better. [Benchmarks](benchmarks.md#title-match) has the numbers for the title match and [Passage context](benchmarks.md#passage-context) for the change.
 
 ### Demoting results
 

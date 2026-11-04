@@ -39,8 +39,10 @@ type NodeRow struct {
 	EmbedPayload sql.NullString
 
 	// ContentHash is the current content fingerprint of a sub-unit row:
-	// sha256(embed payload) for embeddable leaves, sha256 of the heading for
-	// sections. NULL for file-level rows. Drives the sync re-embed decision
+	// sha256 of the embed payload and the leaf's embed context (the file
+	// title and headings by default; see subunit.LeafContext) for embeddable
+	// leaves,
+	// sha256 of the heading for sections. NULL for file-level rows. Drives the sync re-embed decision
 	// and doctor coverage. Schema column is `content_hash`.
 	ContentHash sql.NullString
 
