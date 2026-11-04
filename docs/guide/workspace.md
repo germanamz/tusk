@@ -91,6 +91,21 @@ Tusk never adds a type to these files. Reindex leaves them as they are, and `tus
 
 `tusk init` sets this up when the folder already holds untyped markdown: it reports how many files it found, adds the `vault` pack, and writes `default-type = "note"`. Pass `--no-adopt` to keep those files out.
 
+### Sections, paragraphs and other sub-units
+
+Tusk indexes the parts of each page as well as the page: its sections (a heading and what follows it), paragraphs, list items, code blocks, blockquotes and table cells. These sub-units are what a semantic query matches and what heading links and block references point at. `[workspace] sub-units` picks which kinds get indexed:
+
+```toml
+[workspace]
+sub-units = ["section", "paragraph", "list-item"]   # default true
+```
+
+`true`, the default, indexes every kind, and `false` or `[]` indexes none. A list names the kinds to keep, from `section`, `paragraph`, `list-item`, `code-block`, `blockquote` and `table-cell`. Any other value is an error, and tusk won't load the manifest until it's fixed. Table cells are the usual kind to drop, since each cell is a unit of its own and a vault with many tables can have more cells than paragraphs. The page itself is embedded whatever the list says.
+
+A sub-unit's id is its place in the page (`S1P2` is the second paragraph of the first section), and that doesn't change with the list, so a `[[auth-rfc#S1P2]]` link and the paragraph's embedding survive an edit to it. When `section` is left out, the other kinds hang directly off their page, and heading links point at the page itself. `tusk doctor` then stops reporting `missing-heading`, since no heading is indexed for a link to find. A block id can sit on a unit of any kind other than a section, so `missing-block` goes quiet as soon as any of those kinds is left out.
+
+Changing the list re-processes every file on the next `tusk reindex`, which drops the rows, edges and embeddings of the kinds left out and fills in the ones added. Until that reindex runs, `tusk doctor` reports the leftover rows as `sub-units-disabled-dirty`.
+
 ## Edges connect nodes
 
 Edges are typed, declared in the manifest, and can be created two ways:

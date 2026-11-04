@@ -112,23 +112,31 @@ const defaultTypeKey = "default_type"
 // pass succeeds.
 const linkCaseKey = "link_case"
 
-// subUnitsKey stores whether the index was built with [workspace] sub-units
-// off. Turning them off has to drop the units of every file and turning them
-// back on has to fill them, yet no file changes on disk, so the incremental
-// skip would never re-read one (#827). When the setting differs, Run forces
-// one full re-process. On, the default, stores "", so an index from before
-// the key needs no pass, while one already built with sub-units off gets the
-// pass that drops whatever a pass with them on left behind. Stamped after the
-// pass succeeds.
+// subUnitsKey stores which sub-unit kinds the index was built with under
+// [workspace] sub-units. Turning them off has to drop the units of every file
+// and turning them back on has to fill them, yet no file changes on disk, so
+// the incremental skip would never re-read one (#827); a list that picks
+// other kinds is the same, for those kinds (#853). When the setting differs,
+// Run forces one full re-process. Every kind, the default, stores "", so an
+// index from before the key needs no pass, while one already built with
+// sub-units off gets the pass that drops whatever a pass with them on left
+// behind. Stamped after the pass succeeds.
 const subUnitsKey = "sub_units"
 
-// subUnitsSetting renders the setting subUnitsKey records.
+// subUnitsSetting renders the setting subUnitsKey records: "" for every kind,
+// "off" for none, and otherwise the kinds in canonical order, comma-joined,
+// so a list that picks the same kinds in another order is the same setting.
 func subUnitsSetting(loaded *manifest.Manifest) string {
-	if loaded.SubUnitsEnabled() {
-		return ""
-	}
+	kinds := loaded.SubUnitKinds()
 
-	return "off"
+	switch len(kinds) {
+	case 0:
+		return "off"
+	case len(manifest.SubUnitKindNames()):
+		return ""
+	default:
+		return strings.Join(kinds, ",")
+	}
 }
 
 // nodeIDForPath derives a node id from a workspace-relative path, delegating to
@@ -208,12 +216,12 @@ type Config struct {
 
 	// Manifest carries the workspace manifest. Optional; when nil the
 	// reindex pass neither writes nor drops sub-units. When non-nil, the
-	// per-file loop diffs sub-units into the index alongside the file
-	// row (Plan 2 Task 3), or drops the file's sub-units when
-	// Manifest.SubUnitsEnabled() is false. Edges and EdgeTypes still
-	// source from the dedicated Config fields for back-compat with callers
-	// that build a reindex config without a manifest (the existing reindex
-	// tests).
+	// per-file loop diffs sub-units into the index alongside the file row
+	// (Plan 2 Task 3), keeping the kinds Manifest.SubUnitKinds() names and
+	// dropping the rest, every one when it names none. Edges and EdgeTypes
+	// still source from the dedicated Config fields for back-compat with
+	// callers that build a reindex config without a manifest (the existing
+	// reindex tests).
 	Manifest *manifest.Manifest
 
 	// Async controls whether Run drains the reindex queue before returning.

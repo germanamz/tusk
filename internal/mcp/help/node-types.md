@@ -64,9 +64,11 @@ cleanly; any that don't surface as drift in `tusk_doctor`.
 
 ## Sub-units
 
-If `[workspace].sub-units = true`, the markdown headings inside each
-file are also parsed as sub-unit nodes (one per heading, type
-`section`, kind `subunit`, source `markdown`). HTML files are parsed
-the same way, with their sub-units tagged source `html`. These appear
-in `tusk_query` and `tusk_node_list` alongside the file rows. They
-share their parent file's path.
+Each markdown file is also parsed into sub-unit nodes (kind `subunit`,
+source `markdown`): types `section`, `paragraph`, `list-item`,
+`code-block`, `blockquote`, `table-cell`. HTML files are parsed the
+same way, with their sub-units tagged source `html`. These appear in
+`tusk_query` and `tusk_node_list` alongside the file rows. They share
+their parent file's path. `[workspace].sub-units` picks the kinds:
+`true` (default) all, `false` none, or a list of type names. Without
+`section`, the other kinds' parent is the file.

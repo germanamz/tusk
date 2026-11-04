@@ -2,6 +2,7 @@
 package manifest
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/BurntSushi/toml"
@@ -79,6 +80,11 @@ type Manifest struct {
 	// producing a fresh *Manifest; in-place mutation by tests should
 	// reset the flag manually if they re-test the merge path.
 	subdocumentPackApplied bool `toml:"-"`
+
+	// subUnitsExcluded holds the sub-unit kinds `[workspace] sub-units`
+	// leaves out, resolved by Validate. Empty, the zero value, indexes every
+	// kind, so a manifest built without Load keeps the default.
+	subUnitsExcluded map[string]struct{} `toml:"-"`
 
 	// contextRecentPrimitive holds the toml.Primitive captured for the
 	// `recent` key inside [context] so ValidateContext can discriminate
@@ -191,10 +197,12 @@ type WorkspaceSection struct {
 	Name   string   `toml:"name"`
 	Ignore []string `toml:"ignore"`
 
-	// SubUnitsRaw mirrors the on-disk `sub-units` key. Decoded as a
-	// toml.Primitive so the loader can distinguish "absent" (default to
-	// true) from "explicit false". Consumers should call
-	// Manifest.SubUnitsEnabled instead of reading this directly.
+	// SubUnitsRaw mirrors the on-disk `sub-units` key: true, false or a
+	// list of sub-unit kinds. Decoded as a toml.Primitive so Validate can
+	// tell "absent" (every kind) from an explicit value and reject any
+	// other. Consumers should call Manifest.SubUnitKinds,
+	// IndexesSubUnitKind or SubUnitsEnabled instead of reading this
+	// directly.
 	SubUnitsRaw toml.Primitive `toml:"sub-units"`
 
 	// LineNumbering mirrors the on-disk `line-numbering` key: which line
@@ -465,35 +473,43 @@ func (loaded *Manifest) DefaultType() string {
 	return loaded.Workspace.DefaultType
 }
 
-// SubUnitsEnabled returns true when the workspace opts into sub-unit
-// indexing. The default is true (the built-in pack is on when the manifest
-// is silent or `sub-units` is absent); only an explicit `sub-units = false`
-// disables it. The discrimination relies on the toml.MetaData captured at
-// decode time; hand-built manifests (tests that construct a Manifest
-// literal without calling Load) default to true unless the test sets
-// Meta + the primitive explicitly.
+// SubUnitsEnabled reports whether the workspace indexes any sub-unit kind:
+// true unless `[workspace] sub-units` is false or an empty list. The default,
+// with the key absent, is every kind, and so is a nil manifest or one built
+// without Load.
 func (loaded *Manifest) SubUnitsEnabled() bool {
+	return len(loaded.SubUnitKinds()) > 0
+}
+
+// SubUnitKinds returns the sub-unit kinds the workspace indexes, in the order
+// SubUnitKindNames lists them: every kind for `sub-units = true` or no key,
+// none for false or [], and the named ones for a list (#853). A nil manifest,
+// or one built without Load, indexes every kind.
+func (loaded *Manifest) SubUnitKinds() []string {
+	kinds := make([]string, 0, len(subUnitKindNames))
+
+	for _, kind := range subUnitKindNames {
+		if loaded.IndexesSubUnitKind(kind) {
+			kinds = append(kinds, kind)
+		}
+	}
+
+	return kinds
+}
+
+// IndexesSubUnitKind reports whether the workspace indexes units of kind (a
+// subunit.Kind name such as "table-cell"). It is false for a name that is no
+// sub-unit kind.
+func (loaded *Manifest) IndexesSubUnitKind(kind string) bool {
+	if !slices.Contains(subUnitKindNames, kind) {
+		return false
+	}
+
 	if loaded == nil {
 		return true
 	}
 
-	if loaded.Meta == nil {
-		// Hand-built manifest — preserve the default.
-		return true
-	}
+	_, excluded := loaded.subUnitsExcluded[kind]
 
-	if !loaded.Meta.IsDefined("workspace", "sub-units") {
-		return true
-	}
-
-	var explicit bool
-
-	if decodeErr := loaded.Meta.PrimitiveDecode(loaded.Workspace.SubUnitsRaw, &explicit); decodeErr != nil {
-		// Malformed value — treat as default (true) so the engine still
-		// starts. ValidateBuiltinPacks (or a future stricter validator)
-		// can surface this through doctor.
-		return true
-	}
-
-	return explicit
+	return !excluded
 }

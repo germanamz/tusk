@@ -617,7 +617,8 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 		// With sub-units off the sync still runs, with no units, so it drops
 		// the rows a pass with them on left behind. Skipping it left those
 		// rows, their edges and their vectors in place for good: the sync is
-		// the only code that deletes them (#827).
+		// the only code that deletes them (#827). With some kinds on, the
+		// sync keeps those and drops the rest the same way (#853).
 		if cfg.Manifest.SubUnitsEnabled() {
 			switch filepath.Ext(relPath) {
 			case ".html", ".htm":
