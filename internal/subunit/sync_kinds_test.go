@@ -18,12 +18,17 @@ import (
 const kindsBody = "# Title\n\nFirst paragraph [[other]].\n\n- item\n\n| a |\n| - |\n| 1 |\n"
 
 // kindsManifest loads a manifest whose [workspace] sub-units line is
-// subUnits ("" for none), with one wikilink edge type.
-func kindsManifest(test *testing.T, subUnits string) *manifest.Manifest {
+// subUnits ("" for none), with one wikilink edge type and any further tables
+// given, such as a [node-types.<name>] that sets its own sub-units.
+func kindsManifest(test *testing.T, subUnits string, tables ...string) *manifest.Manifest {
 	test.Helper()
 
 	body := "[workspace]\nname = \"x\"\n" + subUnits + "\n\n" +
 		"[edge-types.references]\nfrom = [\"*\"]\nto = [\"*\"]\ncardinality = \"many-to-many\"\nwikilinks = true\n"
+
+	for _, table := range tables {
+		body += "\n" + table + "\n"
+	}
 	path := filepath.Join(test.TempDir(), "tusk.toml")
 
 	if writeErr := os.WriteFile(path, []byte(body), 0o644); writeErr != nil {
@@ -223,6 +228,60 @@ func TestSync_KindListFlipConverges(test *testing.T) {
 
 	if !slices.Equal(sortedKeys(widened.parents), sortedKeys(full.parents)) || !slices.Equal(widened.contains, full.contains) {
 		test.Errorf("widened rows = %v, contains = %v, want %v and %v", sortedKeys(widened.parents), widened.contains, sortedKeys(full.parents), full.contains)
+	}
+}
+
+// TestSync_TypeOverridePicksKinds indexes each file with the kinds its type
+// names in [node-types], and the workspace's for a type that names none
+// (#867): a spec keeps every kind, a meeting none, and a note the workspace's
+// paragraphs, hanging off the file since sections aren't indexed for it.
+func TestSync_TypeOverridePicksKinds(test *testing.T) {
+	store := openSyncTestIndex(test)
+	loaded := kindsManifest(test, `sub-units = ["paragraph"]`,
+		"[node-types.spec]\nsub-units = true",
+		"[node-types.meeting]\nsub-units = false",
+	)
+	sync, nodes, edges, queue := newSync(store, loaded)
+
+	units, parseErr := subunit.Parse([]byte(kindsBody))
+
+	if parseErr != nil {
+		test.Fatalf("Parse: %v", parseErr)
+	}
+
+	testCases := []struct {
+		id, typeName string
+		wantRows     []string
+		wantParent   string // the paragraph's parent, when it is kept
+	}{
+		{id: "notes/intro", typeName: "note", wantRows: []string{"notes/intro#S1P1"}, wantParent: "notes/intro"},
+		{id: "specs/api", typeName: "spec", wantRows: []string{"specs/api#S1", "specs/api#S1L1", "specs/api#S1P1", "specs/api#S1T1R0C0", "specs/api#S1T1R1C0"}, wantParent: "specs/api#S1"},
+		{id: "meetings/standup", typeName: "meeting", wantRows: []string{}},
+	}
+
+	for _, testCase := range testCases {
+		parent := seedFileRow(test, nodes, testCase.id, testCase.id+".md")
+		parent.Type = testCase.typeName
+
+		if upsertErr := nodes.Upsert(parent); upsertErr != nil {
+			test.Fatalf("retype %s: %v", testCase.id, upsertErr)
+		}
+
+		if _, applyErr := sync.ApplyFile(context.Background(), parent, units); applyErr != nil {
+			test.Fatalf("ApplyFile %s: %v", testCase.id, applyErr)
+		}
+
+		state := readSubUnitState(test, nodes, edges, queue, parent.ID)
+
+		if got := sortedKeys(state.parents); !slices.Equal(got, testCase.wantRows) {
+			test.Errorf("%s (%s) rows = %v, want %v", testCase.id, testCase.typeName, got, testCase.wantRows)
+		}
+
+		if testCase.wantParent != "" {
+			if got := state.parents[testCase.id+"#S1P1"]; got != testCase.wantParent {
+				test.Errorf("%s paragraph parent = %q, want %q", testCase.id, got, testCase.wantParent)
+			}
+		}
 	}
 }
 

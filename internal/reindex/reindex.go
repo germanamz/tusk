@@ -120,15 +120,49 @@ const linkCaseKey = "link_case"
 // Run forces one full re-process. Every kind, the default, stores "", so an
 // index from before the key needs no pass, while one already built with
 // sub-units off gets the pass that drops whatever a pass with them on left
-// behind. Stamped after the pass succeeds.
+// behind. Stamped after the pass succeeds. A `[node-types.<name>] sub-units`
+// override is part of the setting too (#867), so changing one forces the
+// same pass.
 const subUnitsKey = "sub_units"
 
-// subUnitsSetting renders the setting subUnitsKey records: "" for every kind,
-// "off" for none, and otherwise the kinds in canonical order, comma-joined,
-// so a list that picks the same kinds in another order is the same setting.
+// subUnitsSetting renders the setting subUnitsKey records: the workspace's
+// kinds, then type=kinds for each node type whose own sub-units pick other
+// kinds than the workspace's, by type name, all joined with ";". Kinds render
+// as "" for every kind ("all" after a type), "off" for none, and otherwise in
+// canonical order, comma-joined. So a list that picks the same kinds in
+// another order is the same setting, and so is an override that picks the
+// workspace's kinds. A workspace on every kind with no such override records
+// "", as it did before overrides, so its index needs no pass.
 func subUnitsSetting(loaded *manifest.Manifest) string {
-	kinds := loaded.SubUnitKinds()
+	workspaceKinds := loaded.SubUnitKinds()
+	var parts []string
 
+	if part := subUnitKindsSetting(workspaceKinds); part != "" {
+		parts = append(parts, part)
+	}
+
+	for _, typeName := range loaded.SubUnitOverrides() {
+		kinds := loaded.SubUnitKindsFor(typeName)
+
+		if slices.Equal(kinds, workspaceKinds) {
+			continue
+		}
+
+		part := subUnitKindsSetting(kinds)
+
+		if part == "" {
+			part = "all"
+		}
+
+		parts = append(parts, typeName+"="+part)
+	}
+
+	return strings.Join(parts, ";")
+}
+
+// subUnitKindsSetting renders one set of kinds for subUnitsSetting: "" for
+// every kind, "off" for none, the kinds comma-joined otherwise.
+func subUnitKindsSetting(kinds []string) string {
 	switch len(kinds) {
 	case 0:
 		return "off"

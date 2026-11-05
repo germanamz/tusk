@@ -70,5 +70,7 @@ source `markdown`): types `section`, `paragraph`, `list-item`,
 same way, with their sub-units tagged source `html`. These appear in
 `tusk_query` and `tusk_node_list` alongside the file rows. They share
 their parent file's path. `[workspace].sub-units` picks the kinds:
-`true` (default) all, `false` none, or a list of type names. Without
-`section`, the other kinds' parent is the file.
+`true` (default) all, `false` none, or a list of type names.
+`[node-types.<name>].sub-units` takes the same values and replaces it
+for files of that type. Without `section`, the other kinds' parent is
+the file.

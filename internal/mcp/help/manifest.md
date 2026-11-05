@@ -19,6 +19,7 @@ properties = [
     { name = "priority", type = "int" },
     { name = "tags",     type = "list-of", item-type = "ref", to = "tag" },
 ]
+sub-units = ["section"]      # optional; replaces [workspace] sub-units for files of this type
 # See tusk_help(topic: "node-types") for property types.
 
 [edge-types.<name>]

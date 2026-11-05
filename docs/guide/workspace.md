@@ -106,6 +106,21 @@ A sub-unit's id is its place in the page (`S1P2` is the second paragraph of the 
 
 Changing the list re-processes every file on the next `tusk reindex`, which drops the rows, edges and embeddings of the kinds left out and fills in the ones added. Until that reindex runs, `tusk doctor` reports the leftover rows as `sub-units-disabled-dirty`.
 
+A node type can pick its own kinds. `sub-units` in its `[node-types]` table takes the same values and replaces the workspace list for files of that type:
+
+```toml
+[workspace]
+sub-units = ["section", "paragraph", "list-item"]
+
+[node-types.spec]
+sub-units = true    # every kind, table cells included
+
+[node-types.meeting]
+sub-units = false   # meeting notes stay whole
+```
+
+A file gets the kinds of its type, whether that type comes from its frontmatter, from `default-type` or from an HTML page's `tusk:type` meta. A type that sets no `sub-units` of its own, or one that isn't declared, uses the workspace list. Heading links and block references follow the type of the note they point into, so with the manifest above `tusk doctor` reports a broken heading link into a spec but not one into a meeting note, which has no sections to find. Changing a type's `sub-units` re-processes every file on the next reindex, the same as changing the workspace list. An override that picks the same kinds as the workspace changes nothing and forces no pass.
+
 ## Edges connect nodes
 
 Edges are typed, declared in the manifest, and can be created two ways:

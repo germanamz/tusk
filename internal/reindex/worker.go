@@ -618,8 +618,10 @@ func processReindexJob(cfg WorkerConfig, nodeID string, report *DrainReport) err
 		// the rows a pass with them on left behind. Skipping it left those
 		// rows, their edges and their vectors in place for good: the sync is
 		// the only code that deletes them (#827). With some kinds on, the
-		// sync keeps those and drops the rest the same way (#853).
-		if cfg.Manifest.SubUnitsEnabled() {
+		// sync keeps those and drops the rest the same way (#853). Which
+		// kinds are on depends on the file's type (#867): a type that turns
+		// every kind off gets the same empty sync.
+		if len(cfg.Manifest.SubUnitKindsFor(parsed.Type)) > 0 {
 			switch filepath.Ext(relPath) {
 			case ".html", ".htm":
 				// htmlunit.Parse needs the raw HTML to recover the heading

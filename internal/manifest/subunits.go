@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 // subUnitKindNames lists the kinds `[workspace] sub-units` can name, in the
@@ -19,23 +21,60 @@ func SubUnitKindNames() []string {
 	return slices.Clone(subUnitKindNames)
 }
 
-// resolveSubUnits reads `[workspace] sub-units` into subUnitsExcluded: true
-// or no key leaves out nothing, false or [] leaves out every kind, and a list
-// keeps the kinds it names, in any order, duplicates allowed. Any other value,
-// or a list item that names no kind, is an error. Before #853 the key was
-// decoded as a bool on read and anything else fell back to on, so a list or a
-// string loaded without a word and changed nothing.
+// resolveSubUnits reads `[workspace] sub-units` into subUnitsExcluded, and
+// each `[node-types.<name>] sub-units` into subUnitsByType (#867). See
+// excludedSubUnitKinds for the values either key takes. Types are read in
+// name order, so a manifest with two bad values always reports the same one.
 func resolveSubUnits(loaded *Manifest) error {
 	loaded.subUnitsExcluded = nil
+	loaded.subUnitsByType = nil
 
-	if loaded.Meta == nil || !loaded.Meta.IsDefined("workspace", "sub-units") {
+	if loaded.Meta == nil {
 		return nil
 	}
 
+	if loaded.Meta.IsDefined("workspace", "sub-units") {
+		excluded, excludedErr := excludedSubUnitKinds(loaded.Meta, "workspace.sub-units", loaded.Workspace.SubUnitsRaw)
+
+		if excludedErr != nil {
+			return excludedErr
+		}
+
+		loaded.subUnitsExcluded = excluded
+	}
+
+	for _, typeName := range slices.Sorted(maps.Keys(loaded.NodeTypes)) {
+		if !loaded.Meta.IsDefined("node-types", typeName, "sub-units") {
+			continue
+		}
+
+		excluded, excludedErr := excludedSubUnitKinds(loaded.Meta, "node-types."+typeName+".sub-units", loaded.NodeTypes[typeName].SubUnitsRaw)
+
+		if excludedErr != nil {
+			return excludedErr
+		}
+
+		if loaded.subUnitsByType == nil {
+			loaded.subUnitsByType = make(map[string]map[string]struct{})
+		}
+
+		loaded.subUnitsByType[typeName] = excluded
+	}
+
+	return nil
+}
+
+// excludedSubUnitKinds decodes a sub-units value, written at key, into the
+// kinds it leaves out: true leaves out nothing, false or [] every kind, and a
+// list keeps the kinds it names, in any order, duplicates allowed. Any other
+// value, or a list item that names no kind, is an error. Before #853 the
+// workspace key was decoded as a bool on read and anything else fell back to
+// on, so a list or a string loaded without a word and changed nothing.
+func excludedSubUnitKinds(meta *toml.MetaData, key string, raw toml.Primitive) (map[string]struct{}, error) {
 	var value any
 
-	if decodeErr := loaded.Meta.PrimitiveDecode(loaded.Workspace.SubUnitsRaw, &value); decodeErr != nil {
-		return fmt.Errorf("manifest: workspace.sub-units: %w", decodeErr)
+	if decodeErr := meta.PrimitiveDecode(raw, &value); decodeErr != nil {
+		return nil, fmt.Errorf("manifest: %s: %w", key, decodeErr)
 	}
 
 	wantKinds := strings.Join(subUnitKindNames, " | ")
@@ -44,20 +83,20 @@ func resolveSubUnits(loaded *Manifest) error {
 	switch typed := value.(type) {
 	case bool:
 		if typed {
-			return nil
+			kept = subUnitKindNames
 		}
 	case []any:
 		for _, item := range typed {
 			kind, isString := item.(string)
 
 			if !isString || !slices.Contains(subUnitKindNames, kind) {
-				return fmt.Errorf("manifest: workspace.sub-units: %s is not a sub-unit kind (want %s)", tomlValueText(item), wantKinds)
+				return nil, fmt.Errorf("manifest: %s: %s is not a sub-unit kind (want %s)", key, tomlValueText(item), wantKinds)
 			}
 
 			kept = append(kept, kind)
 		}
 	default:
-		return fmt.Errorf("manifest: workspace.sub-units = %s is not supported (want true, false or a list of kinds: %s)", tomlValueText(value), wantKinds)
+		return nil, fmt.Errorf("manifest: %s = %s is not supported (want true, false or a list of kinds: %s)", key, tomlValueText(value), wantKinds)
 	}
 
 	excluded := make(map[string]struct{}, len(subUnitKindNames))
@@ -68,9 +107,7 @@ func resolveSubUnits(loaded *Manifest) error {
 		}
 	}
 
-	loaded.subUnitsExcluded = excluded
-
-	return nil
+	return excluded, nil
 }
 
 // tomlValueText renders a decoded TOML value for an error message: a string

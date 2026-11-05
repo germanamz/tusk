@@ -124,3 +124,15 @@ filter = "type=note AND NOT owner"
 		test.Errorf("SchemaFingerprint() changed when only [embeddings] and [rule] were added")
 	}
 }
+
+// TestSchemaFingerprint_IgnoresSubUnitOverrides leaves a node type's
+// sub-units out of the fingerprint: reindex records the sub-unit setting
+// under its own marker, which a reordered list leaves alone (#867).
+func TestSchemaFingerprint_IgnoresSubUnitOverrides(test *testing.T) {
+	base := fingerprintOf(test, schemaFixture)
+	edited := strings.Replace(schemaFixture, `description = "A note."`, "description = \"A note.\"\nsub-units = [\"section\"]", 1)
+
+	if got := fingerprintOf(test, edited); got != base {
+		test.Errorf("SchemaFingerprint() changed when a node type set sub-units")
+	}
+}
