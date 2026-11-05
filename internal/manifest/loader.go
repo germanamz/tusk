@@ -804,16 +804,16 @@ func validateHierarchies(loaded *Manifest) error {
 
 	for edgeName, edge := range loaded.EdgeTypes {
 		if edge.MaxDepth < 0 {
-			return fmt.Errorf("edge %q: max-depth must be at least 1, or left out to walk the whole tree", edgeName)
+			return fmt.Errorf("manifest: edge %q: max-depth must be at least 1, or left out to walk the whole tree", edgeName)
 		}
 
 		if edge.Hierarchy == "" {
 			if edge.HierarchyDefault {
-				return fmt.Errorf("edge %q: hierarchy-default requires hierarchy alias", edgeName)
+				return fmt.Errorf("manifest: edge %q: hierarchy-default requires hierarchy alias", edgeName)
 			}
 
 			if edge.MaxDepth > 0 {
-				return fmt.Errorf("edge %q: max-depth requires hierarchy alias", edgeName)
+				return fmt.Errorf("manifest: edge %q: max-depth requires hierarchy alias", edgeName)
 			}
 
 			continue
@@ -822,18 +822,18 @@ func validateHierarchies(loaded *Manifest) error {
 		// Special case: allow bare "parent" edge to use "parent" hierarchy for back-compat.
 		// This is the one exception to the keyword-collision rule.
 		if shortcutKeywords[edge.Hierarchy] && (edgeName != "parent" || edge.Hierarchy != "parent") {
-			return fmt.Errorf("edge %q: hierarchy alias %q collides with shortcut keyword", edgeName, edge.Hierarchy)
+			return fmt.Errorf("manifest: edge %q: hierarchy alias %q collides with shortcut keyword", edgeName, edge.Hierarchy)
 		}
 
 		if previous, exists := aliasToEdge[edge.Hierarchy]; exists {
-			return fmt.Errorf("duplicate hierarchy alias %q on edges %q and %q", edge.Hierarchy, previous, edgeName)
+			return fmt.Errorf("manifest: duplicate hierarchy alias %q on edges %q and %q", edge.Hierarchy, previous, edgeName)
 		}
 
 		aliasToEdge[edge.Hierarchy] = edgeName
 
 		if edge.HierarchyDefault {
 			if defaultEdge != "" {
-				return fmt.Errorf("multiple edges declare hierarchy-default = true: %q, %q", defaultEdge, edgeName)
+				return fmt.Errorf("manifest: multiple edges declare hierarchy-default = true: %q, %q", defaultEdge, edgeName)
 			}
 
 			defaultEdge = edgeName

@@ -61,7 +61,7 @@ model. It requires confirmation; pass --yes to skip the prompt.`,
 			loaded, loadErr := manifest.Load(ws.ManifestPath)
 
 			if loadErr != nil {
-				return fmt.Errorf("manifest: %w", loadErr)
+				return loadErr
 			}
 
 			manifest.MergeBuiltinPacks(loaded)

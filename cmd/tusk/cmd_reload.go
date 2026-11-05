@@ -64,7 +64,7 @@ proceeds.`,
 			loaded, loadErr := manifest.Load(ws.ManifestPath)
 
 			if loadErr != nil {
-				return fmt.Errorf("manifest: %w", loadErr)
+				return loadErr
 			}
 
 			// Merge built-in packs (same as boot path)

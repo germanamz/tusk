@@ -96,7 +96,7 @@ func Open(workspaceRoot string, opts ...Option) (*Runtime, error) {
 	loaded, loadErr := manifest.Load(ws.ManifestPath)
 
 	if loadErr != nil {
-		return nil, fmt.Errorf("mcp: manifest: %w", loadErr)
+		return nil, fmt.Errorf("mcp: %w", loadErr)
 	}
 
 	manifest.MergeBuiltinPacks(loaded)
@@ -208,7 +208,7 @@ func (rt *Runtime) Close() error {
 func (rt *Runtime) buildReloaded() (*Runtime, *ManifestDiff, error) {
 	loaded, loadErr := manifest.Load(rt.ManifestPath)
 	if loadErr != nil {
-		return nil, nil, fmt.Errorf("mcp: reload manifest: %w", loadErr)
+		return nil, nil, fmt.Errorf("mcp: reload: %w", loadErr)
 	}
 
 	manifest.MergeBuiltinPacks(loaded)
