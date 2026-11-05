@@ -255,3 +255,32 @@ func TestService_SubUnitsDisabledWritesNone(test *testing.T) {
 		test.Errorf("contains edges written with sub-units = false: %v", got)
 	}
 }
+
+// TestService_CreateSyncsTypeOverrideKinds writes the kinds a page's type
+// names in [node-types] (#867): a spec takes its paragraphs while the
+// workspace indexes none, and a note takes the workspace's none.
+func TestService_CreateSyncsTypeOverrideKinds(test *testing.T) {
+	fixture := newSubUnitService(test, "sub-units = false\n\n[node-types.spec]\nsub-units = [\"paragraph\"]")
+
+	for _, input := range []node.CreateInput{
+		{RelPath: "notes/spec.md", Type: "spec", Title: "Spec", Body: []byte(subUnitBody)},
+		{RelPath: "notes/doc.md", Type: "note", Title: "Doc", Body: []byte(subUnitBody)},
+	} {
+		if _, createErr := fixture.service.Create(input); createErr != nil {
+			test.Fatalf("Create %s: %v", input.RelPath, createErr)
+		}
+	}
+
+	want := []string{
+		"notes/spec#S1P1 lines 8-8: alpha [[notes/other]]",
+		"notes/spec#S1.1P1 lines 12-12: beta",
+	}
+
+	if got := subUnitLines(test, fixture.nodes, "notes/spec"); !slices.Equal(got, want) {
+		test.Errorf("spec sub-units after Create:\n got %q\nwant %q", got, want)
+	}
+
+	if got := subUnitLines(test, fixture.nodes, "notes/doc"); len(got) != 0 {
+		test.Errorf("note sub-units after Create = %q, want none", got)
+	}
+}

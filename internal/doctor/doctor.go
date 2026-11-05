@@ -620,12 +620,13 @@ func checkDanglingEdges(config Config) ([]Issue, error) {
 		return nil, nil
 	}
 
-	return findDanglingEdges(config.Nodes, config.Edges, config.Manifest.LinkCase(), fragmentTargetsOf(config.Manifest))
+	return findDanglingEdges(config.Nodes, config.Edges, config.Manifest)
 }
 
 // fragmentTargets says which link fragments a note's indexed sub-units can
 // answer, so a link whose fragment missed is a miss doctor reports only when
-// the unit it names would be indexed (#853).
+// the unit it names would be indexed (#853). Which kinds a note indexes
+// depends on its type (#867).
 type fragmentTargets struct {
 	// headings: sections are indexed, so a heading link has rows to match.
 	headings bool
@@ -635,11 +636,13 @@ type fragmentTargets struct {
 	blocks bool
 }
 
-func fragmentTargetsOf(loaded *manifest.Manifest) fragmentTargets {
-	targets := fragmentTargets{headings: loaded.IndexesSubUnitKind("section"), blocks: true}
+// fragmentTargetsOf returns what the sub-units of a note of typeName can
+// answer under loaded.
+func fragmentTargetsOf(loaded *manifest.Manifest, typeName string) fragmentTargets {
+	targets := fragmentTargets{headings: loaded.IndexesSubUnitKindFor(typeName, "section"), blocks: true}
 
 	for _, kind := range manifest.SubUnitKindNames() {
-		if kind != "section" && !loaded.IndexesSubUnitKind(kind) {
+		if kind != "section" && !loaded.IndexesSubUnitKindFor(typeName, kind) {
 			targets.blocks = false
 		}
 	}
@@ -1258,35 +1261,89 @@ func populateSubUnitPane(config Config, report *Report) error {
 		return nil
 	}
 
-	// A list that leaves some kinds out + stale rows of those kinds (#853).
-	if excluded := excludedKindCounts(config.Manifest, pane.CountByKind); excluded != "" {
-		report.Issues = append(report.Issues, Issue{
-			Kind:    IssueSubUnitsDisabledDirty,
-			Message: fmt.Sprintf("[workspace] sub-units leaves out kinds the index still holds rows of (%s); run `tusk reindex` to drop them.", excluded),
-		})
+	if config.Manifest == nil {
+		return nil
+	}
+
+	// A list that leaves some kinds out + stale rows of those kinds (#853),
+	// counted by the type of the file each row is in, since a type can set
+	// its own kinds (#867).
+	byFileType, countErr := config.Nodes.CountSubUnitsByFileType()
+
+	if countErr != nil {
+		return countErr
+	}
+
+	for _, stale := range excludedKindCounts(config.Manifest, byFileType) {
+		message := fmt.Sprintf("[workspace] sub-units leaves out kinds the index still holds rows of (%s); run `tusk reindex` to drop them.", stale.counts)
+
+		if stale.typeName != "" {
+			message = fmt.Sprintf("[node-types.%s] sub-units leaves out kinds the index still holds rows of in %s files (%s); run `tusk reindex` to drop them.", stale.typeName, stale.typeName, stale.counts)
+		}
+
+		report.Issues = append(report.Issues, Issue{Kind: IssueSubUnitsDisabledDirty, Message: message})
 	}
 
 	return nil
 }
 
-// excludedKindCounts renders the stored rows of the sub-unit kinds loaded
-// leaves out, as "kind count" pairs in canonical kind order ("list-item 1,
-// table-cell 2"), or "" when there are none. A stored type that is no
-// sub-unit kind is no concern of the setting and is skipped.
-func excludedKindCounts(loaded *manifest.Manifest, byKind map[string]int) string {
-	if loaded == nil {
-		return ""
-	}
+// staleKinds is the stored rows of kinds one sub-units setting leaves out:
+// the workspace's when typeName is "", that type's own otherwise. counts holds
+// "kind count" pairs in canonical kind order ("list-item 1, table-cell 2").
+type staleKinds struct {
+	typeName string
+	counts   string
+}
 
-	var parts []string
+// excludedKindCounts groups the stored rows of the kinds each file's type
+// leaves out by the setting that leaves them out: the workspace's for a type
+// that sets no sub-units of its own, first, then each type that does, by
+// name. A setting with no such rows is left out, and so is a stored type
+// that is no sub-unit kind, which is no concern of the setting.
+func excludedKindCounts(loaded *manifest.Manifest, byFileType map[string]map[string]int) []staleKinds {
+	bySetting := map[string]map[string]int{}
 
-	for _, kind := range manifest.SubUnitKindNames() {
-		if count := byKind[kind]; count > 0 && !loaded.IndexesSubUnitKind(kind) {
-			parts = append(parts, fmt.Sprintf("%s %d", kind, count))
+	for fileType, byKind := range byFileType {
+		setting := ""
+
+		if loaded.HasSubUnitOverride(fileType) {
+			setting = fileType
+		}
+
+		for kind, count := range byKind {
+			if count == 0 || loaded.IndexesSubUnitKindFor(fileType, kind) || !slices.Contains(manifest.SubUnitKindNames(), kind) {
+				continue
+			}
+
+			if bySetting[setting] == nil {
+				bySetting[setting] = map[string]int{}
+			}
+
+			bySetting[setting][kind] += count
 		}
 	}
 
-	return strings.Join(parts, ", ")
+	var stale []staleKinds
+
+	for _, setting := range append([]string{""}, loaded.SubUnitOverrides()...) {
+		byKind, has := bySetting[setting]
+
+		if !has {
+			continue
+		}
+
+		var parts []string
+
+		for _, kind := range manifest.SubUnitKindNames() {
+			if count := byKind[kind]; count > 0 {
+				parts = append(parts, fmt.Sprintf("%s %d", kind, count))
+			}
+		}
+
+		stale = append(stale, staleKinds{typeName: setting, counts: strings.Join(parts, ", ")})
+	}
+
+	return stale
 }
 
 // computeSubUnitPane reads the index for sub-unit health metrics. Returns
@@ -1869,8 +1926,10 @@ type danglingKey struct {
 // its target exists, and is reported as missing-heading, or missing-block for
 // a block reference. Without the sub-units a fragment names (sections for a
 // heading, every leaf kind for a block; see fragmentTargets) such a link
-// resting on its note is no miss and is not reported.
-func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wikilink.Case, fragments fragmentTargets) ([]Issue, error) {
+// resting on its note is no miss and is not reported; which kinds those are
+// follows the note's type under loaded, a nil manifest indexing every kind.
+// Names match under loaded's link case.
+func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, loaded *manifest.Manifest) ([]Issue, error) {
 	allEdges, listErr := edges.ListAll()
 
 	if listErr != nil {
@@ -1909,9 +1968,11 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 	}
 
 	exists := make(map[string]struct{}, len(existingRows))
+	typeOf := make(map[string]string, len(existingRows))
 
 	for _, row := range existingRows {
 		exists[row.ID] = struct{}{}
+		typeOf[row.ID] = row.Type
 	}
 
 	var (
@@ -1925,7 +1986,13 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 		_, targetExists := exists[edge.TargetID]
 		missedFragment := fragmentMissed(edge, exists)
 
-		if (missedFragment && !fragments.answers(edge.Link)) || (targetExists && !missedFragment) {
+		if missedFragment {
+			noteID, _ := wikilink.SplitFragment(edge.TargetID)
+
+			if !fragmentTargetsOf(loaded, typeOf[noteID]).answers(edge.Link) {
+				continue
+			}
+		} else if targetExists {
 			continue
 		}
 
@@ -1963,13 +2030,13 @@ func findDanglingEdges(nodes *index.NodeRepo, edges *index.EdgeRepo, linkCase wi
 			} else if edge.Link != "" {
 				// Loaded once, and only for a vault with an unresolved name.
 				if names == nil {
-					loaded, namesErr := nodes.LinkNames(linkCase)
+					linkNames, namesErr := nodes.LinkNames(loaded.LinkCase())
 
 					if namesErr != nil {
 						return nil, namesErr
 					}
 
-					names = loaded
+					names = linkNames
 				}
 
 				name, _ := wikilink.SplitFragment(edge.Link)

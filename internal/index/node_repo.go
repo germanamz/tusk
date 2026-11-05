@@ -566,6 +566,48 @@ func (repo *NodeRepo) CountSubUnitsByKind() (map[string]int, error) {
 	return out, rows.Err()
 }
 
+// CountSubUnitsByFileType returns the sub-unit row counts grouped by the type
+// of the file each row belongs to (the file row sharing its path), then by
+// kind. A row whose file row is gone counts under the type "". Used by tusk
+// doctor, since which kinds a file indexes depends on its type (#867).
+func (repo *NodeRepo) CountSubUnitsByFileType() (map[string]map[string]int, error) {
+	rows, queryErr := repo.db.Query(`
+		SELECT COALESCE(file.type, ''), unit.type, COUNT(*)
+		FROM nodes unit
+		LEFT JOIN nodes file ON file.kind = 'file' AND file.path = unit.path
+		WHERE unit.kind = 'subunit'
+		GROUP BY 1, 2
+	`)
+
+	if queryErr != nil {
+		return nil, fmt.Errorf("nodeRepo: count sub-units by file type: %w", queryErr)
+	}
+
+	defer rows.Close()
+
+	out := map[string]map[string]int{}
+
+	for rows.Next() {
+		var (
+			fileType string
+			kind     string
+			count    int
+		)
+
+		if scanErr := rows.Scan(&fileType, &kind, &count); scanErr != nil {
+			return nil, fmt.Errorf("nodeRepo: scan sub-unit file type: %w", scanErr)
+		}
+
+		if out[fileType] == nil {
+			out[fileType] = map[string]int{}
+		}
+
+		out[fileType][kind] = count
+	}
+
+	return out, rows.Err()
+}
+
 // CountDedupedSubUnits returns the number of content_hash values shared by two
 // or more sub-unit rows — i.e. groups of duplicate-content leaves that the
 // content-addressed embedding store collapses to a single shared vector. A

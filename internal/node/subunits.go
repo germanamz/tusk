@@ -14,8 +14,9 @@ import (
 // call it because their writes stamp file_state, so the next reindex skips the
 // file and would leave the sub-units describing the bytes before the write
 // (#782). It is the reindex worker's markdown sub-unit pass; fileRow is the row
-// persistNodeRow just upserted. A nil manifest, one that turns sub-units off,
-// or a service without an edge repo skips it.
+// persistNodeRow just upserted. A nil manifest, one that turns sub-units off
+// for every type, or a service without an edge repo skips it; otherwise the
+// sync keeps the kinds the page's type indexes (#867).
 func (service *Service) syncSubUnits(fileRow index.NodeRow, parsed *Node, file []byte) error {
 	if service.manifest == nil || !service.manifest.SubUnitsEnabled() || service.edges == nil {
 		return nil

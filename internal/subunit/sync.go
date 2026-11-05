@@ -108,8 +108,8 @@ func (sync *Sync) resolvedSource() string {
 // upserted; ApplyFile only writes sub-unit rows under fileRow.ID. units
 // may be empty — in that case ApplyFile deletes every sub-unit row for
 // the file and clears its `contains` edges. Only units of the kinds the
-// manifest's `[workspace] sub-units` indexes are kept (see indexedUnits), so
-// rows of a kind the setting leaves out are deleted like a removed unit.
+// manifest indexes for fileRow.Type are kept (see indexedUnits), so rows of a
+// kind the setting leaves out are deleted like a removed unit.
 //
 // The ctx is propagated to the repository calls that support it (none
 // today; reserved for future tx-aware variants).
@@ -119,7 +119,7 @@ func (sync *Sync) ApplyFile(ctx context.Context, fileRow index.NodeRow, units []
 	}
 
 	result := &SyncResult{}
-	units = withLeafContexts(indexedUnits(units, sync.Manifest), fileRow, sync.Manifest.Embeddings)
+	units = withLeafContexts(indexedUnits(units, sync.Manifest, fileRow.Type), fileRow, sync.Manifest.Embeddings)
 
 	// ListSubUnitsForFile returns every sub-unit row for the file,
 	// not just the immediate children of fileRow.ID. Sub-units nested
@@ -406,18 +406,20 @@ func (sync *Sync) rewriteContains(fileRow index.NodeRow, units []Unit) error {
 	return nil
 }
 
-// indexedUnits returns the units of the kinds loaded indexes, in parse order
-// (#853). A unit's id is its structural address, its place in the file, which
-// doesn't depend on what else is indexed, so ids, the links that name them and
-// their vectors survive a change to the setting. Only a leaf's parent moves:
-// with sections left out it hangs off the file, as a leaf before the first
-// heading does. Ordinals keep their gaps; they only order.
-func indexedUnits(units []Unit, loaded *manifest.Manifest) []Unit {
-	sections := loaded.IndexesSubUnitKind(string(KindSection))
+// indexedUnits returns the units of the kinds loaded indexes for files of
+// typeName, in parse order (#853): the type's own sub-units when it sets
+// them, the workspace's otherwise (#867). A unit's id is its structural
+// address, its place in the file, which doesn't depend on what else is
+// indexed, so ids, the links that name them and their vectors survive a
+// change to the setting. Only a leaf's parent moves: with sections left out
+// it hangs off the file, as a leaf before the first heading does. Ordinals
+// keep their gaps; they only order.
+func indexedUnits(units []Unit, loaded *manifest.Manifest, typeName string) []Unit {
+	sections := loaded.IndexesSubUnitKindFor(typeName, string(KindSection))
 	kept := make([]Unit, 0, len(units))
 
 	for _, unit := range units {
-		if !loaded.IndexesSubUnitKind(string(unit.Kind)) {
+		if !loaded.IndexesSubUnitKindFor(typeName, string(unit.Kind)) {
 			continue
 		}
 

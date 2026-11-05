@@ -129,3 +129,166 @@ sub-units = ["paragraph"]
 		test.Errorf("EdgeTypes missing contains after merge")
 	}
 }
+
+// overrideManifest is a workspace that indexes sections, paragraphs and list
+// items, with node types that widen (spec), narrow (meeting), pick their own
+// kinds (faq) or leave the setting alone (note).
+const overrideManifest = `
+[workspace]
+name = "x"
+sub-units = ["section", "paragraph", "list-item"]
+
+[node-types.note]
+
+[node-types.spec]
+sub-units = true
+
+[node-types.meeting]
+sub-units = false
+
+[node-types.faq]
+sub-units = ["table-cell", "section", "table-cell"]
+`
+
+// TestSubUnitKindsFor_TypeOverrideReplacesWorkspace gives a node type that
+// sets sub-units exactly the kinds it names, in place of the workspace list,
+// and every other type, declared or not, the workspace list (#867).
+func TestSubUnitKindsFor_TypeOverrideReplacesWorkspace(test *testing.T) {
+	loaded := loadInlineManifest(test, overrideManifest)
+	workspaceKinds := []string{"section", "paragraph", "list-item"}
+
+	testCases := []struct {
+		typeName string
+		want     []string
+		override bool
+	}{
+		{typeName: "spec", want: allSubUnitKinds, override: true},
+		{typeName: "meeting", want: []string{}, override: true},
+		{typeName: "faq", want: []string{"section", "table-cell"}, override: true},
+		{typeName: "note", want: workspaceKinds},
+		{typeName: "undeclared", want: workspaceKinds},
+	}
+
+	for _, testCase := range testCases {
+		test.Run(testCase.typeName, func(test *testing.T) {
+			if got := loaded.SubUnitKindsFor(testCase.typeName); !slices.Equal(got, testCase.want) {
+				test.Errorf("SubUnitKindsFor(%q) = %v, want %v", testCase.typeName, got, testCase.want)
+			}
+
+			for _, kind := range allSubUnitKinds {
+				want := slices.Contains(testCase.want, kind)
+
+				if got := loaded.IndexesSubUnitKindFor(testCase.typeName, kind); got != want {
+					test.Errorf("IndexesSubUnitKindFor(%q, %q) = %v, want %v", testCase.typeName, kind, got, want)
+				}
+			}
+
+			if got := loaded.HasSubUnitOverride(testCase.typeName); got != testCase.override {
+				test.Errorf("HasSubUnitOverride(%q) = %v, want %v", testCase.typeName, got, testCase.override)
+			}
+		})
+	}
+
+	// The workspace accessors still report the workspace list alone.
+	if got := loaded.SubUnitKinds(); !slices.Equal(got, workspaceKinds) {
+		test.Errorf("SubUnitKinds() = %v, want %v", got, workspaceKinds)
+	}
+
+	if want := []string{"faq", "meeting", "spec"}; !slices.Equal(loaded.SubUnitOverrides(), want) {
+		test.Errorf("SubUnitOverrides() = %v, want %v", loaded.SubUnitOverrides(), want)
+	}
+
+	if len(loaded.UnknownKeys) != 0 {
+		test.Errorf("UnknownKeys = %+v, want none: node-types.<name>.sub-units is read", loaded.UnknownKeys)
+	}
+}
+
+// TestSubUnitsEnabled_OverrideTurnsSubUnitsOnAlone indexes sub-units for one
+// type while the workspace indexes none: the override alone turns them on, so
+// the sub-document pack is installed.
+func TestSubUnitsEnabled_OverrideTurnsSubUnitsOnAlone(test *testing.T) {
+	loaded := loadInlineManifest(test, `
+[workspace]
+name = "x"
+sub-units = false
+
+[node-types.spec]
+sub-units = ["paragraph"]
+`)
+
+	if !loaded.SubUnitsEnabled() {
+		test.Errorf("SubUnitsEnabled() = false, want true: spec indexes paragraphs")
+	}
+
+	if got := loaded.SubUnitKinds(); len(got) != 0 {
+		test.Errorf("SubUnitKinds() = %v, want none", got)
+	}
+
+	if got := loaded.SubUnitKindsFor("note"); len(got) != 0 {
+		test.Errorf("SubUnitKindsFor(note) = %v, want none", got)
+	}
+
+	manifest.MergeBuiltinPacks(loaded)
+
+	if _, has := loaded.EdgeTypes["contains"]; !has {
+		test.Errorf("EdgeTypes missing contains: the pack must merge when only an override indexes sub-units")
+	}
+}
+
+// TestSubUnitsEnabled_OffEverywhere turns sub-units off for the workspace and
+// for the one type that overrides it, so nothing indexes a kind.
+func TestSubUnitsEnabled_OffEverywhere(test *testing.T) {
+	loaded := loadInlineManifest(test, `
+[workspace]
+name = "x"
+sub-units = []
+
+[node-types.spec]
+sub-units = false
+`)
+
+	if loaded.SubUnitsEnabled() {
+		test.Errorf("SubUnitsEnabled() = true, want false: neither the workspace nor spec indexes a kind")
+	}
+}
+
+// TestSubUnitKindsFor_UnloadedManifestIndexesEveryKind keeps a nil or
+// hand-built manifest on the default for any type.
+func TestSubUnitKindsFor_UnloadedManifestIndexesEveryKind(test *testing.T) {
+	for _, loaded := range []*manifest.Manifest{nil, {}} {
+		if got := loaded.SubUnitKindsFor("spec"); !slices.Equal(got, allSubUnitKinds) {
+			test.Errorf("SubUnitKindsFor(spec) = %v, want %v", got, allSubUnitKinds)
+		}
+
+		if loaded.HasSubUnitOverride("spec") {
+			test.Errorf("HasSubUnitOverride(spec) = true, want false")
+		}
+	}
+}
+
+// TestSubUnitKindsFor_RejectsOtherValues fails Load on a node type's
+// sub-units value the workspace key would reject, naming the type.
+func TestSubUnitKindsFor_RejectsOtherValues(test *testing.T) {
+	testCases := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "string", value: `sub-units = "bogus"`, want: `node-types.spec.sub-units = "bogus" is not supported`},
+		{name: "unknown kind", value: `sub-units = ["section", "tables"]`, want: `node-types.spec.sub-units: "tables" is not a sub-unit kind`},
+	}
+
+	for _, testCase := range testCases {
+		test.Run(testCase.name, func(test *testing.T) {
+			_, loadErr := loadInlineManifestAllowError(test, "[workspace]\nname = \"x\"\n\n[node-types.spec]\n"+testCase.value+"\n")
+
+			if loadErr == nil {
+				test.Fatalf("Load accepted %s, want an error", testCase.value)
+			}
+
+			if !strings.Contains(loadErr.Error(), testCase.want) {
+				test.Errorf("error = %q, want it to contain %q", loadErr, testCase.want)
+			}
+		})
+	}
+}

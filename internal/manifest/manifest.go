@@ -2,6 +2,7 @@
 package manifest
 
 import (
+	"maps"
 	"slices"
 	"sort"
 
@@ -85,6 +86,12 @@ type Manifest struct {
 	// leaves out, resolved by Validate. Empty, the zero value, indexes every
 	// kind, so a manifest built without Load keeps the default.
 	subUnitsExcluded map[string]struct{} `toml:"-"`
+
+	// subUnitsByType holds, for each node type that sets its own sub-units,
+	// the kinds that type leaves out (#867), resolved by Validate. An empty
+	// set indexes every kind; a type missing from the map takes the
+	// workspace setting.
+	subUnitsByType map[string]map[string]struct{} `toml:"-"`
 
 	// contextRecentPrimitive holds the toml.Primitive captured for the
 	// `recent` key inside [context] so ValidateContext can discriminate
@@ -174,6 +181,15 @@ type queryDecode struct {
 type NodeType struct {
 	Description string         `toml:"description"`
 	Properties  []PropertyDecl `toml:"properties"`
+
+	// SubUnitsRaw mirrors the type's on-disk `sub-units` key, which takes
+	// the values `[workspace] sub-units` takes and replaces it for files of
+	// this type (#867). Left out of JSON, so SchemaFingerprint ignores it:
+	// reindex records the sub-unit setting under its own marker, which a
+	// reordered list leaves alone. Consumers should call
+	// Manifest.SubUnitKindsFor or IndexesSubUnitKindFor instead of reading
+	// this directly.
+	SubUnitsRaw toml.Primitive `toml:"sub-units" json:"-"`
 }
 
 // PropertyDecl declares a single typed property on a node type.
@@ -503,18 +519,30 @@ func (loaded *Manifest) DefaultType() string {
 	return loaded.Workspace.DefaultType
 }
 
-// SubUnitsEnabled reports whether the workspace indexes any sub-unit kind:
-// true unless `[workspace] sub-units` is false or an empty list. The default,
-// with the key absent, is every kind, and so is a nil manifest or one built
-// without Load.
+// SubUnitsEnabled reports whether any file can index a sub-unit kind: the
+// workspace does, or a node type that sets its own sub-units does (#867). It
+// is false only when `[workspace] sub-units` is false or an empty list and no
+// type turns a kind back on. The default, with the key absent, is every kind,
+// and so is a nil manifest or one built without Load.
 func (loaded *Manifest) SubUnitsEnabled() bool {
-	return len(loaded.SubUnitKinds()) > 0
+	if len(loaded.SubUnitKinds()) > 0 {
+		return true
+	}
+
+	for _, excluded := range loaded.subUnitsByType {
+		if len(excluded) < len(subUnitKindNames) {
+			return true
+		}
+	}
+
+	return false
 }
 
-// SubUnitKinds returns the sub-unit kinds the workspace indexes, in the order
-// SubUnitKindNames lists them: every kind for `sub-units = true` or no key,
-// none for false or [], and the named ones for a list (#853). A nil manifest,
-// or one built without Load, indexes every kind.
+// SubUnitKinds returns the sub-unit kinds `[workspace] sub-units` indexes, in
+// the order SubUnitKindNames lists them: every kind for `sub-units = true` or
+// no key, none for false or [], and the named ones for a list (#853). A nil
+// manifest, or one built without Load, indexes every kind. A file's own kinds
+// also depend on its type; see SubUnitKindsFor.
 func (loaded *Manifest) SubUnitKinds() []string {
 	kinds := make([]string, 0, len(subUnitKindNames))
 
@@ -527,9 +555,10 @@ func (loaded *Manifest) SubUnitKinds() []string {
 	return kinds
 }
 
-// IndexesSubUnitKind reports whether the workspace indexes units of kind (a
-// subunit.Kind name such as "table-cell"). It is false for a name that is no
-// sub-unit kind.
+// IndexesSubUnitKind reports whether `[workspace] sub-units` indexes units of
+// kind (a subunit.Kind name such as "table-cell"). It is false for a name that
+// is no sub-unit kind. A file's own kinds also depend on its type; see
+// IndexesSubUnitKindFor.
 func (loaded *Manifest) IndexesSubUnitKind(kind string) bool {
 	if !slices.Contains(subUnitKindNames, kind) {
 		return false
@@ -542,4 +571,61 @@ func (loaded *Manifest) IndexesSubUnitKind(kind string) bool {
 	_, excluded := loaded.subUnitsExcluded[kind]
 
 	return !excluded
+}
+
+// SubUnitKindsFor returns the sub-unit kinds files of typeName index, in the
+// order SubUnitKindNames lists them: the type's own `sub-units` when its
+// [node-types] table sets one, which replaces the workspace list, and the
+// workspace's otherwise, for an undeclared type too (#867).
+func (loaded *Manifest) SubUnitKindsFor(typeName string) []string {
+	kinds := make([]string, 0, len(subUnitKindNames))
+
+	for _, kind := range subUnitKindNames {
+		if loaded.IndexesSubUnitKindFor(typeName, kind) {
+			kinds = append(kinds, kind)
+		}
+	}
+
+	return kinds
+}
+
+// IndexesSubUnitKindFor reports whether files of typeName index units of kind,
+// under the type's own `sub-units` when it sets one and the workspace's
+// otherwise. It is false for a name that is no sub-unit kind.
+func (loaded *Manifest) IndexesSubUnitKindFor(typeName, kind string) bool {
+	if loaded == nil {
+		return loaded.IndexesSubUnitKind(kind)
+	}
+
+	excluded, overrides := loaded.subUnitsByType[typeName]
+
+	if !overrides {
+		return loaded.IndexesSubUnitKind(kind)
+	}
+
+	_, left := excluded[kind]
+
+	return slices.Contains(subUnitKindNames, kind) && !left
+}
+
+// HasSubUnitOverride reports whether typeName's [node-types] table sets its
+// own `sub-units`.
+func (loaded *Manifest) HasSubUnitOverride(typeName string) bool {
+	if loaded == nil {
+		return false
+	}
+
+	_, overrides := loaded.subUnitsByType[typeName]
+
+	return overrides
+}
+
+// SubUnitOverrides returns the node types that set their own `sub-units`,
+// sorted by name.
+func (loaded *Manifest) SubUnitOverrides() []string {
+	if loaded == nil {
+		return nil
+	}
+
+	return slices.Sorted(maps.Keys(loaded.subUnitsByType))
 }
