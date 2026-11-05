@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.10.0](https://github.com/germanamz/tusk/compare/v2.9.2...v2.10.0) (2026-11-05)
+
+
+### Features
+
+* **doctor:** rule exemptions, acyclic levels, unknown keys and project checks ([#852](https://github.com/germanamz/tusk/issues/852)) ([#866](https://github.com/germanamz/tusk/issues/866)) ([a5dd8d4](https://github.com/germanamz/tusk/commit/a5dd8d4267f984c9b693fcf864ada7c35f1a4289))
+* **edges:** fold sub-unit links per file and keep authored target order ([#848](https://github.com/germanamz/tusk/issues/848)) ([#860](https://github.com/germanamz/tusk/issues/860)) ([d9862cd](https://github.com/germanamz/tusk/commit/d9862cd2d32cea2698a088f393672b55c83ef59a))
+* **embed:** embed passages behind their file's title and headings ([#862](https://github.com/germanamz/tusk/issues/862)) ([#870](https://github.com/germanamz/tusk/issues/870)) ([a1294d9](https://github.com/germanamz/tusk/commit/a1294d966389818ee1c3ce99bb80f4ac979ebf7f))
+* **filter:** NOT/!= match missing properties; add p=*, lists, today-90d ([#846](https://github.com/germanamz/tusk/issues/846)) ([#857](https://github.com/germanamz/tusk/issues/857)) ([56e9319](https://github.com/germanamz/tusk/commit/56e93197a8e566037cc5a93f23b84d2f36da175a))
+* **filter:** repeat hops, parent-is-source hierarchies and inverse labels ([#850](https://github.com/germanamz/tusk/issues/850)) ([#863](https://github.com/germanamz/tusk/issues/863)) ([27e6f83](https://github.com/germanamz/tusk/commit/27e6f832358ca05ea0966cf137908331226e475f))
+* **manifest:** let a node type pick its own sub-unit kinds ([#867](https://github.com/germanamz/tusk/issues/867)) ([#871](https://github.com/germanamz/tusk/issues/871)) ([6407ff2](https://github.com/germanamz/tusk/commit/6407ff2183793d827a672451d2c5872b5829efa1))
+* **manifest:** let sub-units list the kinds to index and reject other values ([#853](https://github.com/germanamz/tusk/issues/853)) ([#868](https://github.com/germanamz/tusk/issues/868)) ([a6793f1](https://github.com/germanamz/tusk/commit/a6793f126135d93e8f3af2a9acf1006c0f774a7b))
+* **query:** lift pages a query names by title and explain only computed scores ([#849](https://github.com/germanamz/tusk/issues/849)) ([#861](https://github.com/germanamz/tusk/issues/861)) ([112327c](https://github.com/germanamz/tusk/commit/112327c00c07734646f32cf71b795e951d2821e7))
+* **query:** project JSON through --fields and add --count/--group-by ([#851](https://github.com/germanamz/tusk/issues/851)) ([#864](https://github.com/germanamz/tusk/issues/864)) ([489dc1a](https://github.com/germanamz/tusk/commit/489dc1aaf834bcee047fe40cdfdd0d9e4bb79969))
+
+
+### Bug Fixes
+
+* **cli:** print manifest load errors with one "manifest: " prefix ([#869](https://github.com/germanamz/tusk/issues/869)) ([#872](https://github.com/germanamz/tusk/issues/872)) ([72fbede](https://github.com/germanamz/tusk/commit/72fbedea7add96bad50766f4da285dfc55f7c0c8))
+* **context:** reject list alias args and drop sub-unit edges from the digest ([#847](https://github.com/germanamz/tusk/issues/847)) ([#859](https://github.com/germanamz/tusk/issues/859)) ([d8e7195](https://github.com/germanamz/tusk/commit/d8e71959cf1367990ca60dd68c865bf71f4d960b))
+* **embed:** fail refused inputs alone and drop embed jobs with their nodes ([#845](https://github.com/germanamz/tusk/issues/845)) ([#854](https://github.com/germanamz/tusk/issues/854)) ([3061ee2](https://github.com/germanamz/tusk/commit/3061ee2b67139f1fc66464d4e970d550924960f4))
+
 ## [2.9.2](https://github.com/germanamz/tusk/compare/v2.9.1...v2.9.2) (2026-10-20)
 
 
