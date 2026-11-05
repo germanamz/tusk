@@ -83,7 +83,7 @@ shifts addresses but reuses unchanged vectors, so a reorder does not re-embed.`,
 			loaded, loadErr := manifest.Load(ws.ManifestPath)
 
 			if loadErr != nil {
-				return fmt.Errorf("manifest: %w", loadErr)
+				return loadErr
 			}
 
 			manifest.MergeBuiltinPacks(loaded)

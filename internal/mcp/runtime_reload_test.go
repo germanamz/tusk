@@ -3,6 +3,7 @@ package mcp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/germanamz/tusk/internal/manifest"
@@ -124,6 +125,63 @@ properties = [
 	if _, ok := rt.Manifest.NodeTypes["ticket"]; !ok {
 		test.Errorf("original rt.Manifest was mutated on buildReloaded error")
 	}
+}
+
+// TestRuntime_ManifestLoadErrorNamesManifestOnce checks that Open and a hot
+// reload report a bad tusk.toml with one "manifest: ", which manifest.Load
+// already starts its errors with (#869).
+func TestRuntime_ManifestLoadErrorNamesManifestOnce(test *testing.T) {
+	invalid := []byte("[workspace]\nname = \"probe\"\nlink-case = \"bogus\"\n")
+
+	assertOnce := func(test *testing.T, label string, gotErr error) {
+		test.Helper()
+
+		if gotErr == nil {
+			test.Fatalf("%s succeeded on an invalid manifest", label)
+		}
+
+		message := gotErr.Error()
+
+		if !strings.HasPrefix(message, "mcp: ") || strings.Count(message, "manifest: ") != 1 {
+			test.Errorf("%s error = %q, want an %q prefix and %q once", label, message, "mcp: ", "manifest: ")
+		}
+	}
+
+	test.Run("open", func(test *testing.T) {
+		root := test.TempDir()
+
+		if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), invalid, 0o644); writeErr != nil {
+			test.Fatalf("write manifest: %v", writeErr)
+		}
+
+		_, openErr := Open(root)
+
+		assertOnce(test, "Open", openErr)
+	})
+
+	test.Run("reload", func(test *testing.T) {
+		root := test.TempDir()
+
+		if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), []byte("[workspace]\nname = \"probe\"\n"), 0o644); writeErr != nil {
+			test.Fatalf("write manifest: %v", writeErr)
+		}
+
+		rt, openErr := Open(root)
+
+		if openErr != nil {
+			test.Fatalf("Open: %v", openErr)
+		}
+
+		defer rt.Close()
+
+		if writeErr := os.WriteFile(filepath.Join(root, "tusk.toml"), invalid, 0o644); writeErr != nil {
+			test.Fatalf("write invalid manifest: %v", writeErr)
+		}
+
+		_, _, buildErr := rt.buildReloaded()
+
+		assertOnce(test, "buildReloaded", buildErr)
+	})
 }
 
 // TestRuntime_buildReloaded_ReturnsErrorOnBehaviorEngineBuildFailure tests that
