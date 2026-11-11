@@ -216,6 +216,8 @@ properties = [
     { name = "priority", type = "enum", values = ["low", "medium", "high"] },
     { name = "due",      type = "date" },
     { name = "order",    type = "int" },
+    # Fibonacci estimate (1, 2, 3, 5, 8). A ticket at 8 or more gets child tickets.
+    { name = "points",   type = "int" },
 ]
 
 [edge-types.parent]
