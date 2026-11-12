@@ -59,6 +59,21 @@ func decodeRules(body string, loaded *Manifest) error {
 	return nil
 }
 
+// DecodeRules decodes the [rule.<name>] blocks in body the way Load does, for
+// a caller that holds manifest text and no file, such as a type pack. Each
+// block decodes on its own: one that fails carries DecodeError, and one with
+// keys no field takes carries UnknownKeys. The map is nil when body declares
+// no rules. The error is non-nil only when body is not valid TOML.
+func DecodeRules(body string) (map[string]Rule, error) {
+	loaded := &Manifest{}
+
+	if decodeErr := decodeRules(body, loaded); decodeErr != nil {
+		return nil, decodeErr
+	}
+
+	return loaded.Rules, nil
+}
+
 func (rule *Rule) setDecodeError(message string) { rule.DecodeError = message }
 
 func (rule *Rule) setUnknownKeys(keys []string) { rule.UnknownKeys = keys }

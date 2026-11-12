@@ -248,6 +248,8 @@ tusk pack add https://example.com/packs/research.toml
 tusk pack add file://$PWD/my-pack.toml
 ```
 
+A pack can declare node types, edge types, behaviors and [doctor rules](rules-and-doctor.md), so a pack can ship the conventions that go with its types. A rule whose name is already in your manifest is a collision, like a type of the same name: the add stops and writes nothing unless you pass `--force`. A pack can't declare a `[check]`, because a check is a shell command and a pack may come from a URL.
+
 ## Indexing
 
 The index lives in `.tusk/tusk.db` (SQLite + WAL). It is **derived state** — delete `.tusk/` and `tusk reindex` rebuilds it identically.

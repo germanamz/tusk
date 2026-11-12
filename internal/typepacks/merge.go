@@ -11,8 +11,8 @@ import (
 )
 
 // FindCollisions returns the qualified section names ("node-types.X",
-// "edge-types.X", "behaviors.K.I") that exist in both the user manifest
-// (raw bytes) and the pack manifest.
+// "edge-types.X", "behaviors.K.I", "rule.X") that exist in both the user
+// manifest (raw bytes) and the pack manifest.
 func FindCollisions(userBody []byte, pack *manifest.Manifest) ([]string, error) {
 	userManifest := &manifest.Manifest{}
 
@@ -41,6 +41,18 @@ func FindCollisions(userBody []byte, pack *manifest.Manifest) ([]string, error) 
 					collisions = append(collisions, fmt.Sprintf("behaviors.%s.%s", kindName, instanceName))
 				}
 			}
+		}
+	}
+
+	userRules, ruleErr := manifest.DecodeRules(string(userBody))
+
+	if ruleErr != nil {
+		return nil, fmt.Errorf("typepacks: decode user manifest rules: %w", ruleErr)
+	}
+
+	for ruleName := range pack.Rules {
+		if _, present := userRules[ruleName]; present {
+			collisions = append(collisions, "rule."+ruleName)
 		}
 	}
 

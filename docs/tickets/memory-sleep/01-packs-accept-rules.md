@@ -7,7 +7,7 @@ order: 1
 parent: docs/tickets/memory-sleep/epic
 points: 3
 priority: medium
-status: pending
+status: completed
 ---
 
 A pack file may hold only `[node-types]`, `[edge-types]` and `[behaviors]` today (`internal/typepacks/validate.go`). The memory pack in [[docs/tickets/memory-sleep/02-memory-pack]] ships three doctor rules, so `tusk pack add` has to accept `[rule]` sections and write them into `tusk.toml`.
@@ -25,3 +25,11 @@ A pack file may hold only `[node-types]`, `[edge-types]` and `[behaviors]` today
 - A colliding rule name fails without `--force` and writes nothing.
 - A pack with a `[check]` section is still refused.
 - The existing built-in packs still load unchanged.
+
+## Result
+
+Done. A pack may now declare `[rule]` beside node types, edge types and behaviors.
+
+- A rule block has to decode, or the add is refused with exit code 3: a value of the wrong type, a key a rule does not take, or a `rule.<name>` that is not a table.
+- Whether a rule's filter names declared types is not checked at add time, because it depends on the workspace the pack lands in. Doctor reports a rule like that as `rule-invalid` on its next run, as it does for a hand-written rule.
+- `manifest.DecodeRules` is the new exported decoder the pack code reads rules with.
