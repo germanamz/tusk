@@ -162,3 +162,47 @@ filter = "type=note"
 		test.Errorf("fine = %+v, want a clean decode", fine)
 	}
 }
+
+func TestDecodeRules(test *testing.T) {
+	rules, decodeErr := manifest.DecodeRules(`
+[rule.good]
+description = "a task names its owner"
+filter      = "type=task AND owner!=*"
+
+[rule.misspelled]
+fliter = "type=task"
+
+[rule.wrong-type]
+filter = 3
+`)
+
+	if decodeErr != nil {
+		test.Fatalf("DecodeRules: %v", decodeErr)
+	}
+
+	if got := rules["good"]; got.Filter != "type=task AND owner!=*" || got.DecodeError != "" || len(got.UnknownKeys) != 0 {
+		test.Errorf("good = %+v", got)
+	}
+
+	if got := rules["misspelled"].UnknownKeys; !reflect.DeepEqual(got, []string{"fliter"}) {
+		test.Errorf("misspelled unknown keys = %v, want [fliter]", got)
+	}
+
+	if rules["wrong-type"].DecodeError == "" {
+		test.Errorf("wrong-type = %+v, want a decode error", rules["wrong-type"])
+	}
+}
+
+func TestDecodeRules_NoRulesIsNil(test *testing.T) {
+	rules, decodeErr := manifest.DecodeRules("[node-types.task]\n")
+
+	if decodeErr != nil || rules != nil {
+		test.Errorf("rules = %v, err = %v, want nil and nil", rules, decodeErr)
+	}
+}
+
+func TestDecodeRules_BadTOMLIsAnError(test *testing.T) {
+	if _, decodeErr := manifest.DecodeRules("[rule.broken"); decodeErr == nil {
+		test.Error("expected an error for invalid TOML")
+	}
+}

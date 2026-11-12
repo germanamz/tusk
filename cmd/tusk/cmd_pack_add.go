@@ -16,7 +16,9 @@ func newPackAddCmd() *cobra.Command {
 	addCmd := &cobra.Command{
 		Use:   "add <name-or-url>",
 		Short: "Copy a type pack's declarations into tusk.toml",
-		Long: `Copy a type pack's node and edge type declarations into tusk.toml.
+		Long: `Copy a type pack's declarations into tusk.toml: node types, edge types,
+behaviors and doctor rules. A pack can't add a [check] command, because a
+check is shell text.
 
 The pack is a built-in name (kanban, tags, vault) or a URL. Built-in
 packs are compiled into tusk, so adding one by name works offline and

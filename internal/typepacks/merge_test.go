@@ -121,3 +121,31 @@ properties = [{ name = "summary", type = "string" }]
 		test.Errorf("stripped output unexpectedly removed [workspace]: %q", stripped)
 	}
 }
+
+func TestFindCollisions_RuleOverlap(test *testing.T) {
+	user := []byte(`
+[rule.task-has-an-owner]
+description = "every task names its owner"
+filter      = "type=task AND owner!=*"
+
+[rule.kept]
+filter = "type=task"
+`)
+
+	pack := &manifest.Manifest{
+		Rules: map[string]manifest.Rule{
+			"task-has-an-owner": {Filter: "type=task AND owner!=*"},
+			"brand-new":         {Filter: "type=task"},
+		},
+	}
+
+	collisions, findErr := typepacks.FindCollisions(user, pack)
+
+	if findErr != nil {
+		test.Fatalf("FindCollisions: %v", findErr)
+	}
+
+	if len(collisions) != 1 || collisions[0] != "rule.task-has-an-owner" {
+		test.Errorf("collisions = %v, want [rule.task-has-an-owner]", collisions)
+	}
+}

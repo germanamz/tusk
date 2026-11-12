@@ -10,7 +10,9 @@ tusk-pack-add - Copy a type pack's declarations into tusk.toml
 
 
 .SH DESCRIPTION
-Copy a type pack's node and edge type declarations into tusk.toml.
+Copy a type pack's declarations into tusk.toml: node types, edge types,
+behaviors and doctor rules. A pack can't add a [check] command, because a
+check is shell text.
 
 .PP
 The pack is a built-in name (kanban, tags, vault) or a URL. Built-in
