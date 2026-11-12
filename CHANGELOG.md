@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.11.0](https://github.com/germanamz/tusk/compare/v2.10.0...v2.11.0) (2026-11-12)
+
+
+### Features
+
+* **typepacks:** let type packs carry doctor rules ([#878](https://github.com/germanamz/tusk/issues/878)) ([37eda9d](https://github.com/germanamz/tusk/commit/37eda9d6396d84681bdfc6e258a98f9462e11c1b))
+
 ## [2.10.0](https://github.com/germanamz/tusk/compare/v2.9.2...v2.10.0) (2026-11-05)
 
 
