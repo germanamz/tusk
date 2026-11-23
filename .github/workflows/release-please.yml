@@ -34,7 +34,7 @@ jobs:
       # feeding it the numeric App ID secret: GitHub accepts either the App ID or
       # the Client ID as the app-JWT issuer, so this is a pure rename — same token
       # minted, no new secret to provision.
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3
         id: app-token
         with:
           client-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
@@ -64,7 +64,7 @@ jobs:
           ref: ${{ needs.create-release.outputs.sha }}
           fetch-depth: 0
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
 
@@ -145,7 +145,7 @@ jobs:
       # installed on germanamz/homebrew-tap too), narrowed to that one repo and
       # contents:write. It expires within the hour and is revoked when this job
       # ends, and there's no second secret to rotate or let lapse.
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3
         id: tap-token
         with:
           client-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
@@ -185,7 +185,7 @@ jobs:
       # feeding it the numeric App ID secret: GitHub accepts either the App ID or
       # the Client ID as the app-JWT issuer, so this is a pure rename — same token
       # minted, no new secret to provision.
-      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+      - uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3
         id: app-token
         with:
           client-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
